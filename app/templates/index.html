@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Track Timing Predictor{% endblock %}
+{% block content %}
+<section class="entry-form">
+  <h2>Predict Event Start Times</h2>
+  <p>Enter a <a href="https://tracktiming.live/" target="_blank">tracktiming.live</a> Event ID to see predicted start times for each event in the schedule.</p>
+  <form method="POST" action="/schedule">
+    <label for="event_id">Event ID</label>
+    <input
+      type="number"
+      id="event_id"
+      name="event_id"
+      placeholder="e.g. 26008"
+      min="1"
+      required
+      autofocus
+    >
+    <button type="submit">Load Schedule</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Learned Durations — Track Timing Predictor{% endblock %}
+{% block content %}
+<section>
+  <h2>Learned Durations</h2>
+  <p>These averages are computed from observed events and override the built-in defaults once {{ min_samples }} or more samples are collected.</p>
+  {% if durations %}
+  <table>
+    <thead>
+      <tr>
+        <th>Discipline</th>
+        <th>Avg Duration (min)</th>
+        <th>Samples</th>
+        <th>Used?</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for discipline, (avg, count) in durations.items() %}
+      <tr>
+        <td>{{ discipline }}</td>
+        <td>{{ avg | round(1) }}</td>
+        <td>{{ count }}</td>
+        <td>{% if count >= min_samples %}Yes{% else %}Not yet (need {{ min_samples }}){% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="no-data">No learned durations yet. They will accumulate as you use the app during live events.</p>
+  {% endif %}
+  <p><a href="/">&larr; Back</a></p>
+</section>
+{% endblock %}

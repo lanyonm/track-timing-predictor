@@ -1,0 +1,42 @@
+{% for sp in schedule.sessions %}
+<details open>
+  <summary>
+    <span class="session-label">{{ sp.session.day }} &mdash; Scheduled {{ sp.session.scheduled_start.strftime('%H:%M') }}</span>
+    {% if sp.observed_delay_minutes > 1.0 %}
+      <span class="badge delay">+{{ sp.observed_delay_minutes | round(0) | int }}m behind</span>
+    {% elif sp.observed_delay_minutes < -1.0 %}
+      <span class="badge ahead">{{ (sp.observed_delay_minutes | round(0) | int) }}m early</span>
+    {% endif %}
+  </summary>
+  <table>
+    <thead>
+      <tr>
+        <th>Event</th>
+        <th>Predicted Start</th>
+        <th>Est. Duration</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for pred in sp.event_predictions %}
+      <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}">
+        <td>{{ pred.event.name }}</td>
+        <td class="time">{{ pred.predicted_start.strftime('%H:%M') }}</td>
+        <td class="duration">{{ pred.estimated_duration_minutes | round(1) }}m</td>
+        <td class="status-label">
+          {% if pred.event.status.value == "completed" %}
+            &#10003; Done
+          {% elif pred.event.status.value == "upcoming" %}
+            &#9654; Ready
+          {% else %}
+            &mdash;
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% else %}
+<p class="no-data">No sessions found for this event. The event may not have started yet or the ID may be incorrect.</p>
+{% endfor %}

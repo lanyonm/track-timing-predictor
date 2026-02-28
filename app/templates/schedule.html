@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Event {{ event_id }} — Track Timing Predictor{% endblock %}
+{% block content %}
+<section>
+  <div class="schedule-header">
+    <h2>Event {{ event_id }}</h2>
+    <a href="https://tracktiming.live/eventpage.php?EventId={{ event_id }}" target="_blank" class="source-link">View on tracktiming.live</a>
+  </div>
+  <p class="meta">
+    Last updated: {{ now.strftime('%H:%M:%S') }}
+    &nbsp;·&nbsp;
+    Auto-refreshes every {{ refresh_seconds }}s
+    &nbsp;·&nbsp;
+    <a href="/learned">View learned durations</a>
+  </p>
+
+  <div
+    id="schedule-container"
+    hx-get="/schedule/{{ event_id }}/refresh"
+    hx-trigger="every {{ refresh_seconds }}s"
+    hx-swap="innerHTML"
+    hx-indicator="#refresh-indicator"
+  >
+    {% include "_schedule_body.html" %}
+  </div>
+
+  <span id="refresh-indicator" class="htmx-indicator">Refreshing…</span>
+</section>
+{% endblock %}

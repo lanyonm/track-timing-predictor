@@ -1,0 +1,200 @@
+/* ── Reset & base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #222;
+  background: #f5f5f5;
+  margin: 0;
+  padding: 0 0 2rem;
+}
+
+/* ── Header ───────────────────────────────────────────────── */
+header {
+  background: #1a1a2e;
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.site-title {
+  color: #fff;
+  text-decoration: none;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.site-title:hover { text-decoration: underline; }
+
+/* ── Layout ───────────────────────────────────────────────── */
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+h2 { margin-top: 0; }
+
+/* ── Entry form ───────────────────────────────────────────── */
+.entry-form {
+  max-width: 420px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin: 1rem auto;
+}
+
+.entry-form label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.entry-form input[type="number"] {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 1.1rem;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
+.entry-form button {
+  width: 100%;
+  padding: 0.55rem;
+  font-size: 1rem;
+  background: #1a1a2e;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.entry-form button:hover { background: #2e2e50; }
+
+/* ── Schedule header ──────────────────────────────────────── */
+.schedule-header {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.source-link {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.meta {
+  font-size: 0.82rem;
+  color: #666;
+  margin-top: -0.5rem;
+}
+
+/* ── Session details ──────────────────────────────────────── */
+details {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+
+details summary {
+  cursor: pointer;
+  background: #e8eaf0;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+details summary::-webkit-details-marker { display: none; }
+details[open] summary { border-bottom: 1px solid #ccc; }
+
+.session-label { flex: 1; }
+
+/* ── Status badges ────────────────────────────────────────── */
+.badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.badge.delay  { background: #fde8e8; color: #900; }
+.badge.ahead  { background: #e2f4e2; color: #060; }
+
+/* ── Table ────────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+th {
+  background: #f7f7f7;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #555;
+}
+
+td.time     { font-variant-numeric: tabular-nums; font-weight: 600; }
+td.duration { color: #666; font-size: 0.88rem; }
+td.status-label { font-size: 0.88rem; }
+
+/* ── Row states ───────────────────────────────────────────── */
+tr.status-completed {
+  opacity: 0.45;
+  text-decoration: line-through;
+  text-decoration-color: #aaa;
+}
+
+tr.status-upcoming {
+  background: #eaf5ea;
+}
+
+tr.status-upcoming td { font-weight: 500; }
+
+tr.status-not_ready { color: #888; }
+
+tr.special {
+  font-style: italic;
+  background: #fafafa;
+  color: #666;
+}
+
+/* ── HTMX indicator ───────────────────────────────────────── */
+.htmx-indicator {
+  display: none;
+  font-size: 0.8rem;
+  color: #777;
+  margin-top: 0.5rem;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: inline;
+}
+
+/* ── Misc ─────────────────────────────────────────────────── */
+.no-data {
+  padding: 1rem;
+  color: #666;
+  font-style: italic;
+}
+
+a { color: #1a1a2e; }
