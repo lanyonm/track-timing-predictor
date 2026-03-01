@@ -1,7 +1,7 @@
 from datetime import datetime, time
 
 from app.database import get_learned_duration, record_duration
-from app.disciplines import get_default_duration
+from app.disciplines import get_default_duration, get_changeover
 from app.models import (
     EventStatus,
     Prediction,
@@ -18,6 +18,35 @@ _ZERO_DURATION_DISCIPLINES = {"end_of_session"}
 # Key: (event_id, session_id, position)
 # Value: {"status": EventStatus, "seen_at": datetime}
 _status_cache: dict[tuple[int, int, int], dict] = {}
+
+# Observed slot durations derived from result-page Finish Times.
+# These override estimates for completed events in the prediction timeline.
+# Key: (event_id, session_id, position), Value: duration in minutes
+_observed_durations: dict[tuple[int, int, int], float] = {}
+
+
+def record_observed_duration(
+    event_id: int,
+    session_id: int,
+    position: int,
+    finish_time_minutes: float,
+    discipline: str,
+) -> None:
+    """
+    Store an observed slot duration derived from a result-page Finish Time.
+    The total slot = race finish time + discipline changeover.
+    Also persists to the learning database.
+    """
+    slot = finish_time_minutes + get_changeover(discipline)
+    _observed_durations[(event_id, session_id, position)] = slot
+    record_duration(
+        event_id=event_id,
+        session_id=session_id,
+        event_position=position,
+        event_name=discipline,
+        discipline=discipline,
+        duration_minutes=slot,
+    )
 
 
 def _get_duration(discipline: str) -> float:
@@ -49,25 +78,25 @@ def _compute_delay(
     Estimate how many minutes the session is running behind (positive) or
     ahead (negative) of schedule based on wall-clock time.
 
-    This works by comparing:
-      - estimated time through the schedule after completed_count events
-      - actual elapsed time since the session's scheduled start (using now)
-
-    The scheduled_start has no date component, so we assume the session is
-    occurring today (same date as now).
+    Only applies delay when we are inside the session window — i.e., when
+    actual elapsed time is less than the estimated total session duration plus
+    a one-hour buffer. Once we appear to be past the session's estimated end,
+    we return 0 so that post-event predictions show scheduled times rather than
+    an inflated delay caused by viewing old results hours after they happened.
     """
     est_elapsed = sum(durations[:completed_count])
+    total_est = sum(durations)
     sched_start_minutes = _time_to_minutes(session.scheduled_start)
     now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
 
     # Handle sessions that started before midnight and now is after
     actual_elapsed = now_minutes - sched_start_minutes
     if actual_elapsed < -60:
-        # Likely a midnight rollover; add 24 hours
         actual_elapsed += 1440.0
 
-    # Only apply delay if time has actually passed since session start
-    if actual_elapsed <= 0:
+    # No delay before the session starts or after its estimated window closes.
+    # A 60-minute buffer past total_est allows for genuine long-running sessions.
+    if actual_elapsed <= 0 or actual_elapsed > total_est + 60:
         return 0.0
 
     delay = actual_elapsed - est_elapsed
@@ -76,16 +105,25 @@ def _compute_delay(
 
 
 def predict_session(
+    event_id: int,
     session: Session,
     now: datetime | None = None,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
 
+    Uses observed slot durations (from result-page Finish Times) for completed
+    events when available, falling back to learned/default estimates otherwise.
+
     now: server wall-clock time used to estimate real-time delay.
          If None, no delay adjustment is applied (pre-event mode).
     """
-    durations = [_get_duration(e.discipline) for e in session.events]
+    keys = [(event_id, session.session_id, e.position) for e in session.events]
+    durations = [
+        _observed_durations.get(k, _get_duration(e.discipline))
+        for k, e in zip(keys, session.events)
+    ]
+    is_observed_list = [k in _observed_durations for k in keys]
 
     # Count leading completed events (events run sequentially)
     completed_count = 0
@@ -113,6 +151,7 @@ def predict_session(
             estimated_duration_minutes=durations[i],
             is_adjusted=(delay_minutes != 0.0),
             cumulative_delay_minutes=delay_minutes,
+            is_observed=is_observed_list[i],
         ))
         if event.discipline not in _ZERO_DURATION_DISCIPLINES:
             cumulative += durations[i]
@@ -129,7 +168,7 @@ def predict_schedule(
     sessions: list[Session],
     now: datetime | None = None,
 ) -> SchedulePrediction:
-    session_predictions = [predict_session(s, now=now) for s in sessions]
+    session_predictions = [predict_session(event_id, s, now=now) for s in sessions]
     return SchedulePrediction(event_id=event_id, sessions=session_predictions)
 
 
@@ -137,12 +176,18 @@ def update_status_cache(
     event_id: int,
     sessions: list[Session],
     now: datetime,
-) -> None:
+) -> list[tuple[int, int, int, str]]:
     """
     Compare current event statuses against the cache.
-    When an event transitions UPCOMING -> COMPLETED, record the observed
-    duration in the database for future learning.
+
+    - When an event transitions UPCOMING -> COMPLETED, records the wall-clock
+      elapsed time to the learning database (fallback when no Finish Time).
+    - Returns a list of (event_id, session_id, position, result_url) for
+      newly-completed events that have a result URL, so the caller can fetch
+      result pages to obtain precise Finish Times.
     """
+    newly_completed: list[tuple[int, int, int, str]] = []
+
     for session in sessions:
         for event in session.events:
             key = (event_id, session.session_id, event.position)
@@ -155,8 +200,9 @@ def update_status_cache(
                 cached["status"] == EventStatus.UPCOMING
                 and event.status == EventStatus.COMPLETED
             ):
+                # Wall-clock fallback: record elapsed time for disciplines
+                # that don't have a result-page Finish Time.
                 elapsed = (now - cached["seen_at"]).total_seconds() / 60.0
-                # Only record plausible durations (30s to 3h)
                 if 0.5 <= elapsed <= 180.0:
                     record_duration(
                         event_id=event_id,
@@ -168,5 +214,13 @@ def update_status_cache(
                     )
                 _status_cache[key] = {"status": event.status, "seen_at": now}
 
+                # Signal caller to fetch result page if URL is available.
+                if event.result_url:
+                    newly_completed.append(
+                        (event_id, session.session_id, event.position, event.result_url)
+                    )
+
             elif cached["status"] != event.status:
                 _status_cache[key] = {"status": event.status, "seen_at": now}
+
+    return newly_completed

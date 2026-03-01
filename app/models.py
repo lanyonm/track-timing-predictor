@@ -18,6 +18,7 @@ class TrackEvent(BaseModel):
     discipline: str
     status: EventStatus
     is_special: bool
+    result_url: str | None = None
 
 
 class Session(BaseModel):
@@ -33,6 +34,7 @@ class Prediction(BaseModel):
     estimated_duration_minutes: float
     is_adjusted: bool
     cumulative_delay_minutes: float
+    is_observed: bool = False  # True when duration comes from a result-page Finish Time
 
 
 class SessionPrediction(BaseModel):

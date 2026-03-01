@@ -154,6 +154,7 @@ th {
 
 td.time     { font-variant-numeric: tabular-nums; font-weight: 600; }
 td.duration { color: #666; font-size: 0.88rem; }
+td.duration .duration-label { font-size: 0.75rem; color: #999; margin-left: 2px; }
 td.status-label { font-size: 0.88rem; }
 
 /* ── Row states ───────────────────────────────────────────── */

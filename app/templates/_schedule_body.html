@@ -22,7 +22,10 @@
       <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}">
         <td>{{ pred.event.name }}</td>
         <td class="time">{{ pred.predicted_start.strftime('%H:%M') }}</td>
-        <td class="duration">{{ pred.estimated_duration_minutes | round(1) }}m</td>
+        <td class="duration">
+          {{ pred.estimated_duration_minutes | round(1) }}m
+          <span class="duration-label">{% if pred.is_observed %}obs.{% else %}est.{% endif %}</span>
+        </td>
         <td class="status-label">
           {% if pred.event.status.value == "completed" %}
             &#10003; Done

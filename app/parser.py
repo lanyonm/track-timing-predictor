@@ -47,30 +47,41 @@ def _parse_summary(text: str) -> tuple[str, time]:
     return match.group(1), _parse_time(match.group(2))
 
 
-def _determine_status(row: Tag) -> EventStatus:
+def _parse_row(row: Tag) -> tuple[EventStatus, str | None]:
     """
-    Derive event status from button elements in a table row.
+    Return (status, result_url) from a schedule table row.
 
-    Priority:
-      btn-success (no disabled) -> COMPLETED
+    Status priority:
+      btn-success (no disabled) -> COMPLETED  (result_url = that button's href)
       btn-primary (no disabled) -> UPCOMING
       otherwise                 -> NOT_READY
     """
     buttons = row.find_all("a", class_="btn")
-    classes_list = [" ".join(b.get("class", [])) for b in buttons]
+    result_url: str | None = None
+    has_active_primary = False
 
-    has_active_success = any(
-        "btn-success" in c and "disabled" not in c for c in classes_list
-    )
-    has_active_primary = any(
-        "btn-primary" in c and "disabled" not in c for c in classes_list
-    )
+    for btn in buttons:
+        classes = " ".join(btn.get("class", []))
+        if "btn-success" in classes and "disabled" not in classes:
+            result_url = btn.get("href")
+            return EventStatus.COMPLETED, result_url
+        if "btn-primary" in classes and "disabled" not in classes:
+            has_active_primary = True
 
-    if has_active_success:
-        return EventStatus.COMPLETED
     if has_active_primary:
-        return EventStatus.UPCOMING
-    return EventStatus.NOT_READY
+        return EventStatus.UPCOMING, None
+    return EventStatus.NOT_READY, None
+
+
+def parse_finish_time(html: str) -> float | None:
+    """
+    Extract 'Finish Time: MM:SS' from a result page and return the duration
+    in minutes, or None if the field is not present.
+    """
+    match = re.search(r"Finish Time:\s*(\d+):(\d{2})", html)
+    if not match:
+        return None
+    return int(match.group(1)) + int(match.group(2)) / 60.0
 
 
 def parse_schedule(jxn_data: dict) -> list[Session]:
@@ -107,7 +118,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
             name = h4.get_text(strip=True)
             is_special = name.lower() in SPECIAL_EVENT_NAMES
             discipline = detect_discipline(name)
-            status = _determine_status(row)
+            status, result_url = _parse_row(row)
 
             events.append(TrackEvent(
                 position=position,
@@ -115,6 +126,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
                 discipline=discipline,
                 status=status,
                 is_special=is_special,
+                result_url=result_url,
             ))
 
         sessions.append(Session(

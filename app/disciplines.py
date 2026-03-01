@@ -61,6 +61,20 @@ DEFAULT_DURATIONS: dict[str, float] = {
 
 SPECIAL_EVENT_NAMES = {"break", "end of session", "medal ceremonies", "medal ceremony"}
 
+# Minutes to add to a result-page Finish Time to account for changeover between events.
+# Only applicable to disciplines where "Finish Time" appears in result pages (bunch races).
+CHANGEOVER_MINUTES: dict[str, float] = {
+    "scratch_race": 2.0,
+    "points_race": 2.0,
+    "elimination_race": 2.0,
+    "tempo_race": 2.0,
+    "keirin": 2.0,
+}
+
+
+def get_changeover(discipline: str) -> float:
+    return CHANGEOVER_MINUTES.get(discipline, 0.0)
+
 
 def detect_discipline(event_name: str) -> str:
     """Return a normalized discipline key for the given event name."""

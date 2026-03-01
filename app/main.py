@@ -8,9 +8,9 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import settings
 from app.database import get_all_learned_durations, init_db
-from app.fetcher import fetch_initial_layout, fetch_refresh
-from app.parser import parse_schedule
-from app.predictor import predict_schedule, update_status_cache
+from app.fetcher import fetch_initial_layout, fetch_refresh, fetch_result_html
+from app.parser import parse_finish_time, parse_schedule
+from app.predictor import predict_schedule, record_observed_duration, update_status_cache
 
 
 @asynccontextmanager
@@ -98,8 +98,26 @@ async def refresh_schedule(request: Request, event_id: int):
     now = datetime.now()
     sessions = parse_schedule(jxn_data)
 
-    # Record any newly-completed events for learning
-    update_status_cache(event_id, sessions, now)
+    # Detect newly-completed events and fetch their result pages.
+    newly_completed = update_status_cache(event_id, sessions, now)
+    for ev_id, sess_id, position, result_url in newly_completed:
+        try:
+            html = await fetch_result_html(result_url)
+            finish_time = parse_finish_time(html)
+            if finish_time is not None:
+                # Find discipline for this event to calculate changeover
+                discipline = next(
+                    (
+                        e.discipline
+                        for s in sessions
+                        for e in s.events
+                        if s.session_id == sess_id and e.position == position
+                    ),
+                    "unknown",
+                )
+                record_observed_duration(ev_id, sess_id, position, finish_time, discipline)
+        except Exception:
+            pass  # Result page unavailable; wall-clock observation already recorded
 
     schedule = predict_schedule(event_id, sessions, now=now)
 
