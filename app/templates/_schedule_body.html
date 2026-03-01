@@ -1,5 +1,5 @@
 {% for sp in schedule.sessions %}
-<details open>
+<details {% if not sp.is_complete %}open{% endif %}>
   <summary>
     <span class="session-label">{{ sp.session.day }} &mdash; Scheduled {{ sp.session.scheduled_start.strftime('%H:%M') }}</span>
     {% if sp.observed_delay_minutes > 1.0 %}

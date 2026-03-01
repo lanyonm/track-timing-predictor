@@ -42,6 +42,13 @@ class SessionPrediction(BaseModel):
     event_predictions: list[Prediction]
     observed_delay_minutes: float
 
+    @property
+    def is_complete(self) -> bool:
+        """True when every event in the session is completed."""
+        return bool(self.session.events) and all(
+            e.status == EventStatus.COMPLETED for e in self.session.events
+        )
+
 
 class SchedulePrediction(BaseModel):
     event_id: int
