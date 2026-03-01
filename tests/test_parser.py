@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from app.disciplines import detect_discipline
 from app.models import EventStatus
 from app.parser import parse_finish_time, parse_schedule
 
@@ -89,6 +90,26 @@ class TestParseSchedule:
 
     def test_is_special_false_for_normal_events(self, sessions):
         assert not sessions[0].events[0].is_special
+
+
+# ── detect_discipline ─────────────────────────────────────────────────────────
+
+
+class TestDetectDiscipline:
+    def test_madison(self):
+        assert detect_discipline("Elite Women Madison 20km") == "madison"
+
+    def test_madison_does_not_match_scratch(self):
+        assert detect_discipline("Elite Men Madison Scratch 15km") == "madison"
+
+    def test_keirin(self):
+        assert detect_discipline("U17 Men Keirin Final") == "keirin"
+
+    def test_team_pursuit_before_pursuit(self):
+        assert detect_discipline("Elite Men Team Pursuit Qualifying") == "team_pursuit"
+
+    def test_team_sprint_before_sprint(self):
+        assert detect_discipline("Junior Women Team Sprint Final") == "team_sprint"
 
 
 # ── parse_finish_time ─────────────────────────────────────────────────────────

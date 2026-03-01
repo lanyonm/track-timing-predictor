@@ -5,6 +5,7 @@
 DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
     ("team pursuit", "team_pursuit"),
     ("team sprint", "team_sprint"),
+    ("madison", "madison"),
     ("scratch race", "scratch_race"),
     ("points race", "points_race"),
     ("elimination race", "elimination_race"),
@@ -29,32 +30,40 @@ DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
 # These cover the full event including all heats/rides and changeover time
 # for that category (e.g., "Elite Men Sprint Qualifying" = all qualifying
 # rides for that category, not a single ride).
+#
+# Reference race times used for calibration (from event schedule sheet):
+#   200m TT: 1:15/rider  sprint match: 3:00  keirin: 4:30
+#   500m TT: 2:20/rider  750m TT: 2:40/rider  1000m TT: 2:30/rider
+#   break: 10:00  medals: 20:00  team sprint: 2:40/ride
+#   madison 15k W: 25:30  madison 15k M: 21:00
 DEFAULT_DURATIONS: dict[str, float] = {
-    # One category's sprint qualifying (200m TT): ~6-10 riders × 45s + changeovers
-    "sprint_qualifying": 8.0,
-    # One round of sprint matches (e.g. 1/8 final = 4 pairs × ~3 min): ~12-15 min
+    # Sprint qualifying (200m TT): ~8 riders × 1:15 + changeovers ≈ 10 min
+    "sprint_qualifying": 10.0,
+    # One round of sprint matches (e.g. 1/8 final = 4 pairs × ~3 min): ~12 min
     "sprint_match": 12.0,
-    # Pursuit qualifying or final for one category: 2 simultaneous rides × 5 min
+    # Pursuit qualifying or final for one category: 2 simultaneous rides × ~5-8 min
     "pursuit": 8.0,
-    # Team pursuit: qualifying or final, ~2 rides: 10 min
+    # Team pursuit: qualifying or final, ~2-3 rides
     "team_pursuit": 10.0,
-    # Team sprint: qualifying + final: 10 min
+    # Team sprint: ~4 rides × 2:40/ride per category
     "team_sprint": 10.0,
-    # Bunch races (one category):
+    # Bunch races (one category); race time varies by distance, +2 min changeover:
     "scratch_race": 12.0,
     "points_race": 20.0,
     "elimination_race": 15.0,
-    "tempo_race": 15.0,
-    # Keirin: heat or final including possible restart
-    "keirin": 10.0,
-    # Time trials (one category, sequential starts):
-    "time_trial_500": 12.0,
-    "time_trial_750": 15.0,
-    "time_trial_kilo": 18.0,
-    "time_trial_generic": 15.0,
+    "tempo_race": 20.0,
+    # Madison: typical 15-20km race ~20-27 min + 2 min changeover
+    "madison": 22.0,
+    # Keirin: 4:30 race + 2:00 changeover
+    "keirin": 6.5,
+    # Time trials (one category, sequential starts): per-rider time × ~8 riders
+    "time_trial_500": 20.0,   # 500m: 2:20/rider
+    "time_trial_750": 22.0,   # 750m: 2:40/rider
+    "time_trial_kilo": 22.0,  # 1000m: 2:30/rider
+    "time_trial_generic": 20.0,
     # Non-race:
-    "ceremony": 5.0,
-    "break_": 15.0,
+    "ceremony": 20.0,
+    "break_": 10.0,
     "end_of_session": 0.0,
     "unknown": 10.0,
 }
@@ -68,6 +77,7 @@ CHANGEOVER_MINUTES: dict[str, float] = {
     "points_race": 2.0,
     "elimination_race": 2.0,
     "tempo_race": 2.0,
+    "madison": 2.0,
     "keirin": 2.0,
 }
 
