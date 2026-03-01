@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -8,9 +9,16 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import settings
 from app.database import get_all_learned_durations, init_db
-from app.fetcher import fetch_initial_layout, fetch_refresh, fetch_result_html
-from app.parser import parse_finish_time, parse_schedule
-from app.predictor import predict_schedule, record_observed_duration, update_status_cache
+from app.fetcher import fetch_initial_layout, fetch_refresh, fetch_result_html, fetch_start_list_html
+from app.models import Session
+from app.parser import parse_finish_time, parse_heat_count, parse_schedule
+from app.predictor import (
+    get_heat_count,
+    predict_schedule,
+    record_heat_count,
+    record_observed_duration,
+    update_status_cache,
+)
 
 
 @asynccontextmanager
@@ -22,6 +30,35 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Track Timing Predictor", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+
+async def _fetch_start_lists(event_id: int, sessions: list[Session]) -> None:
+    """
+    Concurrently fetch start list pages for all events that have a start_list_url
+    and whose heat count has not yet been cached. Records heat counts in-memory.
+    """
+    to_fetch = [
+        (event_id, s.session_id, e.position, e.start_list_url, e.discipline)
+        for s in sessions
+        for e in s.events
+        if e.start_list_url and get_heat_count(event_id, s.session_id, e.position) is None
+    ]
+    if not to_fetch:
+        return
+
+    sem = asyncio.Semaphore(10)
+
+    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str) -> None:
+        async with sem:
+            try:
+                html = await fetch_start_list_html(url)
+                count = parse_heat_count(html)
+                if count:
+                    record_heat_count(ev_id, sess_id, pos, count)
+            except Exception:
+                pass
+
+    await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -44,6 +81,7 @@ async def show_schedule(request: Request, event_id: int = Form(...)):
             detail=f"No schedule found for event {event_id}. Check that the event ID is correct.",
         )
 
+    await _fetch_start_lists(event_id, sessions)
     now = datetime.now()
     schedule = predict_schedule(event_id, sessions, now=now)
 
@@ -71,6 +109,7 @@ async def get_schedule(request: Request, event_id: int):
             detail=f"No schedule found for event {event_id}.",
         )
 
+    await _fetch_start_lists(event_id, sessions)
     now = datetime.now()
     schedule = predict_schedule(event_id, sessions, now=now)
 
@@ -97,6 +136,9 @@ async def refresh_schedule(request: Request, event_id: int):
 
     now = datetime.now()
     sessions = parse_schedule(jxn_data)
+
+    # Fetch any start lists not yet cached (e.g. newly published since initial load).
+    await _fetch_start_lists(event_id, sessions)
 
     # Detect newly-completed events and fetch their result pages.
     newly_completed = update_status_cache(event_id, sessions, now)

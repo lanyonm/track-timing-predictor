@@ -7,7 +7,7 @@ import pytest
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
-from app.parser import parse_finish_time, parse_schedule
+from app.parser import parse_finish_time, parse_heat_count, parse_schedule
 
 SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
 
@@ -73,6 +73,29 @@ class TestParseSchedule:
     def test_result_url_absent_for_non_completed(self, sessions):
         not_completed = [e for e in sessions[2].events if e.status != EventStatus.COMPLETED]
         assert all(e.result_url is None for e in not_completed)
+
+    def test_start_list_url_present_for_completed(self, sessions):
+        # Non-special completed events (actual races) should have a start_list_url;
+        # ceremonies and other special events do not.
+        completed_races = [
+            e for e in sessions[0].events
+            if e.status == EventStatus.COMPLETED and not e.is_special
+        ]
+        assert all(e.start_list_url is not None for e in completed_races), (
+            "All non-special completed events should have a start_list_url"
+        )
+
+    def test_start_list_url_format(self, sessions):
+        url = sessions[0].events[0].start_list_url
+        assert url is not None
+        assert url.startswith("results/E26008/")
+        assert url.endswith("-S.htm")
+
+    def test_start_list_url_present_for_upcoming(self, sessions):
+        upcoming = [e for e in sessions[2].events if e.status == EventStatus.UPCOMING]
+        assert all(e.start_list_url is not None for e in upcoming), (
+            "Upcoming events should have a start_list_url"
+        )
 
     def test_event_positions_are_sequential(self, sessions):
         positions = [e.position for e in sessions[0].events]
@@ -144,3 +167,40 @@ class TestParseFinishTime:
         html = "Finish Time: 8:05"
         result = parse_finish_time(html)
         assert result == pytest.approx(8 + 5 / 60, rel=1e-4)
+
+
+# ── parse_heat_count ──────────────────────────────────────────────────────────
+
+
+class TestParseHeatCount:
+    # Simulated sprint qualifying start list: 5 riders, each their own heat
+    SPRINT_QUAL_HTML = (
+        "Heat 1\n212  PITTARD Charlie\n"
+        "Heat 2\n211  RANKL Avery\n"
+        "Heat 3\n215  ALDEN Calla\n"
+        "Heat 4\n214  BURTON Maelle\n"
+        "Heat 5\n213  MARCYNUK Addison\n"
+    )
+
+    def test_counts_heats(self):
+        assert parse_heat_count(self.SPRINT_QUAL_HTML) == 5
+
+    def test_single_heat(self):
+        html = "Heat 1\nRider A\nRider B\nRider C\nRider D\nRider E\nRider F\n"
+        assert parse_heat_count(html) == 1
+
+    def test_keirin_two_heats(self):
+        html = (
+            "Heat 1\nRider A\nRider B\nRider C\nRider D\nRider E\nRider F\n"
+            "Heat 2\nRider G\nRider H\nRider I\nRider J\nRider K\nRider L\n"
+        )
+        assert parse_heat_count(html) == 2
+
+    def test_returns_none_when_no_heats(self):
+        html = "Generated: 2026-02-27 08:25:21Timing & Results by Racetiming.ca"
+        assert parse_heat_count(html) is None
+
+    def test_ignores_partial_word_matches(self):
+        # "Heated" or "Heathen" should not match
+        html = "Heated debate\nHeathen\nHeat 1\nRider A\n"
+        assert parse_heat_count(html) == 1

@@ -8,12 +8,15 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 
 1. Fetches the schedule for a given event ID from the tracktiming.live API
 2. Detects the discipline for each event (sprint qualifying, pursuit, scratch race, etc.)
-3. Estimates each event's duration using built-in defaults or learned averages from past events
-4. Computes a predicted start time for every event in the session
-5. During live events, adjusts predictions based on how far ahead or behind schedule the session is running
-6. Auto-refreshes every 30 seconds so predictions stay current throughout the day
+3. Fetches each event's start list to count how many heats are scheduled
+4. Computes predicted duration as **heat count × per-heat time** (e.g. 5 sprint qualifying rides × 1.5 min = 7.5 min)
+5. Falls back to built-in defaults or learned averages when no start list is available
+6. Computes a predicted start time for every event in the session
+7. During live events, adjusts predictions based on how far ahead or behind schedule the session is running
+8. When results are posted, refines completed-event durations using the race's actual Finish Time
+9. Auto-refreshes every 30 seconds so predictions stay current throughout the day
 
-Over time the app learns more accurate duration estimates by observing when events transition from "start list ready" to "results posted".
+The duration column in the UI shows the source of each estimate: **obs.** (from a result-page Finish Time), **N heats** (from a start list), or **est.** (default/learned fallback).
 
 ## Setup
 
@@ -58,11 +61,16 @@ static/
 └── style.css
 ```
 
-## Tuning duration estimates
+## How durations are estimated
 
-Default durations live in [app/disciplines.py](app/disciplines.py) in the `DEFAULT_DURATIONS` dict. Values are in minutes and represent the full time for one schedule row (one category's event), including warm-up laps, the race itself, and changeover time.
+Each event's slot duration is determined by the first available source:
 
-The learning mechanism will refine these automatically after you use the app across a few live events. Three or more observations for a discipline are required before the learned average overrides the default.
+1. **Observed** — once results are posted, the race's `Finish Time` (actual race duration) plus a discipline-specific changeover allowance is used. Shown as **obs.** in the UI.
+2. **Heat count** — on page load, start list pages are fetched concurrently for every event. The number of heats × a per-heat duration constant gives the slot estimate. Shown as **N heats** in the UI.
+3. **Learned average** — after three or more observations of the same discipline, the SQLite database supplies an average.
+4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py). Shown as **est.** in the UI.
+
+Per-heat constants (`PER_HEAT_DURATIONS`) and overall fallback defaults (`DEFAULT_DURATIONS`) can both be adjusted in [app/disciplines.py](app/disciplines.py).
 
 ## Configuration
 

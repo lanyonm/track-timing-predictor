@@ -70,6 +70,36 @@ DEFAULT_DURATIONS: dict[str, float] = {
 
 SPECIAL_EVENT_NAMES = {"break", "end of session", "medal ceremonies", "medal ceremony"}
 
+# Per-heat durations in minutes for use when heat count is known from a start list.
+# One "heat" = one sequential time slot (e.g. one keirin race, one pursuit pair,
+# one sprint qualifier ride). Does NOT include the inter-event changeover; that is
+# added separately via get_changeover().
+PER_HEAT_DURATIONS: dict[str, float] = {
+    # Sprint qualifying: one 200m TT ride per heat (~1:15 ride + ~15 s gap)
+    "sprint_qualifying": 1.5,
+    # Sprint match: one 2-rider match per heat (~3:00 + recovery)
+    "sprint_match": 3.5,
+    # Individual pursuit: 2 riders race simultaneously per heat (~7-8.5 min/pair)
+    "pursuit": 8.0,
+    # Team pursuit: 2 teams race simultaneously per heat (~4:30-5 min/ride)
+    "team_pursuit": 5.0,
+    # Team sprint: 2 teams per heat (~2:40 ride + setup)
+    "team_sprint": 3.5,
+    # Bunch races are almost always 1 heat; per-heat ≈ full race duration
+    "scratch_race": 10.0,
+    "points_race": 22.0,
+    "elimination_race": 15.0,
+    "tempo_race": 20.0,
+    "madison": 22.0,
+    # Keirin: one heat of ~6 riders (~4:30 race + recovery between heats)
+    "keirin": 5.0,
+    # Time trials: one rider per heat; per-rider time + small gap between starts
+    "time_trial_500": 2.5,    # 500m: ~2:20/rider
+    "time_trial_750": 3.0,    # 750m: ~2:40/rider
+    "time_trial_kilo": 3.0,   # 1000m: ~2:30/rider
+    "time_trial_generic": 3.0,
+}
+
 # Minutes to add to a result-page Finish Time to account for changeover between events.
 # Only applicable to disciplines where "Finish Time" appears in result pages (bunch races).
 CHANGEOVER_MINUTES: dict[str, float] = {
@@ -97,3 +127,7 @@ def detect_discipline(event_name: str) -> str:
 
 def get_default_duration(discipline: str) -> float:
     return DEFAULT_DURATIONS.get(discipline, DEFAULT_DURATIONS["unknown"])
+
+
+def get_per_heat_duration(discipline: str) -> float:
+    return PER_HEAT_DURATIONS.get(discipline, DEFAULT_DURATIONS.get(discipline, DEFAULT_DURATIONS["unknown"]))

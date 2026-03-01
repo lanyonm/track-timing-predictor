@@ -1,7 +1,7 @@
 from datetime import datetime, time
 
 from app.database import get_learned_duration, record_duration
-from app.disciplines import get_default_duration, get_changeover
+from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
 from app.models import (
     EventStatus,
     Prediction,
@@ -23,6 +23,11 @@ _status_cache: dict[tuple[int, int, int], dict] = {}
 # These override estimates for completed events in the prediction timeline.
 # Key: (event_id, session_id, position), Value: duration in minutes
 _observed_durations: dict[tuple[int, int, int], float] = {}
+
+# Heat counts derived from start-list pages.
+# Used to compute duration as heat_count × per_heat_duration + changeover.
+# Key: (event_id, session_id, position), Value: number of heats
+_heat_counts: dict[tuple[int, int, int], int] = {}
 
 
 def record_observed_duration(
@@ -47,6 +52,21 @@ def record_observed_duration(
         discipline=discipline,
         duration_minutes=slot,
     )
+
+
+def record_heat_count(
+    event_id: int,
+    session_id: int,
+    position: int,
+    count: int,
+) -> None:
+    """Store the number of heats for an event, derived from its start list page."""
+    _heat_counts[(event_id, session_id, position)] = count
+
+
+def get_heat_count(event_id: int, session_id: int, position: int) -> int | None:
+    """Return cached heat count, or None if not yet fetched."""
+    return _heat_counts.get((event_id, session_id, position))
 
 
 def _get_duration(discipline: str) -> float:
@@ -112,18 +132,34 @@ def predict_session(
     """
     Compute predicted start times for all events in a session.
 
-    Uses observed slot durations (from result-page Finish Times) for completed
-    events when available, falling back to learned/default estimates otherwise.
+    Duration source priority (most to least accurate):
+      1. Observed: result-page Finish Time + changeover
+      2. Heat count: start-list heat count × per-heat duration + changeover
+      3. Default: learned average or DEFAULT_DURATIONS fallback
 
     now: server wall-clock time used to estimate real-time delay.
          If None, no delay adjustment is applied (pre-event mode).
     """
-    keys = [(event_id, session.session_id, e.position) for e in session.events]
-    durations = [
-        _observed_durations.get(k, _get_duration(e.discipline))
-        for k, e in zip(keys, session.events)
-    ]
-    is_observed_list = [k in _observed_durations for k in keys]
+    durations: list[float] = []
+    is_observed_list: list[bool] = []
+    heat_count_list: list[int | None] = []
+
+    for e in session.events:
+        key = (event_id, session.session_id, e.position)
+        if key in _observed_durations:
+            durations.append(_observed_durations[key])
+            is_observed_list.append(True)
+            heat_count_list.append(None)
+        elif key in _heat_counts:
+            hc = _heat_counts[key]
+            dur = hc * get_per_heat_duration(e.discipline) + get_changeover(e.discipline)
+            durations.append(dur)
+            is_observed_list.append(False)
+            heat_count_list.append(hc)
+        else:
+            durations.append(_get_duration(e.discipline))
+            is_observed_list.append(False)
+            heat_count_list.append(None)
 
     # Count leading completed events (events run sequentially)
     completed_count = 0
@@ -152,6 +188,7 @@ def predict_session(
             is_adjusted=(delay_minutes != 0.0),
             cumulative_delay_minutes=delay_minutes,
             is_observed=is_observed_list[i],
+            heat_count=heat_count_list[i],
         ))
         if event.discipline not in _ZERO_DURATION_DISCIPLINES:
             cumulative += durations[i]

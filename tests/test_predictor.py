@@ -7,7 +7,13 @@ import pytest
 
 from app.models import EventStatus, Session, TrackEvent
 from app.parser import parse_schedule
-from app.predictor import _add_minutes, _compute_delay, predict_schedule, predict_session
+from app.predictor import (
+    _add_minutes,
+    _compute_delay,
+    predict_schedule,
+    predict_session,
+    record_heat_count,
+)
 
 SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
 
@@ -242,6 +248,55 @@ class TestPredictSession:
     def test_prediction_count_matches_event_count(self, sessions):
         sp = predict_session(26008, sessions[0], now=None)
         assert len(sp.event_predictions) == len(sessions[0].events)
+
+
+# ── heat count duration ────────────────────────────────────────────────────────
+
+
+class TestHeatCountDuration:
+    """predict_session uses heat_count × per_heat_duration when heat count is cached."""
+
+    EVENT_ID = 99999  # unique to avoid polluting other tests' caches
+
+    def _make_session(self) -> Session:
+        return Session(
+            session_id=99,
+            day="Friday",
+            scheduled_start=time(8, 0),
+            events=[
+                _make_event(0, EventStatus.NOT_READY, "keirin"),
+                _make_event(1, EventStatus.NOT_READY, "keirin"),
+            ],
+        )
+
+    def test_heat_count_overrides_default(self):
+        """With 3 keirin heats, duration = 3 × 5.0 + 2.0 changeover = 17.0 min."""
+        record_heat_count(self.EVENT_ID, 99, 0, 3)
+        session = self._make_session()
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(17.0)
+        assert sp.event_predictions[0].heat_count == 3
+        assert not sp.event_predictions[0].is_observed
+
+    def test_heat_count_reflected_in_second_event_start(self):
+        """Second event start shifts by the heat-count-based duration of the first."""
+        record_heat_count(self.EVENT_ID, 99, 0, 2)
+        session = self._make_session()
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        # first event: 2 × 5.0 + 2.0 = 12.0 min → second starts at 08:12
+        second_start = sp.event_predictions[1].predicted_start
+        assert second_start == _add_minutes(time(8, 0), 12.0)
+
+    def test_no_heat_count_uses_default(self):
+        """Without a cached heat count, falls back to DEFAULT_DURATIONS."""
+        session = Session(
+            session_id=100,
+            day="Saturday",
+            scheduled_start=time(9, 0),
+            events=[_make_event(0, EventStatus.NOT_READY, "sprint_qualifying")],
+        )
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        assert sp.event_predictions[0].heat_count is None
 
 
 # ── predict_schedule ──────────────────────────────────────────────────────────

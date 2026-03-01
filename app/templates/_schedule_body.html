@@ -24,7 +24,12 @@
         <td class="time">{{ pred.predicted_start.strftime('%H:%M') }}</td>
         <td class="duration">
           {{ pred.estimated_duration_minutes | round(1) }}m
-          <span class="duration-label">{% if pred.is_observed %}obs.{% else %}est.{% endif %}</span>
+          <span class="duration-label">
+            {%- if pred.is_observed -%}obs.
+            {%- elif pred.heat_count is not none -%}{{ pred.heat_count }} heat{{ 's' if pred.heat_count != 1 else '' }}
+            {%- else -%}est.
+            {%- endif -%}
+          </span>
         </td>
         <td class="status-label">
           {% if pred.event.status.value == "completed" %}

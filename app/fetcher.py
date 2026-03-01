@@ -34,6 +34,15 @@ async def fetch_result_html(result_path: str) -> str:
         return response.text
 
 
+async def fetch_start_list_html(start_list_path: str) -> str:
+    """GET a static start list .htm file and return its HTML content."""
+    url = f"{settings.tracktiming_base_url}/{start_list_path}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.text
+
+
 async def fetch_refresh(event_id: int) -> dict:
     """POST refreshPage to get live status updates."""
     url = _event_url(event_id)
