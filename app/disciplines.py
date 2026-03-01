@@ -11,8 +11,35 @@ DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
     ("elimination race", "elimination_race"),
     ("tempo race", "tempo_race"),
     ("keirin", "keirin"),
-    ("individual pursuit", "pursuit"),
-    ("pursuit", "pursuit"),
+    # Pursuit: distance varies by category; detect most-specific first.
+    # Elite men & women = 4000m; junior men & masters A/B men = 3000m;
+    # junior women, U17/U15, masters C/D/E+ men, master women = 2000m.
+    ("elite men individual pursuit", "pursuit_4k"),
+    ("elite men pursuit", "pursuit_4k"),
+    ("elite women individual pursuit", "pursuit_4k"),
+    ("elite women pursuit", "pursuit_4k"),
+    ("4000m individual pursuit", "pursuit_4k"),
+    ("4000m pursuit", "pursuit_4k"),
+    ("junior men individual pursuit", "pursuit_3k"),
+    ("junior men pursuit", "pursuit_3k"),
+    ("master a men individual pursuit", "pursuit_3k"),
+    ("master a men pursuit", "pursuit_3k"),
+    ("master b men individual pursuit", "pursuit_3k"),
+    ("master b men pursuit", "pursuit_3k"),
+    ("3000m individual pursuit", "pursuit_3k"),
+    ("3000m pursuit", "pursuit_3k"),
+    ("master c men individual pursuit", "pursuit_2k"),
+    ("master c men pursuit", "pursuit_2k"),
+    ("master d men individual pursuit", "pursuit_2k"),
+    ("master d men pursuit", "pursuit_2k"),
+    ("master e men individual pursuit", "pursuit_2k"),
+    ("master e men pursuit", "pursuit_2k"),
+    ("women individual pursuit", "pursuit_2k"),   # junior women, U17/U15 women, master women
+    ("women pursuit", "pursuit_2k"),
+    ("2000m individual pursuit", "pursuit_2k"),
+    ("2000m pursuit", "pursuit_2k"),
+    ("individual pursuit", "pursuit_3k"),         # men (U17/U15/unmatched masters) fallback
+    ("pursuit", "pursuit_3k"),                    # generic fallback
     ("500m time trial", "time_trial_500"),
     ("750m time trial", "time_trial_750"),
     ("kilo time trial", "time_trial_kilo"),
@@ -41,8 +68,11 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "sprint_qualifying": 10.0,
     # One round of sprint matches (e.g. 1/8 final = 4 pairs × ~3 min): ~12 min
     "sprint_match": 12.0,
-    # Pursuit qualifying or final for one category: 2 simultaneous rides × ~5-8 min
-    "pursuit": 8.0,
+    # Pursuit: one schedule slot (qualifying or final) for one category.
+    # Two riders race simultaneously per heat; times below cover ~2-heat finals.
+    "pursuit_4k": 12.0,   # elite men 4km: ~4:15/ride × 2 heats + gaps
+    "pursuit_3k": 9.0,    # elite women / junior men 3km: ~3:25/ride × 2 heats + gaps
+    "pursuit_2k": 6.0,    # junior/U17 women 2km: ~2:20/ride × 2 heats + gaps
     # Team pursuit: qualifying or final, ~2-3 rides
     "team_pursuit": 10.0,
     # Team sprint: ~4 rides × 2:40/ride per category
@@ -79,8 +109,10 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "sprint_qualifying": 1.5,
     # Sprint match: one 2-rider match per heat (~3:00 + recovery)
     "sprint_match": 3.5,
-    # Individual pursuit: 2 riders race simultaneously per heat (~7-8.5 min/pair)
-    "pursuit": 8.0,
+    # Individual pursuit: 2 riders race simultaneously per heat
+    "pursuit_4k": 5.0,    # elite men 4km: ~4:15/ride per heat
+    "pursuit_3k": 4.0,    # elite women / junior men 3km: ~3:25/ride per heat
+    "pursuit_2k": 3.0,    # junior/U17 women 2km: ~2:20/ride per heat
     # Team pursuit: 2 teams race simultaneously per heat (~4:30-5 min/ride)
     "team_pursuit": 5.0,
     # Team sprint: 2 teams per heat (~2:40 ride + setup)

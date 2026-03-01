@@ -131,6 +131,33 @@ class TestDetectDiscipline:
     def test_team_pursuit_before_pursuit(self):
         assert detect_discipline("Elite Men Team Pursuit Qualifying") == "team_pursuit"
 
+    def test_pursuit_4k_elite_men(self):
+        assert detect_discipline("Elite Men Pursuit Final") == "pursuit_4k"
+
+    def test_pursuit_4k_elite_women(self):
+        assert detect_discipline("Elite Women Pursuit Final") == "pursuit_4k"
+
+    def test_pursuit_3k_junior_men(self):
+        assert detect_discipline("Junior Men Pursuit Final") == "pursuit_3k"
+
+    def test_pursuit_2k_junior_women(self):
+        assert detect_discipline("Junior Women Pursuit Final") == "pursuit_2k"
+
+    def test_pursuit_3k_master_a_men(self):
+        assert detect_discipline("Master A Men Pursuit Final") == "pursuit_3k"
+
+    def test_pursuit_3k_master_b_men(self):
+        assert detect_discipline("Master B Men Pursuit Final") == "pursuit_3k"
+
+    def test_pursuit_2k_master_c_men(self):
+        assert detect_discipline("Master C Men Pursuit Final") == "pursuit_2k"
+
+    def test_pursuit_2k_master_d_men(self):
+        assert detect_discipline("Master D Men Pursuit Final") == "pursuit_2k"
+
+    def test_pursuit_fallback_u17_men(self):
+        assert detect_discipline("U17 Men Pursuit Final") == "pursuit_3k"
+
     def test_team_sprint_before_sprint(self):
         assert detect_discipline("Junior Women Team Sprint Final") == "team_sprint"
 
