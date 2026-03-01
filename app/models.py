@@ -44,10 +44,13 @@ class SessionPrediction(BaseModel):
 
     @property
     def is_complete(self) -> bool:
-        """True when every event in the session is completed."""
-        return bool(self.session.events) and all(
-            e.status == EventStatus.COMPLETED for e in self.session.events
-        )
+        """True when every non-special event in the session is completed.
+
+        Special events (Break, End of Session, Medal Ceremonies) are excluded
+        because they often never transition to COMPLETED in the source data.
+        """
+        races = [e for e in self.session.events if not e.is_special]
+        return bool(races) and all(e.status == EventStatus.COMPLETED for e in races)
 
 
 class SchedulePrediction(BaseModel):
