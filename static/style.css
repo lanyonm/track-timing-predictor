@@ -176,7 +176,27 @@ tr.special {
   font-style: italic;
   background: #fafafa;
   color: #666;
+  text-decoration: none;
 }
+
+/* ── Event action buttons ─────────────────────────────────── */
+.evt-btn {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: 4px;
+  text-decoration: none;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.evt-btn-r  { background: #d4edda; color: #155724; border: 1px solid #b8ddc8; }
+.evt-btn-r:hover  { background: #b8ddc8; }
+.evt-btn-sl { background: #cce5ff; color: #004085; border: 1px solid #b8d4f0; }
+.evt-btn-sl:hover { background: #b8d4f0; }
+.evt-btn-a  { background: #fff3cd; color: #856404; border: 1px solid #e8d99a; }
+.evt-btn-a:hover  { background: #e8d99a; }
 
 /* ── HTMX indicator ───────────────────────────────────────── */
 .htmx-indicator {

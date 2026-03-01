@@ -91,6 +91,7 @@ async def show_schedule(request: Request, event_id: int = Form(...)):
         "event_id": event_id,
         "now": now,
         "refresh_seconds": settings.refresh_interval_seconds,
+        "base_url": settings.tracktiming_base_url,
     })
 
 
@@ -119,6 +120,7 @@ async def get_schedule(request: Request, event_id: int):
         "event_id": event_id,
         "now": now,
         "refresh_seconds": settings.refresh_interval_seconds,
+        "base_url": settings.tracktiming_base_url,
     })
 
 
@@ -168,6 +170,7 @@ async def refresh_schedule(request: Request, event_id: int):
         "schedule": schedule,
         "event_id": event_id,
         "now": now,
+        "base_url": settings.tracktiming_base_url,
     })
 
 

@@ -32,11 +32,16 @@
           </span>
         </td>
         <td class="status-label">
-          {% if pred.event.status.value == "completed" %}
-            &#10003; Done
-          {% elif pred.event.status.value == "upcoming" %}
-            &#9654; Ready
-          {% else %}
+          {% if pred.event.result_url %}
+            <a href="{{ base_url }}/{{ pred.event.result_url }}" target="_blank" class="evt-btn evt-btn-r">Results</a>
+          {% endif %}
+          {% if pred.event.audit_url %}
+            <a href="{{ base_url }}/{{ pred.event.audit_url }}" target="_blank" class="evt-btn evt-btn-a">Audit</a>
+          {% endif %}
+          {% if pred.event.start_list_url %}
+            <a href="{{ base_url }}/{{ pred.event.start_list_url }}" target="_blank" class="evt-btn evt-btn-sl">Start List</a>
+          {% endif %}
+          {% if not pred.event.result_url and not pred.event.audit_url and not pred.event.start_list_url %}
             &mdash;
           {% endif %}
         </td>

@@ -20,6 +20,7 @@ class TrackEvent(BaseModel):
     is_special: bool
     result_url: str | None = None
     start_list_url: str | None = None
+    audit_url: str | None = None
 
 
 class Session(BaseModel):

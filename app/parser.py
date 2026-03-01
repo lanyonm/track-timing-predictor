@@ -47,21 +47,22 @@ def _parse_summary(text: str) -> tuple[str, time]:
     return match.group(1), _parse_time(match.group(2))
 
 
-def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None]:
+def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None, str | None]:
     """
-    Return (status, result_url, start_list_url) from a schedule table row.
+    Return (status, result_url, start_list_url, audit_url) from a schedule table row.
 
     Status priority:
       btn-success (no disabled) -> COMPLETED  (result_url = that button's href)
       btn-primary (no disabled) -> UPCOMING   (start_list_url = that button's href)
       otherwise                 -> NOT_READY
 
-    Both result_url and start_list_url are captured when present; completed events
-    typically have both buttons active.
+    btn-info (no disabled) = audit URL, captured independently of status.
+    All URLs are captured when present; completed events typically have all three.
     """
     buttons = row.find_all("a", class_="btn")
     result_url: str | None = None
     start_list_url: str | None = None
+    audit_url: str | None = None
 
     for btn in buttons:
         classes = " ".join(btn.get("class", []))
@@ -69,12 +70,14 @@ def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None]:
             result_url = btn.get("href")
         if "btn-primary" in classes and "disabled" not in classes:
             start_list_url = btn.get("href")
+        if "btn-info" in classes and "disabled" not in classes:
+            audit_url = btn.get("href")
 
     if result_url:
-        return EventStatus.COMPLETED, result_url, start_list_url
+        return EventStatus.COMPLETED, result_url, start_list_url, audit_url
     if start_list_url:
-        return EventStatus.UPCOMING, None, start_list_url
-    return EventStatus.NOT_READY, None, None
+        return EventStatus.UPCOMING, None, start_list_url, audit_url
+    return EventStatus.NOT_READY, None, None, audit_url
 
 
 def parse_heat_count(html: str) -> int | None:
@@ -133,7 +136,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
             name = h4.get_text(strip=True)
             is_special = name.lower() in SPECIAL_EVENT_NAMES
             discipline = detect_discipline(name)
-            status, result_url, start_list_url = _parse_row(row)
+            status, result_url, start_list_url, audit_url = _parse_row(row)
 
             events.append(TrackEvent(
                 position=position,
@@ -143,6 +146,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
                 is_special=is_special,
                 result_url=result_url,
                 start_list_url=start_list_url,
+                audit_url=audit_url,
             ))
 
         sessions.append(Session(
