@@ -176,6 +176,10 @@ def predict_session(
     if now is not None and completed_count > 0 and has_pending:
         delay_minutes = _compute_delay(session, durations, completed_count, now)
 
+    # The active event is the first non-COMPLETED event in an in-progress session.
+    # Requires now so we only flag "active" when the session is being viewed live.
+    active_index = completed_count if (now is not None and completed_count > 0 and has_pending) else -1
+
     cumulative = 0.0
     predictions: list[Prediction] = []
 
@@ -189,6 +193,7 @@ def predict_session(
             cumulative_delay_minutes=delay_minutes,
             is_observed=is_observed_list[i],
             heat_count=heat_count_list[i],
+            is_active=(i == active_index),
         ))
         if event.discipline not in _ZERO_DURATION_DISCIPLINES:
             cumulative += durations[i]

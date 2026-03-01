@@ -299,6 +299,71 @@ class TestHeatCountDuration:
         assert sp.event_predictions[0].heat_count is None
 
 
+# ── is_active detection ────────────────────────────────────────────────────────
+
+
+class TestIsActive:
+    def _make_session(self, statuses: list[EventStatus]) -> Session:
+        return Session(
+            session_id=1,
+            day="Friday",
+            scheduled_start=time(8, 0),
+            events=[_make_event(i, s) for i, s in enumerate(statuses)],
+        )
+
+    def test_active_is_first_pending_when_session_in_progress(self):
+        """First non-COMPLETED event is active when session has started."""
+        session = self._make_session([
+            EventStatus.COMPLETED,
+            EventStatus.UPCOMING,
+            EventStatus.NOT_READY,
+        ])
+        sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 15))
+        assert not sp.event_predictions[0].is_active
+        assert sp.event_predictions[1].is_active
+        assert not sp.event_predictions[2].is_active
+
+    def test_no_active_when_all_events_not_ready(self):
+        """No event is active before the session starts."""
+        session = self._make_session([
+            EventStatus.NOT_READY,
+            EventStatus.NOT_READY,
+        ])
+        sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 15))
+        assert not any(p.is_active for p in sp.event_predictions)
+
+    def test_no_active_when_all_events_completed(self):
+        """No event is active once the session is fully complete."""
+        session = self._make_session([
+            EventStatus.COMPLETED,
+            EventStatus.COMPLETED,
+        ])
+        sp = predict_session(99, session, now=datetime(2024, 1, 1, 10, 0))
+        assert not any(p.is_active for p in sp.event_predictions)
+
+    def test_no_active_without_now(self):
+        """is_active is not set when now is None (pre-event mode)."""
+        session = self._make_session([
+            EventStatus.COMPLETED,
+            EventStatus.UPCOMING,
+        ])
+        sp = predict_session(99, session, now=None)
+        assert not any(p.is_active for p in sp.event_predictions)
+
+    def test_exactly_one_active_at_a_time(self):
+        """At most one event is active per session."""
+        session = self._make_session([
+            EventStatus.COMPLETED,
+            EventStatus.COMPLETED,
+            EventStatus.UPCOMING,
+            EventStatus.NOT_READY,
+        ])
+        sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 30))
+        active_count = sum(1 for p in sp.event_predictions if p.is_active)
+        assert active_count == 1
+        assert sp.event_predictions[2].is_active
+
+
 # ── predict_schedule ──────────────────────────────────────────────────────────
 
 

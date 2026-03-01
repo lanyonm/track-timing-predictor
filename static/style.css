@@ -175,6 +175,13 @@ tr.status-upcoming td { font-weight: 500; }
 
 tr.status-not_ready { color: #888; }
 
+tr.active {
+  background: #fff3cd;
+  border-left: 3px solid #f0a500;
+}
+
+tr.active td { font-weight: 600; }
+
 /* ── Event action buttons ─────────────────────────────────── */
 .evt-btn {
   display: inline-block;
@@ -187,6 +194,8 @@ tr.status-not_ready { color: #888; }
   white-space: nowrap;
 }
 
+.evt-btn-live { background: #f8d7da; color: #842029; border: 1px solid #f1aeb5; font-weight: 700; }
+.evt-btn-live:hover { background: #f1aeb5; }
 .evt-btn-r  { background: #d4edda; color: #155724; border: 1px solid #b8ddc8; }
 .evt-btn-r:hover  { background: #b8ddc8; }
 .evt-btn-sl { background: #cce5ff; color: #004085; border: 1px solid #b8d4f0; }

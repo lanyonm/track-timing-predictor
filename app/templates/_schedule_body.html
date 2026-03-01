@@ -19,7 +19,7 @@
     </thead>
     <tbody>
     {% for pred in sp.event_predictions %}
-      <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}">
+      <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}{% if pred.is_active %} active{% endif %}">
         <td>{{ pred.event.name }}</td>
         <td class="time">{{ pred.predicted_start.strftime('%H:%M') }}</td>
         <td class="duration">
@@ -32,6 +32,9 @@
           </span>
         </td>
         <td class="status-label">
+          {% if pred.event.live_url %}
+            <a href="{{ base_url }}/{{ pred.event.live_url }}" target="_blank" class="evt-btn evt-btn-live">Live</a>
+          {% endif %}
           {% if pred.event.result_url %}
             <a href="{{ base_url }}/{{ pred.event.result_url }}" target="_blank" class="evt-btn evt-btn-r">Results</a>
           {% endif %}
@@ -41,7 +44,7 @@
           {% if pred.event.start_list_url %}
             <a href="{{ base_url }}/{{ pred.event.start_list_url }}" target="_blank" class="evt-btn evt-btn-sl">Start List</a>
           {% endif %}
-          {% if not pred.event.result_url and not pred.event.audit_url and not pred.event.start_list_url %}
+          {% if not pred.event.live_url and not pred.event.result_url and not pred.event.audit_url and not pred.event.start_list_url %}
             &mdash;
           {% endif %}
         </td>

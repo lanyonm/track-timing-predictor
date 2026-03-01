@@ -114,6 +114,18 @@ class TestParseSchedule:
     def test_is_special_false_for_normal_events(self, sessions):
         assert not sessions[0].events[0].is_special
 
+    def test_live_url_present_for_active_event(self, sessions):
+        # "U17 Men Tempo Race / Omni II" has btn-danger (LIVE) in the sample data
+        live_events = [
+            e for s in sessions for e in s.events if e.live_url is not None
+        ]
+        assert len(live_events) == 1
+        assert live_events[0].live_url == "liveresults.php?EventId=26008"
+
+    def test_live_url_absent_for_completed_events(self, sessions):
+        completed = [e for s in sessions for e in s.events if e.status == EventStatus.COMPLETED]
+        assert all(e.live_url is None for e in completed)
+
 
 # ── detect_discipline ─────────────────────────────────────────────────────────
 

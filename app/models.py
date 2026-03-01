@@ -21,6 +21,7 @@ class TrackEvent(BaseModel):
     result_url: str | None = None
     start_list_url: str | None = None
     audit_url: str | None = None
+    live_url: str | None = None
 
 
 class Session(BaseModel):
@@ -38,6 +39,7 @@ class Prediction(BaseModel):
     cumulative_delay_minutes: float
     is_observed: bool = False    # True when duration comes from a result-page Finish Time
     heat_count: int | None = None  # Set when duration is derived from start-list heat count
+    is_active: bool = False      # True for the first non-COMPLETED event in an in-progress session
 
 
 class SessionPrediction(BaseModel):
