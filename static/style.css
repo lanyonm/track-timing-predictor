@@ -160,6 +160,9 @@ td.status-label { font-size: 0.88rem; }
 /* ── Row states ───────────────────────────────────────────── */
 tr.status-completed {
   opacity: 0.45;
+}
+
+tr.status-completed:not(.special) {
   text-decoration: line-through;
   text-decoration-color: #aaa;
 }
@@ -171,13 +174,6 @@ tr.status-upcoming {
 tr.status-upcoming td { font-weight: 500; }
 
 tr.status-not_ready { color: #888; }
-
-tr.special {
-  font-style: italic;
-  background: #fafafa;
-  color: #666;
-  text-decoration: none;
-}
 
 /* ── Event action buttons ─────────────────────────────────── */
 .evt-btn {

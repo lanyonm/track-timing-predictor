@@ -149,6 +149,18 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
                 audit_url=audit_url,
             ))
 
+        # Special events (e.g. Medal Ceremonies) publish their result page
+        # incrementally while still in progress. Don't consider one COMPLETED
+        # until the event immediately following it has started.
+        for i, event in enumerate(events):
+            if (
+                event.is_special
+                and event.status == EventStatus.COMPLETED
+                and i + 1 < len(events)
+                and events[i + 1].status != EventStatus.COMPLETED
+            ):
+                events[i] = event.model_copy(update={"status": EventStatus.UPCOMING})
+
         sessions.append(Session(
             session_id=session_id,
             day=day,
