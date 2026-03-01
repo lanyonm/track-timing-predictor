@@ -29,6 +29,11 @@ _observed_durations: dict[tuple[int, int, int], float] = {}
 # Key: (event_id, session_id, position), Value: number of heats
 _heat_counts: dict[tuple[int, int, int], int] = {}
 
+# Current heat number derived from the live results page.
+# Updated on every refresh while the event is active.
+# Key: (event_id, session_id, position), Value: current heat number (1-based)
+_live_heats: dict[tuple[int, int, int], int] = {}
+
 
 def record_observed_duration(
     event_id: int,
@@ -67,6 +72,16 @@ def record_heat_count(
 def get_heat_count(event_id: int, session_id: int, position: int) -> int | None:
     """Return cached heat count, or None if not yet fetched."""
     return _heat_counts.get((event_id, session_id, position))
+
+
+def record_live_heat(event_id: int, session_id: int, position: int, heat: int) -> None:
+    """Store the current heat number parsed from the live results page."""
+    _live_heats[(event_id, session_id, position)] = heat
+
+
+def get_live_heat(event_id: int, session_id: int, position: int) -> int | None:
+    """Return the most recently parsed live heat number, or None if not available."""
+    return _live_heats.get((event_id, session_id, position))
 
 
 def _get_duration(discipline: str) -> float:
@@ -180,11 +195,50 @@ def predict_session(
     # Requires now so we only flag "active" when the session is being viewed live.
     active_index = completed_count if (now is not None and completed_count > 0 and has_pending) else -1
 
+    # Fallback: if no active event was found via completed-event count (e.g. the
+    # running event is the very first in the session), the presence of a live_url
+    # (the LIVE button on the schedule page) definitively identifies the active event.
+    if active_index == -1 and now is not None:
+        for idx, ev in enumerate(session.events):
+            if ev.live_url:
+                active_index = idx
+                break
+
     cumulative = 0.0
     predictions: list[Prediction] = []
 
     for i, event in enumerate(session.events):
         predicted_start = _add_minutes(session.scheduled_start, cumulative + delay_minutes)
+        is_active = i == active_index
+
+        # For an active multi-heat event, determine which heat is currently running.
+        # Priority: (1) live results page heat, (2) time-based fallback estimate.
+        active_heat: int | None = None
+        if is_active and now is not None:
+            live_heat = get_live_heat(event_id, session.session_id, event.position)
+            if live_heat is not None:
+                # live_heat = count of finished heats; the running heat is the next one.
+                next_heat = live_heat + 1
+                if heat_count_list[i] is not None:
+                    active_heat = min(next_heat, heat_count_list[i])
+                else:
+                    active_heat = next_heat
+            elif heat_count_list[i] is not None:
+                # Time-based fallback: elapsed since scheduled event start ÷ per-heat duration.
+                # Uses scheduled (not delay-adjusted) start so prior-event overrun doesn't
+                # incorrectly advance the heat counter.
+                hc = heat_count_list[i]
+                phd = get_per_heat_duration(event.discipline)
+                sched_start_minutes = _time_to_minutes(session.scheduled_start)
+                now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
+                actual_elapsed = now_minutes - sched_start_minutes
+                if actual_elapsed < -60:
+                    actual_elapsed += 1440.0  # midnight wrap
+                est_before_active = sum(durations[:active_index])
+                elapsed_in_active = max(0.0, actual_elapsed - est_before_active)
+                if phd > 0:
+                    active_heat = max(1, min(hc, int(elapsed_in_active / phd) + 1))
+
         predictions.append(Prediction(
             event=event,
             predicted_start=predicted_start,
@@ -193,7 +247,8 @@ def predict_session(
             cumulative_delay_minutes=delay_minutes,
             is_observed=is_observed_list[i],
             heat_count=heat_count_list[i],
-            is_active=(i == active_index),
+            is_active=is_active,
+            active_heat=active_heat,
         ))
         if event.discipline not in _ZERO_DURATION_DISCIPLINES:
             cumulative += durations[i]

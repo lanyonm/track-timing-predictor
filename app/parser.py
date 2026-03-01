@@ -95,6 +95,39 @@ def parse_heat_count(html: str) -> int | None:
     return len(heats) if heats else None
 
 
+def parse_live_heat(html: str) -> int | None:
+    """
+    Count the number of completed heats on a live results page.
+
+    The caller uses this count as the number of *finished* heats; the active
+    heat is then count + 1. Returns None if no completed heats are found
+    (caller falls back to time-based estimation).
+
+    Two page formats are handled:
+
+    Team-sprint format — an explicit header names the running heat:
+        "Riders On Track for Heat N of M"
+      → returns N - 1 (heats before the current one are done).
+      → returns None when N == 1 (nothing completed yet).
+
+    Keirin / per-heat format — separate "Heat N" sections:
+      → counts sections that contain a non-zero timing value (e.g. 12.345).
+      → the "0.000 km/h" placeholder on upcoming/active heats is excluded
+        because it starts with 0.
+    """
+    # Team-sprint format: the page explicitly says which heat is on track.
+    match = re.search(r"Riders\s+On\s+Track\s+for\s+Heat\s+(\d+)", html, re.IGNORECASE)
+    if match:
+        active = int(match.group(1))
+        return active - 1 if active > 1 else None
+
+    # Keirin / per-heat format: split on "Heat N" labels and count sections
+    # that contain actual timing values (non-zero integer part).
+    sections = re.split(r"\bHeat\s+\d+\b", html)
+    count = sum(1 for section in sections[1:] if re.search(r"\b[1-9]\d*\.\d{2,}", section))
+    return count if count > 0 else None
+
+
 def parse_finish_time(html: str) -> float | None:
     """
     Extract 'Finish Time: MM:SS' from a result page and return the duration

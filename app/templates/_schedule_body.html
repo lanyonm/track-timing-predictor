@@ -26,6 +26,7 @@
           {{ pred.estimated_duration_minutes | round(1) }}m
           <span class="duration-label">
             {%- if pred.is_observed -%}obs.
+            {%- elif pred.is_active and pred.active_heat is not none -%}heat {{ pred.active_heat }}{% if pred.heat_count is not none %}/{{ pred.heat_count }}{% endif %}
             {%- elif pred.heat_count is not none -%}{{ pred.heat_count }} heat{{ 's' if pred.heat_count != 1 else '' }}
             {%- else -%}est.
             {%- endif -%}

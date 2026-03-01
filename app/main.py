@@ -9,13 +9,14 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import settings
 from app.database import get_all_learned_durations, init_db
-from app.fetcher import fetch_initial_layout, fetch_refresh, fetch_result_html, fetch_start_list_html
+from app.fetcher import fetch_initial_layout, fetch_live_html, fetch_refresh, fetch_result_html, fetch_start_list_html
 from app.models import Session
-from app.parser import parse_finish_time, parse_heat_count, parse_schedule
+from app.parser import parse_finish_time, parse_heat_count, parse_live_heat, parse_schedule
 from app.predictor import (
     get_heat_count,
     predict_schedule,
     record_heat_count,
+    record_live_heat,
     record_observed_duration,
     update_status_cache,
 )
@@ -30,6 +31,36 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Track Timing Predictor", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+
+async def _fetch_live_heats(event_id: int, sessions: list[Session]) -> None:
+    """
+    Fetch the live results page for any event that has a live_url and parse
+    the current heat number. Called on every refresh since the page changes
+    as each heat completes.
+    """
+    to_fetch = [
+        (event_id, s.session_id, e.position, e.live_url)
+        for s in sessions
+        for e in s.events
+        if e.live_url
+    ]
+    if not to_fetch:
+        return
+
+    sem = asyncio.Semaphore(5)
+
+    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str) -> None:
+        async with sem:
+            try:
+                html = await fetch_live_html(url)
+                heat = parse_live_heat(html)
+                if heat is not None:
+                    record_live_heat(ev_id, sess_id, pos, heat)
+            except Exception:
+                pass
+
+    await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
 async def _fetch_start_lists(event_id: int, sessions: list[Session]) -> None:
@@ -82,6 +113,7 @@ async def show_schedule(request: Request, event_id: int = Form(...)):
         )
 
     await _fetch_start_lists(event_id, sessions)
+    await _fetch_live_heats(event_id, sessions)
     now = datetime.now()
     schedule = predict_schedule(event_id, sessions, now=now)
 
@@ -111,6 +143,7 @@ async def get_schedule(request: Request, event_id: int):
         )
 
     await _fetch_start_lists(event_id, sessions)
+    await _fetch_live_heats(event_id, sessions)
     now = datetime.now()
     schedule = predict_schedule(event_id, sessions, now=now)
 
@@ -141,6 +174,9 @@ async def refresh_schedule(request: Request, event_id: int):
 
     # Fetch any start lists not yet cached (e.g. newly published since initial load).
     await _fetch_start_lists(event_id, sessions)
+
+    # Fetch live results page to get current heat number (changes each heat).
+    await _fetch_live_heats(event_id, sessions)
 
     # Detect newly-completed events and fetch their result pages.
     newly_completed = update_status_cache(event_id, sessions, now)

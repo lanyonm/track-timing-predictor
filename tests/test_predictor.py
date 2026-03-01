@@ -13,6 +13,7 @@ from app.predictor import (
     predict_schedule,
     predict_session,
     record_heat_count,
+    record_live_heat,
 )
 
 SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
@@ -362,6 +363,212 @@ class TestIsActive:
         active_count = sum(1 for p in sp.event_predictions if p.is_active)
         assert active_count == 1
         assert sp.event_predictions[2].is_active
+
+    def test_live_url_fallback_marks_active_when_no_completed_events(self):
+        """
+        An event with live_url is marked active even when it is the first event
+        in the session (completed_count == 0). The LIVE button on the schedule is
+        the definitive signal that the event is running right now.
+        """
+        session = Session(
+            session_id=1,
+            day="Friday",
+            scheduled_start=time(8, 0),
+            events=[
+                TrackEvent(
+                    position=0, name="Keirin R1", discipline="keirin",
+                    status=EventStatus.UPCOMING, is_special=False,
+                    live_url="liveresults.php?EventId=1",
+                ),
+                TrackEvent(
+                    position=1, name="Keirin R2", discipline="keirin",
+                    status=EventStatus.NOT_READY, is_special=False,
+                ),
+            ],
+        )
+        sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 15))
+        assert sp.event_predictions[0].is_active
+        assert not sp.event_predictions[1].is_active
+
+    def test_live_url_fallback_not_used_when_completed_events_exist(self):
+        """
+        When the status-based active_index already points to an event, the
+        live_url fallback is not used (the status-based event takes priority).
+        """
+        session = Session(
+            session_id=1,
+            day="Friday",
+            scheduled_start=time(8, 0),
+            events=[
+                TrackEvent(
+                    position=0, name="Event 0", discipline="scratch_race",
+                    status=EventStatus.COMPLETED, is_special=False,
+                ),
+                TrackEvent(
+                    position=1, name="Event 1", discipline="keirin",
+                    status=EventStatus.UPCOMING, is_special=False,
+                    live_url="liveresults.php?EventId=1",
+                ),
+                TrackEvent(
+                    position=2, name="Event 2", discipline="keirin",
+                    status=EventStatus.NOT_READY, is_special=False,
+                ),
+            ],
+        )
+        sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 15))
+        # Status-based: event 1 is active (completed_count=1)
+        assert not sp.event_predictions[0].is_active
+        assert sp.event_predictions[1].is_active
+        assert not sp.event_predictions[2].is_active
+
+
+# ── active_heat estimation ─────────────────────────────────────────────────────
+
+
+class TestActiveHeat:
+    """
+    Keirin per_heat_duration = 5.0 min.
+    Session starts 08:00. First event (scratch_race, default 12 min) is COMPLETED.
+    Second event (keirin, 3 heats) is UPCOMING and active.
+    Predicted start of keirin = 08:00 + 12 min = 08:12 (no delay in these tests).
+    """
+
+    EVENT_ID = 88888
+
+    def _make_session(self) -> Session:
+        return Session(
+            session_id=88,
+            day="Saturday",
+            scheduled_start=time(8, 0),
+            events=[
+                _make_event(0, EventStatus.COMPLETED, "scratch_race"),
+                _make_event(1, EventStatus.UPCOMING, "keirin"),
+                _make_event(2, EventStatus.NOT_READY, "scratch_race"),
+            ],
+        )
+
+    def _setup(self) -> None:
+        record_heat_count(self.EVENT_ID, 88, 1, 3)  # 3 keirin heats
+
+    def test_active_heat_first_heat_at_start(self):
+        """At predicted start time (elapsed=0), active_heat should be 1."""
+        self._setup()
+        session = self._make_session()
+        # no delay: keirin starts at 08:12; now = 08:12 → elapsed=0
+        sp = predict_session(self.EVENT_ID, session, now=datetime(2024, 1, 1, 8, 12))
+        active = sp.event_predictions[1]
+        assert active.is_active
+        assert active.active_heat == 1
+
+    def test_active_heat_second_heat(self):
+        """After 6 min elapsed (> 5 min/heat), active_heat should be 2."""
+        self._setup()
+        session = self._make_session()
+        # keirin starts at 08:12; now = 08:18 → elapsed=6 min → heat 2
+        sp = predict_session(self.EVENT_ID, session, now=datetime(2024, 1, 1, 8, 18))
+        active = sp.event_predictions[1]
+        assert active.active_heat == 2
+
+    def test_active_heat_third_heat(self):
+        """After 11 min elapsed (> 10 min), active_heat should be 3."""
+        self._setup()
+        session = self._make_session()
+        # keirin starts at 08:12; now = 08:23 → elapsed=11 min → heat 3
+        sp = predict_session(self.EVENT_ID, session, now=datetime(2024, 1, 1, 8, 23))
+        active = sp.event_predictions[1]
+        assert active.active_heat == 3
+
+    def test_active_heat_clamped_to_heat_count(self):
+        """active_heat never exceeds heat_count even if overrunning."""
+        self._setup()
+        session = self._make_session()
+        # keirin starts at 08:12; now = 08:40 → elapsed=28 min → would be heat 6, clamped to 3
+        sp = predict_session(self.EVENT_ID, session, now=datetime(2024, 1, 1, 8, 40))
+        active = sp.event_predictions[1]
+        assert active.active_heat == 3
+
+    def test_active_heat_none_without_heat_count(self):
+        """active_heat is None when no heat count is available."""
+        session = self._make_session()
+        # No heat count recorded for position 1 in this unique session
+        sp = predict_session(self.EVENT_ID + 1, session, now=datetime(2024, 1, 1, 8, 20))
+        active = sp.event_predictions[1]
+        assert active.is_active
+        assert active.active_heat is None
+
+    def test_active_heat_none_for_non_active_events(self):
+        """active_heat is only set for the active event."""
+        self._setup()
+        session = self._make_session()
+        sp = predict_session(self.EVENT_ID, session, now=datetime(2024, 1, 1, 8, 18))
+        assert sp.event_predictions[0].active_heat is None
+        assert sp.event_predictions[2].active_heat is None
+
+
+# ── live heat priority ─────────────────────────────────────────────────────────
+
+
+class TestLiveHeatPriority:
+    """
+    Verify that live page heat data takes priority over the time-based fallback.
+
+    Session: starts 08:00, scratch_race (12 min default) COMPLETED, then keirin UPCOMING.
+    Keirin per_heat_duration = 5.0 min. Heat count = 3.
+    Without a live heat, time-based elapsed = now - 08:00 - 12 min.
+    """
+
+    EVENT_ID = 77777
+
+    def _make_session(self) -> Session:
+        return Session(
+            session_id=77,
+            day="Sunday",
+            scheduled_start=time(8, 0),
+            events=[
+                _make_event(0, EventStatus.COMPLETED, "scratch_race"),
+                _make_event(1, EventStatus.UPCOMING, "keirin"),
+                _make_event(2, EventStatus.NOT_READY, "scratch_race"),
+            ],
+        )
+
+    def test_live_heat_overrides_time_based_estimate(self):
+        """
+        With 1 completed heat on the live page, active_heat=2 (completed+1).
+        At event start the time-based fallback would give heat 1 (elapsed=0),
+        but the live page correctly shows heat 1 is already done.
+        """
+        record_heat_count(self.EVENT_ID, 77, 1, 3)
+        record_live_heat(self.EVENT_ID, 77, 1, 1)  # 1 heat completed
+        session = self._make_session()
+        # At 08:12, time-based gives heat 1; live: 1 done → active = 2
+        sp = predict_session(self.EVENT_ID, session, now=datetime(2024, 1, 1, 8, 12))
+        active = sp.event_predictions[1]
+        assert active.is_active
+        assert active.active_heat == 2
+
+    def test_live_heat_takes_priority_over_elapsed_time(self):
+        """
+        With 1 completed heat on the live page, active_heat=2 even when
+        elapsed time would estimate heat 3.
+        """
+        record_heat_count(self.EVENT_ID, 77, 1, 3)
+        record_live_heat(self.EVENT_ID, 77, 1, 1)  # 1 heat completed
+        session = self._make_session()
+        # At 08:23, elapsed_in_active=11 min → time-based heat 3; live: 1 done → active=2
+        sp = predict_session(self.EVENT_ID, session, now=datetime(2024, 1, 1, 8, 23))
+        active = sp.event_predictions[1]
+        assert active.active_heat == 2
+
+    def test_no_live_heat_falls_back_to_time_based(self):
+        """When no live heat is cached, time-based estimate is used instead."""
+        fallback_id = self.EVENT_ID + 100  # no live heat recorded for this ID
+        record_heat_count(fallback_id, 77, 1, 3)
+        session = self._make_session()
+        # At 08:18, elapsed_in_active = 18-12 = 6 min → int(6/5)+1 = 2
+        sp = predict_session(fallback_id, session, now=datetime(2024, 1, 1, 8, 18))
+        active = sp.event_predictions[1]
+        assert active.is_active
+        assert active.active_heat == 2
 
 
 # ── predict_schedule ──────────────────────────────────────────────────────────

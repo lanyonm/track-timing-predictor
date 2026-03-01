@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<!-- saved from url=(0054)https://tracktiming.live/liveresults.php?EventId=26008 -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><script type="text/javascript" src="./live-results-sample-keirin-2-heats-second-active_files/jaxon.core.min.js" charset="UTF-8"></script>
+
+<script type="text/javascript" charset="UTF-8">
+/* <![CDATA[ */
+try {
+    if(typeof jaxon.config == undefined)
+        jaxon.config = {};
+}
+catch(e) {
+    jaxon = {};
+    jaxon.config = {};
+};
+
+jaxon.config.requestURI = "https://tracktiming.live/liveresults.php?EventId=26008";
+jaxon.config.statusMessages = false;
+jaxon.config.waitCursor = true;
+jaxon.config.version = "Jaxon 2.1.3";
+jaxon.config.defaultMode = "asynchronous";
+jaxon.config.defaultMethod = "POST";
+jaxon.config.responseType = "JSON";
+
+jaxon.confirm = {
+    skip: function(command) {
+        numberOfCommands = command.id;
+        while (0 < numberOfCommands) {
+            jaxon.tools.queue.pop(command.response);
+            --numberOfCommands;
+        }
+    }
+};
+/*
+    Function: jaxon.confirm.commands
+
+    A rewrite of the jaxon.confirm.commands function which uses the user configured confirm library.
+
+    Parameters:
+        command (object) - jaxon response object
+
+    Returns:
+        true - The operation completed successfully.
+*/
+jaxon.confirm.commands = function(command) {
+    command.fullName = 'confirmCommands';
+    var msg = command.data;
+    /*
+     * Unlike javascript confirm(), third party confirm() functions are not blocking.
+     * Therefore, to prevent the next commands to run while the library is waiting for the user confirmation,
+     * the remaining commands are moved to a new queue in the command object.
+     * They will be processed in the confirm callbacks.
+     * Note that only one confirm command will be allowed in a Jaxon response.
+     */
+    command.response = jaxon.tools.queue.create(jaxon.config.responseQueueSize);
+    while((obj = jaxon.tools.queue.pop(jaxon.response)) != null)
+    {
+        jaxon.tools.queue.push(command.response, obj);
+        delete obj;
+    }
+    if(confirm(msg)){jaxon.confirm.skip(command);jaxon.tools.queue.process(command.response);}else{jaxon.tools.queue.process(command.response);};
+    return true;
+};
+
+jaxon.dom.ready(function() {
+    jaxon.command.handler.register('cc', jaxon.confirm.commands);
+
+
+jaxon.command.handler.register("jquery", function(args) {
+    jaxon.cmd.script.execute(args);
+});});
+
+
+
+jaxon_updateDynArea = function() {
+    return jaxon.request(
+        { jxnfun: 'updateDynArea' },
+        { parameters: arguments }
+    );
+};
+
+/* ]]> */
+</script>
+    <script type="text/javascript" charset="UTF-8">
+        window.setInterval("call_getUpdate()",2000);
+        function call_getUpdate()
+        {
+            jaxon_updateDynArea(2);
+        }
+        function call_load()
+        {
+            jaxon_updateDynArea(1);
+        }
+  </script>
+  
+    
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=920">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>Live Results</title>
+
+
+    <!-- local css -->
+    <link href="./live-results-sample-keirin-2-heats-second-active_files/startlist-results.css" rel="stylesheet">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="./live-results-sample-keirin-2-heats-second-active_files/jquery-2.1.1.min.js"></script>
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+    <script src="./live-results-sample-keirin-2-heats-second-active_files/bootstrap.min.js"></script>
+    <script type="text/javascript" src="./live-results-sample-keirin-2-heats-second-active_files/jquery.flot.js"></script>
+    <script type="text/javascript" src="./live-results-sample-keirin-2-heats-second-active_files/jquery.flot.tooltip.js"></script>
+    <!-- Google tag (gtag.js) -->
+	<script async="" src="./live-results-sample-keirin-2-heats-second-active_files/js"></script>
+	<script>
+	  window.dataLayer = window.dataLayer || [];
+	  function gtag(){dataLayer.push(arguments);}
+	  gtag('js', new Date());
+
+	  gtag('config', 'G-4MFLLPZ3YV');
+	</script>
+  </head>
+  <body onload="call_load()" style="cursor: auto;">
+      <div id="dynarea"><p></p><h1 class="text-center">Ontario Provincial Track Championships</h1><p></p><!-- @@@@Elite/Junior Women Keirin Round 1 - Unofficial  Results$$$$--><div class="panel panel-primary"><div class="panel-heading text-center"><div class="panel-title"><strong>Unofficial  Results</strong></div></div></div><div class="text-center"><h3>Elite/Junior Women Keirin Round 1   - 6 Laps</h3></div><div class="panel panel-info"><div class="panel-heading2 text-right"><div class="panel-title2">Communique #3.50</div></div></div><div><h5>Qualification Rule: Top 3 riders advance to Final 1-6, next 3 advance to Final 7-12</h5></div><p></p><table class="table table-striped table-condensed"><thead><tr><th><h5>Place&nbsp;&nbsp;</h5></th><th><h5>Bib&nbsp;&nbsp;</h5></th><th><h5>&nbsp;</h5></th><th><h5>Name</h5></th><th><h5>Team</h5></th><th><h5>From</h5></th><th>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</th></tr></thead><tbody></tbody><tbody><tr><td colspan="8" style="text-align: center;"><h4><strong>Heat 1</strong></h4></td></tr><tr><td></td><td></td><td></td><td class="text-left"><h4>200m Time: 12.571</h4></td><td></td><td class="text-left"><h4>Speed: 57.275 km/h</h4></td><td></td></tr></tbody><tbody><tr><td><h5><strong>1</strong></h5></td><td><h5><strong>108</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>DUMONT Anne-marie</h5></td><td><h5>JUVENTUS</h5></td><td><h5>EDMONTON, AB</h5></td><td></td><td class="text-right"><h5><strong>Q</strong></h5></td></tr><tr><td><h5><strong>2</strong></h5></td><td><h5><strong>109</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>BROWN Betty</h5></td><td><h5>VELOCITY</h5></td><td><h5>EDMONTON, AB</h5></td><td class="text-right"><h5>+0.916</h5></td><td class="text-right"><h5><strong>Q</strong></h5></td></tr><tr><td><h5><strong>3</strong></h5></td><td><h5><strong>112</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>SALONEN-BERSCHT Lili</h5></td><td><h5>MILTON REVOLUTION U23 PROJECT</h5></td><td><h5>ELMIRA, ON</h5></td><td class="text-right"><h5>+0.929</h5></td><td class="text-right"><h5><strong>Q</strong></h5></td></tr><tr><td><h5><strong>4</strong></h5></td><td><h5><strong>111</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>VIVALDI Addison</h5></td><td><h5>MILTON REVOLUTION U23 PROJECT</h5></td><td><h5>OAKVILLE, ON</h5></td><td class="text-right"><h5>+1.112</h5></td><td class="text-right"><h5>&nbsp;</h5></td></tr><tr><td><h5><strong>5</strong></h5></td><td><h5><strong>115</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>JACOBS Emily</h5></td><td><h5>PEAK PURSUITS</h5></td><td><h5>CALGARY, AB</h5></td><td class="text-right"><h5>+2.316</h5></td><td class="text-right"><h5>&nbsp;</h5></td></tr><tr><td><h5><strong>6</strong></h5></td><td><h5><strong>121</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>POWELL Cassandra</h5></td><td><h5>MIDWEEK CYCLING CLUB</h5></td><td><h5>TORONTO, ON</h5></td><td class="text-right"><h5>+4.418</h5></td><td class="text-right"><h5>&nbsp;</h5></td></tr></tbody><tbody><tr style="background-color: yellow"><td></td><td></td><td></td><td><h4>Laps to go: 2</h4></td><td style="text-align: center;"><h4><strong>Heat 2</strong></h4></td><td></td><td></td><td></td></tr><tr><td></td><td></td><td></td><td class="text-left"><h4>200m Time: </h4></td><td></td><td class="text-left"><h4>Speed: 0.000 km/h</h4></td><td></td></tr></tbody><tbody><tr><td><h5><strong></strong></h5></td><td><h5><strong>104</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>IRWIN Sarah</h5></td><td><h5></h5></td><td><h5>NORTH BAY, ON</h5></td><td></td><td class="text-right"><h5>&nbsp;</h5></td></tr><tr><td><h5><strong></strong></h5></td><td><h5><strong>107</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>FLANIGAN Annika</h5></td><td><h5>EDGE CYCLING</h5></td><td><h5>BETHLEHEM, PA</h5></td><td></td><td class="text-right"><h5>&nbsp;</h5></td></tr><tr><td><h5><strong></strong></h5></td><td><h5><strong>113</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>OSTROVSKY Dasha</h5></td><td><h5>MILTON REVOLUTION U23 PROJECT</h5></td><td><h5><s2>RICHMOND HILL, ON</s2></h5></td><td></td><td class="text-right"><h5>&nbsp;</h5></td></tr><tr><td><h5><strong></strong></h5></td><td><h5><strong>123</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>GILIAUSKAS Danielle</h5></td><td><h5>ST. CATHARINES CYCLING CLUB</h5></td><td><h5>OAKVILLE, ON</h5></td><td></td><td class="text-right"><h5>&nbsp;</h5></td></tr><tr><td><h5><strong></strong></h5></td><td><h5><strong>131</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>SQUIRRELL Serena</h5></td><td><h5></h5></td><td><h5>VAL-MORIN, QC</h5></td><td></td><td class="text-right"><h5>&nbsp;</h5></td></tr><tr><td><h5><strong></strong></h5></td><td><h5><strong>114</strong></h5></td><td><h5>&nbsp;</h5></td><td><h5>LEE Sophie</h5></td><td><h5>MILTON REVOLUTION</h5></td><td><h5>ARISS, ON</h5></td><td></td><td class="text-right"><h5>&nbsp;</h5></td></tr></tbody></table><p></p><div class="panel panel-info"><div class="panel-heading2 text-right"><div class="panel-title2">&nbsp;</div></div></div><p class="text-center">Timing &amp; Results by Racetiming.ca</p></div>
+  
+</body></html>

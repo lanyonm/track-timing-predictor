@@ -7,7 +7,7 @@ import pytest
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
-from app.parser import parse_finish_time, parse_heat_count, parse_schedule
+from app.parser import parse_finish_time, parse_heat_count, parse_live_heat, parse_schedule
 
 SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
 
@@ -243,3 +243,79 @@ class TestParseHeatCount:
         # "Heated" or "Heathen" should not match
         html = "Heated debate\nHeathen\nHeat 1\nRider A\n"
         assert parse_heat_count(html) == 1
+
+
+# ── parse_live_heat ────────────────────────────────────────────────────────────
+
+
+_FIXTURES = Path(__file__).parent / "fixtures"
+
+
+class TestParseLiveHeat:
+    # Heat 1 done (has timing), Heat 2 upcoming (no timing)
+    PARTIAL_HTML = (
+        "Heat 1\n1  RIDER_A  12.345 Q\n2  RIDER_B  12.567\n"
+        "Heat 2\nRIDER_C\nRIDER_D\n"
+    )
+    # Both heats done
+    ALL_DONE_HTML = (
+        "Heat 1\n1  RIDER_A  12.345 Q\n2  RIDER_B  12.567\n"
+        "Heat 2\n1  RIDER_C  11.987 Q\n2  RIDER_D  12.111\n"
+    )
+    # Real pages captured from tracktiming.live
+    HEAT1_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-first-active.html").read_text()
+    HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-second-active.html").read_text()
+    TS_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-second-active.html").read_text()
+
+    def test_counts_completed_heats(self):
+        """Returns the count of heats that have timing results."""
+        assert parse_live_heat(self.ALL_DONE_HTML) == 2
+
+    def test_upcoming_heat_not_counted(self):
+        """A heat listed without timing data (not yet raced) is excluded."""
+        assert parse_live_heat(self.PARTIAL_HTML) == 1
+
+    def test_single_heat(self):
+        html = "Heat 1\nRider A  12.345\nRider B  11.987\n"
+        assert parse_live_heat(html) == 1
+
+    def test_returns_none_when_no_heats(self):
+        html = "Generated: 2026-02-27 08:25:21Timing & Results by Racetiming.ca"
+        assert parse_live_heat(html) is None
+
+    def test_ignores_partial_word_matches(self):
+        """'Heated' does not contribute to the count; only 'Heat N' sections do."""
+        html = "Heated debate\nHeat 1\nRider A  12.345\n"
+        assert parse_live_heat(html) == 1
+
+    def test_returns_none_when_all_heats_upcoming(self):
+        """All heats listed but none with timing returns None."""
+        html = "Heat 1\nRider A\nHeat 2\nRider B\n"
+        assert parse_live_heat(html) is None
+
+    def test_zero_speed_placeholder_not_counted_as_completed(self):
+        """The 'Speed: 0.000 km/h' placeholder on active heats is not treated as timing."""
+        html = "Heat 1\nRider A\nSpeed: 0.000 km/h\nHeat 2\nRider B\nSpeed: 0.000 km/h\n"
+        assert parse_live_heat(html) is None
+
+    def test_real_page_heat1_active_returns_none(self):
+        """Real live page: Heat 1 active, both heats show 0.000 placeholders → None."""
+        assert parse_live_heat(self.HEAT1_ACTIVE_HTML) is None
+
+    def test_real_page_heat2_active_returns_one(self):
+        """Real live page: Heat 1 done (has 12.571s timing), Heat 2 active → 1 completed."""
+        assert parse_live_heat(self.HEAT2_ACTIVE_HTML) == 1
+
+    def test_team_sprint_explicit_header_heat1_active(self):
+        """Team sprint 'Riders On Track for Heat 1' → 0 completed → None."""
+        html = "<h4>Riders On Track for Heat 1 of 4</h4>"
+        assert parse_live_heat(html) is None
+
+    def test_team_sprint_explicit_header_heat3_active(self):
+        """Team sprint 'Riders On Track for Heat 3 of 4' → 2 completed."""
+        html = "<h4>Riders On Track for Heat 3 of 4</h4>"
+        assert parse_live_heat(html) == 2
+
+    def test_team_sprint_real_page_heat2_active_returns_one(self):
+        """Real team sprint page: 'Riders On Track for Heat 2 of 4' → 1 completed."""
+        assert parse_live_heat(self.TS_HEAT2_ACTIVE_HTML) == 1
