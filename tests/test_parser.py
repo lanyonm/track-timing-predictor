@@ -306,16 +306,31 @@ class TestParseLiveHeat:
         """Real live page: Heat 1 done (has 12.571s timing), Heat 2 active → 1 completed."""
         assert parse_live_heat(self.HEAT2_ACTIVE_HTML) == 1
 
-    def test_team_sprint_explicit_header_heat1_active(self):
-        """Team sprint 'Riders On Track for Heat 1' → 0 completed → None."""
+    def test_team_event_explicit_header_heat1_active(self):
+        """'Riders On Track for Heat 1 of N' → 0 completed → None."""
         html = "<h4>Riders On Track for Heat 1 of 4</h4>"
         assert parse_live_heat(html) is None
 
-    def test_team_sprint_explicit_header_heat3_active(self):
-        """Team sprint 'Riders On Track for Heat 3 of 4' → 2 completed."""
+    def test_team_event_explicit_header_heat3_active(self):
+        """'Riders On Track for Heat 3 of 4' → 2 completed."""
         html = "<h4>Riders On Track for Heat 3 of 4</h4>"
         assert parse_live_heat(html) == 2
 
     def test_team_sprint_real_page_heat2_active_returns_one(self):
         """Real team sprint page: 'Riders On Track for Heat 2 of 4' → 1 completed."""
         assert parse_live_heat(self.TS_HEAT2_ACTIVE_HTML) == 1
+
+    def test_team_pursuit_header_heat1_active_returns_none(self):
+        """Team pursuit 'Riders On Track for Heat 1 of 3' → 0 completed → None."""
+        html = "<h4>Riders On Track for Heat 1 of 3</h4>"
+        assert parse_live_heat(html) is None
+
+    def test_team_pursuit_header_heat2_active_returns_one(self):
+        """Team pursuit 'Riders On Track for Heat 2 of 3' → 1 completed."""
+        html = "<h4>Riders On Track for Heat 2 of 3</h4>"
+        assert parse_live_heat(html) == 1
+
+    def test_team_pursuit_header_heat3_active_returns_two(self):
+        """Team pursuit 'Riders On Track for Heat 3 of 3' → 2 completed."""
+        html = "<h4>Riders On Track for Heat 3 of 3</h4>"
+        assert parse_live_heat(html) == 2

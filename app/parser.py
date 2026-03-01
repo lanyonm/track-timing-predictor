@@ -105,7 +105,8 @@ def parse_live_heat(html: str) -> int | None:
 
     Two page formats are handled:
 
-    Team-sprint format — an explicit header names the running heat:
+    Team event format (team sprint, team pursuit) — an explicit header names
+    the running heat:
         "Riders On Track for Heat N of M"
       → returns N - 1 (heats before the current one are done).
       → returns None when N == 1 (nothing completed yet).
@@ -115,7 +116,8 @@ def parse_live_heat(html: str) -> int | None:
       → the "0.000 km/h" placeholder on upcoming/active heats is excluded
         because it starts with 0.
     """
-    # Team-sprint format: the page explicitly says which heat is on track.
+    # Team event format (team sprint, team pursuit): the page explicitly says
+    # which heat is on track.
     match = re.search(r"Riders\s+On\s+Track\s+for\s+Heat\s+(\d+)", html, re.IGNORECASE)
     if match:
         active = int(match.group(1))
