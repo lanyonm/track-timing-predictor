@@ -34,6 +34,12 @@ _heat_counts: dict[tuple[int, int, int], int] = {}
 # Key: (event_id, session_id, position), Value: current heat number (1-based)
 _live_heats: dict[tuple[int, int, int], int] = {}
 
+# Generated timestamps parsed from result pages.
+# The difference between consecutive timestamps gives the actual inter-event
+# slot duration for any discipline, including those without a Finish Time field.
+# Key: (event_id, session_id, position), Value: datetime when result was generated
+_generated_times: dict[tuple[int, int, int], datetime] = {}
+
 
 def record_observed_duration(
     event_id: int,
@@ -82,6 +88,25 @@ def record_live_heat(event_id: int, session_id: int, position: int, heat: int) -
 def get_live_heat(event_id: int, session_id: int, position: int) -> int | None:
     """Return the most recently parsed live heat number, or None if not available."""
     return _live_heats.get((event_id, session_id, position))
+
+
+def record_generated_time(
+    event_id: int,
+    session_id: int,
+    position: int,
+    generated_at: datetime,
+) -> None:
+    """Store the result-page Generated timestamp for a completed event."""
+    _generated_times[(event_id, session_id, position)] = generated_at
+
+
+def get_generated_time(
+    event_id: int,
+    session_id: int,
+    position: int,
+) -> datetime | None:
+    """Return the cached Generated timestamp, or None if not yet fetched."""
+    return _generated_times.get((event_id, session_id, position))
 
 
 def _get_duration(discipline: str) -> float:
@@ -149,8 +174,9 @@ def predict_session(
 
     Duration source priority (most to least accurate):
       1. Observed: result-page Finish Time + changeover
-      2. Heat count: start-list heat count × per-heat duration + changeover
-      3. Default: learned average or DEFAULT_DURATIONS fallback
+      2. Generated: difference between consecutive result-page Generated timestamps
+      3. Heat count: start-list heat count × per-heat duration + changeover
+      4. Default: learned average or DEFAULT_DURATIONS fallback
 
     now: server wall-clock time used to estimate real-time delay.
          If None, no delay adjustment is applied (pre-event mode).
@@ -159,10 +185,44 @@ def predict_session(
     is_observed_list: list[bool] = []
     heat_count_list: list[int | None] = []
 
-    for e in session.events:
+    # Pre-compute generated-time derived durations.
+    # Duration of event[i] = generated_time[i+1] - generated_time[i], when both
+    # neighbours have a cached Generated timestamp and the gap is plausible.
+    #
+    # Plausibility is validated relative to the expected slot duration.  At track
+    # cycling championships, result pages for events that share a session block
+    # (e.g. keirin finals) are sometimes uploaded in a different order from the
+    # schedule, producing consecutive-timestamp gaps that are far too large or too
+    # small.  Accepting those blindly would corrupt downstream predictions.  A gap
+    # within [0.5×, 2.0×] the discipline's expected duration is considered reliable.
+    events = session.events
+    gen_durations: dict[int, float] = {}
+    for i in range(len(events) - 1):
+        t0 = _generated_times.get((event_id, session.session_id, events[i].position))
+        t1 = _generated_times.get((event_id, session.session_id, events[i + 1].position))
+        if t0 is not None and t1 is not None:
+            mins = (t1 - t0).total_seconds() / 60.0
+            # Expected duration: use heat-count estimate if available, else the
+            # STATIC default (not learned averages).  Learned data may itself be
+            # corrupted by bad gen-duration observations from earlier runs, so it
+            # must not influence the bounds used to validate new observations.
+            key_i = (event_id, session.session_id, events[i].position)
+            hc_i = _heat_counts.get(key_i)
+            if hc_i is not None:
+                expected = hc_i * get_per_heat_duration(events[i].discipline) + get_changeover(events[i].discipline)
+            else:
+                expected = get_default_duration(events[i].discipline)
+            if 0.5 * expected <= mins <= 2.0 * expected:
+                gen_durations[i] = mins
+
+    for i, e in enumerate(events):
         key = (event_id, session.session_id, e.position)
         if key in _observed_durations:
             durations.append(_observed_durations[key])
+            is_observed_list.append(True)
+            heat_count_list.append(None)
+        elif i in gen_durations:
+            durations.append(gen_durations[i])
             is_observed_list.append(True)
             heat_count_list.append(None)
         elif key in _heat_counts:
@@ -208,7 +268,10 @@ def predict_session(
     predictions: list[Prediction] = []
 
     for i, event in enumerate(session.events):
-        predicted_start = _add_minutes(session.scheduled_start, cumulative + delay_minutes)
+        # Only shift upcoming/active events by the current delay.
+        # Completed events keep their estimated historical start times.
+        applied_delay = delay_minutes if i >= completed_count else 0.0
+        predicted_start = _add_minutes(session.scheduled_start, cumulative + applied_delay)
         is_active = i == active_index
 
         # For an active multi-heat event, determine which heat is currently running.
@@ -243,8 +306,8 @@ def predict_session(
             event=event,
             predicted_start=predicted_start,
             estimated_duration_minutes=durations[i],
-            is_adjusted=(delay_minutes != 0.0),
-            cumulative_delay_minutes=delay_minutes,
+            is_adjusted=(applied_delay != 0.0),
+            cumulative_delay_minutes=applied_delay,
             is_observed=is_observed_list[i],
             heat_count=heat_count_list[i],
             is_active=is_active,
@@ -299,8 +362,17 @@ def update_status_cache(
             ):
                 # Wall-clock fallback: record elapsed time for disciplines
                 # that don't have a result-page Finish Time.
+                # Upper bound is 3× the static default duration for the discipline.
+                # The broad 180-min cap is too loose: start lists for some events
+                # (e.g. keirin rounds) are published 20-30 min before the race
+                # starts, making the UPCOMING→COMPLETED elapsed time far exceed
+                # the actual race duration.  Using 3× default rejects those
+                # inflated values while still accepting genuinely long events
+                # (e.g. a 3-heat keirin round: default 6.5 min × 3 = 19.5 min,
+                # which comfortably covers an actual ~17-min round).
                 elapsed = (now - cached["seen_at"]).total_seconds() / 60.0
-                if 0.5 <= elapsed <= 180.0:
+                max_elapsed = 3.0 * get_default_duration(event.discipline)
+                if 0.5 <= elapsed <= max_elapsed:
                     record_duration(
                         event_id=event_id,
                         session_id=session.session_id,

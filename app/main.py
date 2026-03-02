@@ -11,10 +11,12 @@ from app.config import settings
 from app.database import get_all_learned_durations, init_db
 from app.fetcher import fetch_initial_layout, fetch_live_html, fetch_refresh, fetch_result_html, fetch_start_list_html
 from app.models import Session
-from app.parser import parse_finish_time, parse_heat_count, parse_live_heat, parse_schedule
+from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
 from app.predictor import (
+    get_generated_time,
     get_heat_count,
     predict_schedule,
+    record_generated_time,
     record_heat_count,
     record_live_heat,
     record_observed_duration,
@@ -92,6 +94,43 @@ async def _fetch_start_lists(event_id: int, sessions: list[Session]) -> None:
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
+async def _fetch_result_pages(event_id: int, sessions: list[Session]) -> None:
+    """
+    Fetch result pages for all completed events that don't yet have a Generated
+    timestamp cached. Parses both the Generated timestamp (for generated-time
+    derived slot durations) and the Finish Time (for bunch-race observed durations).
+
+    Runs on every load/refresh but skips already-cached events, so only new
+    completions are fetched. This makes predictions self-correcting throughout
+    the day, even when the app is loaded mid-event.
+    """
+    to_fetch = [
+        (event_id, s.session_id, e.position, e.result_url, e.discipline)
+        for s in sessions
+        for e in s.events
+        if e.result_url and get_generated_time(event_id, s.session_id, e.position) is None
+    ]
+    if not to_fetch:
+        return
+
+    sem = asyncio.Semaphore(10)
+
+    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str) -> None:
+        async with sem:
+            try:
+                html = await fetch_result_html(url)
+                gen_time = parse_generated_time(html)
+                if gen_time is not None:
+                    record_generated_time(ev_id, sess_id, pos, gen_time)
+                finish_time = parse_finish_time(html)
+                if finish_time is not None:
+                    record_observed_duration(ev_id, sess_id, pos, finish_time, discipline)
+            except Exception:
+                pass
+
+    await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -113,6 +152,7 @@ async def show_schedule(request: Request, event_id: int = Form(...)):
         )
 
     await _fetch_start_lists(event_id, sessions)
+    await _fetch_result_pages(event_id, sessions)
     await _fetch_live_heats(event_id, sessions)
     now = datetime.now()
     schedule = predict_schedule(event_id, sessions, now=now)
@@ -143,6 +183,7 @@ async def get_schedule(request: Request, event_id: int):
         )
 
     await _fetch_start_lists(event_id, sessions)
+    await _fetch_result_pages(event_id, sessions)
     await _fetch_live_heats(event_id, sessions)
     now = datetime.now()
     schedule = predict_schedule(event_id, sessions, now=now)
@@ -175,29 +216,16 @@ async def refresh_schedule(request: Request, event_id: int):
     # Fetch any start lists not yet cached (e.g. newly published since initial load).
     await _fetch_start_lists(event_id, sessions)
 
+    # Fetch result pages for completed events not yet in the generated-time cache.
+    # This populates Generated timestamps (for inter-event durations) and Finish
+    # Times (for bunch-race observed durations), retroactively if needed.
+    await _fetch_result_pages(event_id, sessions)
+
     # Fetch live results page to get current heat number (changes each heat).
     await _fetch_live_heats(event_id, sessions)
 
-    # Detect newly-completed events and fetch their result pages.
-    newly_completed = update_status_cache(event_id, sessions, now)
-    for ev_id, sess_id, position, result_url in newly_completed:
-        try:
-            html = await fetch_result_html(result_url)
-            finish_time = parse_finish_time(html)
-            if finish_time is not None:
-                # Find discipline for this event to calculate changeover
-                discipline = next(
-                    (
-                        e.discipline
-                        for s in sessions
-                        for e in s.events
-                        if s.session_id == sess_id and e.position == position
-                    ),
-                    "unknown",
-                )
-                record_observed_duration(ev_id, sess_id, position, finish_time, discipline)
-        except Exception:
-            pass  # Result page unavailable; wall-clock observation already recorded
+    # Track status transitions for wall-clock fallback learning.
+    update_status_cache(event_id, sessions, now)
 
     schedule = predict_schedule(event_id, sessions, now=now)
 

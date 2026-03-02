@@ -1,5 +1,5 @@
 import re
-from datetime import time
+from datetime import datetime, time
 
 from bs4 import BeautifulSoup, Tag
 
@@ -139,6 +139,26 @@ def parse_finish_time(html: str) -> float | None:
     if not match:
         return None
     return int(match.group(1)) + int(match.group(2)) / 60.0
+
+
+def parse_generated_time(html: str) -> datetime | None:
+    """
+    Extract 'Generated: YYYY-MM-DD HH:MM:SS' from a result page footer and
+    return it as a datetime, or None if the line is absent or malformed.
+
+    This timestamp is present on every result page type (bunch races, time
+    trials, sprint qualifying, pursuit) and represents approximately when
+    the result was published — i.e. when the last result was entered for
+    that event.  Consecutive Generated timestamps can be differenced to
+    derive actual inter-event slot durations for all disciplines.
+    """
+    match = re.search(r"Generated:\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", html)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
 
 
 def parse_schedule(jxn_data: dict) -> list[Session]:

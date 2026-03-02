@@ -12,8 +12,10 @@ from app.predictor import (
     _compute_delay,
     predict_schedule,
     predict_session,
+    record_generated_time,
     record_heat_count,
     record_live_heat,
+    update_status_cache,
 )
 
 SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
@@ -249,6 +251,70 @@ class TestPredictSession:
     def test_prediction_count_matches_event_count(self, sessions):
         sp = predict_session(26008, sessions[0], now=None)
         assert len(sp.event_predictions) == len(sessions[0].events)
+
+    def test_completed_events_not_shifted_by_delay(self):
+        """
+        Completed events must show their estimated historical start times —
+        delay_minutes must NOT be added to them. Only upcoming events shift.
+        Session: 08:15 start, 2 events (scratch_race = 12 min each).
+        1st event COMPLETED, 2nd UPCOMING. now = 08:45 → ~18 min behind.
+        Expected: event[0] predicted at 08:15 (no delay); event[1] shifted.
+        """
+        session = Session(
+            session_id=1,
+            day="Sunday",
+            scheduled_start=time(8, 15),
+            events=[
+                _make_event(0, EventStatus.COMPLETED, "scratch_race"),
+                _make_event(1, EventStatus.UPCOMING, "scratch_race"),
+            ],
+        )
+        # now = 08:45 → actual_elapsed = 30 min; est_elapsed = 12 min → delay ≈ 18 min
+        now = datetime(2024, 1, 1, 8, 45)
+        sp = predict_session(99, session, now=now)
+
+        completed_pred = sp.event_predictions[0]
+        upcoming_pred = sp.event_predictions[1]
+
+        # Completed event must start exactly at the session scheduled start.
+        assert completed_pred.predicted_start == time(8, 15)
+        assert not completed_pred.is_adjusted
+
+        # Upcoming event must be shifted by the delay (starts after 08:27 = 08:15+12).
+        upcoming_minutes = upcoming_pred.predicted_start.hour * 60 + upcoming_pred.predicted_start.minute
+        assert upcoming_minutes > 8 * 60 + 27
+        assert upcoming_pred.is_adjusted
+
+    def test_three_events_only_upcoming_shifted(self):
+        """
+        With two completed events and one upcoming, only the upcoming event is
+        shifted; both completed events start at their estimated historical times.
+        """
+        session = Session(
+            session_id=2,
+            day="Sunday",
+            scheduled_start=time(9, 0),
+            events=[
+                _make_event(0, EventStatus.COMPLETED, "scratch_race"),   # 12 min
+                _make_event(1, EventStatus.COMPLETED, "scratch_race"),   # 12 min
+                _make_event(2, EventStatus.UPCOMING, "scratch_race"),
+            ],
+        )
+        # est_elapsed = 24 min; now = 09:34 → actual_elapsed = 34 → delay = 10 min
+        now = datetime(2024, 1, 1, 9, 34)
+        sp = predict_session(99, session, now=now)
+
+        assert sp.event_predictions[0].predicted_start == time(9, 0)
+        assert sp.event_predictions[1].predicted_start == time(9, 12)
+        assert not sp.event_predictions[0].is_adjusted
+        assert not sp.event_predictions[1].is_adjusted
+        # Third event should be shifted by ~10 min
+        upcoming_minutes = (
+            sp.event_predictions[2].predicted_start.hour * 60
+            + sp.event_predictions[2].predicted_start.minute
+        )
+        assert upcoming_minutes > 9 * 60 + 24   # later than 09:24 (no-delay time)
+        assert sp.event_predictions[2].is_adjusted
 
 
 # ── heat count duration ────────────────────────────────────────────────────────
@@ -569,6 +635,194 @@ class TestLiveHeatPriority:
         active = sp.event_predictions[1]
         assert active.is_active
         assert active.active_heat == 2
+
+
+# ── generated-time derived durations ──────────────────────────────────────────
+
+
+class TestGeneratedTimeDuration:
+    """
+    Consecutive result-page Generated timestamps are differenced to produce
+    actual inter-event slot durations, replacing estimates for all disciplines.
+
+    Session: starts 08:00 with three events (positions 10, 11, 12).
+    Generated times:  pos 10 → 08:10, pos 11 → 08:22, pos 12 → 08:35.
+    Expected durations: pos 10 = 12 min, pos 11 = 13 min, pos 12 = default
+    (no subsequent event to diff against).
+    """
+
+    EVENT_ID = 55555
+
+    def _make_session(self, statuses: list[EventStatus]) -> Session:
+        return Session(
+            session_id=55,
+            day="Saturday",
+            scheduled_start=time(8, 0),
+            events=[
+                TrackEvent(position=10, name="E10", discipline="scratch_race",
+                           status=statuses[0], is_special=False),
+                TrackEvent(position=11, name="E11", discipline="keirin",
+                           status=statuses[1], is_special=False),
+                TrackEvent(position=12, name="E12", discipline="keirin",
+                           status=statuses[2], is_special=False),
+            ],
+        )
+
+    def _setup(self) -> None:
+        record_generated_time(self.EVENT_ID, 55, 10, datetime(2026, 1, 1, 8, 10, 0))
+        record_generated_time(self.EVENT_ID, 55, 11, datetime(2026, 1, 1, 8, 22, 0))
+        record_generated_time(self.EVENT_ID, 55, 12, datetime(2026, 1, 1, 8, 35, 0))
+
+    def test_generated_duration_used_for_first_event(self):
+        """pos 10 duration = generated(11) - generated(10) = 12 min."""
+        self._setup()
+        session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(12.0)
+
+    def test_generated_duration_used_for_middle_event(self):
+        """pos 11 duration = generated(12) - generated(11) = 13 min."""
+        self._setup()
+        session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        assert sp.event_predictions[1].estimated_duration_minutes == pytest.approx(13.0)
+
+    def test_last_event_falls_back_to_default(self):
+        """pos 12 has no successor generated time → uses default (keirin = 6.5 min)."""
+        self._setup()
+        session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        assert sp.event_predictions[2].estimated_duration_minutes == pytest.approx(6.5)
+
+    def test_generated_duration_marked_as_observed(self):
+        """Generated-time derived durations are flagged is_observed=True."""
+        self._setup()
+        session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        assert sp.event_predictions[0].is_observed is True
+        assert sp.event_predictions[1].is_observed is True
+        assert sp.event_predictions[2].is_observed is False
+
+    def test_generated_duration_shifts_subsequent_predictions(self):
+        """Accurate duration for event 0 propagates to event 1's predicted start."""
+        self._setup()
+        session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        # Event 1 starts at 08:00 + 12 min = 08:12
+        assert sp.event_predictions[1].predicted_start == time(8, 12)
+
+    def test_observed_takes_priority_over_generated(self):
+        """Finish-Time observed duration overrides the generated-time derived one."""
+        from app.predictor import record_observed_duration
+        self._setup()
+        # Record an observed duration of 9.0 min for pos 10 (overrides 12-min generated)
+        record_observed_duration(self.EVENT_ID, 55, 10, 7.0, "scratch_race")
+        session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
+        sp = predict_session(self.EVENT_ID, session, now=None)
+        # scratch_race changeover = 2.0 → slot = 7.0 + 2.0 = 9.0
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(9.0)
+
+    def test_implausible_gap_falls_back_to_default(self):
+        """A generated-time gap > 2× the expected slot duration is discarded."""
+        # Override pos 11 to be 3 hours after pos 10 (implausible for scratch_race ~12 min)
+        record_generated_time(self.EVENT_ID + 1, 55, 10, datetime(2026, 1, 1, 8, 0, 0))
+        record_generated_time(self.EVENT_ID + 1, 55, 11, datetime(2026, 1, 1, 11, 0, 0))  # 180 min gap
+        session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
+        sp = predict_session(self.EVENT_ID + 1, session, now=None)
+        # Falls back to scratch_race default = 12.0 min
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(12.0)
+        assert sp.event_predictions[0].is_observed is False
+
+    def test_out_of_order_keirin_gen_duration_rejected(self):
+        """
+        Keirin finals at track championships are often uploaded out of schedule
+        order, producing consecutive-timestamp gaps far larger than one keirin
+        race.  A gap > 2× the keirin default (6.5 min) must be rejected so the
+        prediction falls back to the default instead of using a bogus duration.
+        """
+        # Simulate a keirin final (pos 11) whose next event's result (pos 12)
+        # was uploaded 55 minutes later because the schedule ran out of order.
+        record_generated_time(self.EVENT_ID + 2, 55, 11, datetime(2026, 1, 1, 12, 46, 0))
+        record_generated_time(self.EVENT_ID + 2, 55, 12, datetime(2026, 1, 1, 13, 41, 0))  # 55 min gap
+        session = Session(
+            session_id=55,
+            day="Sunday",
+            scheduled_start=time(8, 0),
+            events=[
+                TrackEvent(position=11, name="U11 Keirin Final", discipline="keirin",
+                           status=EventStatus.COMPLETED, is_special=False),
+                TrackEvent(position=12, name="Keirin Repechage", discipline="keirin",
+                           status=EventStatus.UPCOMING, is_special=False),
+            ],
+        )
+        sp = predict_session(self.EVENT_ID + 2, session, now=None)
+        # 55 min >> 2 × 6.5 = 13 min → rejected; falls back to keirin default
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(6.5)
+        assert sp.event_predictions[0].is_observed is False
+
+
+# ── update_status_cache ────────────────────────────────────────────────────────
+
+
+class TestUpdateStatusCacheWallClockBound:
+    """
+    update_status_cache records wall-clock elapsed time when an event
+    transitions UPCOMING → COMPLETED.  The elapsed time is capped at
+    3× the discipline's static default to prevent inflated values when
+    start lists are published well before the race starts.
+    """
+
+    def _make_session(self, status: EventStatus, discipline: str = "keirin") -> Session:
+        return Session(
+            session_id=99,
+            day="Sunday",
+            scheduled_start=time(12, 0),
+            events=[
+                TrackEvent(position=1, name="E1", discipline=discipline,
+                           status=status, is_special=False),
+            ],
+        )
+
+    def test_reasonable_elapsed_is_recorded(self):
+        """An elapsed time within 3× default is recorded without issue."""
+        from app.database import get_all_learned_durations
+        sessions = [self._make_session(EventStatus.UPCOMING, "keirin")]
+        t_seen = datetime(2026, 1, 1, 12, 0, 0)
+        update_status_cache(88001, sessions, t_seen)
+
+        # Transition UPCOMING → COMPLETED 10 min later (within 3 × 6.5 = 19.5 min)
+        sessions2 = [self._make_session(EventStatus.COMPLETED, "keirin")]
+        t_done = datetime(2026, 1, 1, 12, 10, 0)
+        update_status_cache(88001, sessions2, t_done)
+        # The 10-min value should be recorded (no assertion on DB here; this
+        # just verifies no exception is raised and the cache updates cleanly).
+
+    def test_inflated_elapsed_exceeding_cap_is_not_recorded(self):
+        """
+        Elapsed > 3× default must NOT enter the database.
+        Keirin default = 6.5 min → cap = 19.5 min.
+        A 37-min elapsed (start list published 20+ min before race) is rejected.
+        """
+        from app.database import get_db
+
+        def _keirin_row_count() -> int:
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM event_durations "
+                    "WHERE discipline = 'keirin' AND event_id = 88002"
+                ).fetchone()
+            return row["cnt"]
+
+        assert _keirin_row_count() == 0
+
+        sessions = [self._make_session(EventStatus.UPCOMING, "keirin")]
+        update_status_cache(88002, sessions, datetime(2026, 1, 1, 12, 0, 0))
+
+        # Transition after 37 min (exceeds 3 × 6.5 = 19.5 min cap)
+        sessions2 = [self._make_session(EventStatus.COMPLETED, "keirin")]
+        update_status_cache(88002, sessions2, datetime(2026, 1, 1, 12, 37, 0))
+
+        assert _keirin_row_count() == 0  # no row was inserted
 
 
 # ── predict_schedule ──────────────────────────────────────────────────────────

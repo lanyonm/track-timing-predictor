@@ -1,13 +1,13 @@
 """Tests for app/parser.py using event 26008 sample data."""
 import json
-from datetime import time
+from datetime import datetime, time
 from pathlib import Path
 
 import pytest
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
-from app.parser import parse_finish_time, parse_heat_count, parse_live_heat, parse_schedule
+from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
 
 SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
 
@@ -334,3 +334,28 @@ class TestParseLiveHeat:
         """Team pursuit 'Riders On Track for Heat 3 of 3' → 2 completed."""
         html = "<h4>Riders On Track for Heat 3 of 3</h4>"
         assert parse_live_heat(html) == 2
+
+
+# ── parse_generated_time ──────────────────────────────────────────────────────
+
+
+class TestParseGeneratedTime:
+    def test_standard_format(self):
+        html = "Generated: 2026-02-27 08:25:21Timing & Results by Racetiming.ca"
+        assert parse_generated_time(html) == datetime(2026, 2, 27, 8, 25, 21)
+
+    def test_present_on_sprint_qualifying_page(self):
+        html = "12.851\n6.453\n56.027 Q\nGenerated: 2026-02-27 08:25:21"
+        assert parse_generated_time(html) == datetime(2026, 2, 27, 8, 25, 21)
+
+    def test_present_alongside_finish_time(self):
+        html = "Finish Time: 9:28Speed: 47.5 km/hGenerated: 2026-02-27 09:37:21"
+        assert parse_generated_time(html) == datetime(2026, 2, 27, 9, 37, 21)
+
+    def test_returns_none_when_absent(self):
+        html = "Finish Time: 9:28Speed: 47.5 km/h"
+        assert parse_generated_time(html) is None
+
+    def test_whitespace_tolerance(self):
+        html = "Generated:  2026-03-01 14:05:00"
+        assert parse_generated_time(html) == datetime(2026, 3, 1, 14, 5, 0)
