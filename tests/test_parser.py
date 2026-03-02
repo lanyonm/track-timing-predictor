@@ -9,7 +9,7 @@ from app.disciplines import detect_discipline
 from app.models import EventStatus
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
 
-SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
+SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
 
 
 @pytest.fixture(scope="module")

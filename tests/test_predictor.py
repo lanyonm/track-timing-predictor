@@ -18,7 +18,7 @@ from app.predictor import (
     update_status_cache,
 )
 
-SAMPLE_PATH = Path(__file__).parent.parent / "sample-event-output.json"
+SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
 
 
 @pytest.fixture(scope="module")
