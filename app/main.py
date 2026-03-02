@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -136,35 +136,10 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.post("/schedule", response_class=HTMLResponse)
-async def show_schedule(request: Request, event_id: int = Form(...)):
-    """Handle form submission: fetch, parse, predict, and render the full schedule."""
-    try:
-        jxn_data = await fetch_initial_layout(event_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id}: {e}")
-
-    sessions = parse_schedule(jxn_data)
-    if not sessions:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No schedule found for event {event_id}. Check that the event ID is correct.",
-        )
-
-    await _fetch_start_lists(event_id, sessions)
-    await _fetch_result_pages(event_id, sessions)
-    await _fetch_live_heats(event_id, sessions)
-    now = datetime.now()
-    schedule = predict_schedule(event_id, sessions, now=now)
-
-    return templates.TemplateResponse("schedule.html", {
-        "request": request,
-        "schedule": schedule,
-        "event_id": event_id,
-        "now": now,
-        "refresh_seconds": settings.refresh_interval_seconds,
-        "base_url": settings.tracktiming_base_url,
-    })
+@app.post("/schedule")
+async def show_schedule(event_id: int = Form(...)):
+    """Redirect to the bookmarkable GET route for the given event."""
+    return RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
 
 
 @app.get("/schedule/{event_id}", response_class=HTMLResponse)
