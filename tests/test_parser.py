@@ -266,6 +266,10 @@ class TestParseLiveHeat:
     HEAT1_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-first-active.html").read_text()
     HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-second-active.html").read_text()
     TS_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-second-active.html").read_text()
+    TS_HEAT3_ACTIVE_EARLY_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-third-active-1.html").read_text()
+    TS_HEAT3_ACTIVE_MID_HTML   = (_FIXTURES / "live-results-sample-team-sprint-4-heats-third-active-2.html").read_text()
+    TP_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-pursuit-3-heats-second-active.html").read_text()
+    TP_HEAT3_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-pursuit-3-heats-third-active.html").read_text()
 
     def test_counts_completed_heats(self):
         """Returns the count of heats that have timing results."""
@@ -319,6 +323,22 @@ class TestParseLiveHeat:
     def test_team_sprint_real_page_heat2_active_returns_one(self):
         """Real team sprint page: 'Riders On Track for Heat 2 of 4' → 1 completed."""
         assert parse_live_heat(self.TS_HEAT2_ACTIVE_HTML) == 1
+
+    def test_team_sprint_real_page_heat3_active_early_returns_two(self):
+        """Real team sprint page: 'Riders On Track for Heat 3 of 4', H3 not yet started → 2 completed."""
+        assert parse_live_heat(self.TS_HEAT3_ACTIVE_EARLY_HTML) == 2
+
+    def test_team_sprint_real_page_heat3_active_mid_returns_two(self):
+        """Real team sprint page: 'Riders On Track for Heat 3 of 4', H3 mid-race → 2 completed."""
+        assert parse_live_heat(self.TS_HEAT3_ACTIVE_MID_HTML) == 2
+
+    def test_team_pursuit_real_page_heat2_active_returns_one(self):
+        """Real team pursuit page: 'Riders On Track for Heat 2 of 3' → 1 completed."""
+        assert parse_live_heat(self.TP_HEAT2_ACTIVE_HTML) == 1
+
+    def test_team_pursuit_real_page_heat3_active_returns_two(self):
+        """Real team pursuit page: 'Riders On Track for Heat 3 of 3' → 2 completed."""
+        assert parse_live_heat(self.TP_HEAT3_ACTIVE_HTML) == 2
 
     def test_team_pursuit_header_heat1_active_returns_none(self):
         """Team pursuit 'Riders On Track for Heat 1 of 3' → 0 completed → None."""
