@@ -7,7 +7,7 @@
     <a href="https://tracktiming.live/eventpage.php?EventId={{ event_id }}" target="_blank" class="source-link">View on tracktiming.live</a>
   </div>
   <p class="meta">
-    Last updated: {{ now.strftime('%H:%M:%S') }}
+    Last updated: <span id="last-updated">{{ now.strftime('%H:%M:%S') }}</span>
     &nbsp;·&nbsp;
     Auto-refreshes every {{ refresh_seconds }}s
     &nbsp;·&nbsp;
@@ -26,4 +26,11 @@
 
   <span id="refresh-indicator" class="htmx-indicator">Refreshing…</span>
 </section>
+<script>
+  document.getElementById('schedule-container').addEventListener('htmx:afterSwap', function () {
+    const now = new Date();
+    document.getElementById('last-updated').textContent =
+      now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
+</script>
 {% endblock %}
