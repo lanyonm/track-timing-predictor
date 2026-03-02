@@ -109,10 +109,13 @@ def get_generated_time(
     return _generated_times.get((event_id, session_id, position))
 
 
-def _get_duration(discipline: str) -> float:
-    """Return learned duration if available, otherwise use the default."""
-    learned = get_learned_duration(discipline)
-    return learned if learned is not None else get_default_duration(discipline)
+def _get_duration(discipline: str, use_learned: bool = True) -> float:
+    """Return learned duration if available and enabled, otherwise use the default."""
+    if use_learned:
+        learned = get_learned_duration(discipline)
+        if learned is not None:
+            return learned
+    return get_default_duration(discipline)
 
 
 def _time_to_minutes(t: time) -> float:
@@ -168,6 +171,7 @@ def predict_session(
     event_id: int,
     session: Session,
     now: datetime | None = None,
+    use_learned: bool = True,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -232,7 +236,7 @@ def predict_session(
             is_observed_list.append(False)
             heat_count_list.append(hc)
         else:
-            durations.append(_get_duration(e.discipline))
+            durations.append(_get_duration(e.discipline, use_learned))
             is_observed_list.append(False)
             heat_count_list.append(None)
 
@@ -327,8 +331,9 @@ def predict_schedule(
     event_id: int,
     sessions: list[Session],
     now: datetime | None = None,
+    use_learned: bool = True,
 ) -> SchedulePrediction:
-    session_predictions = [predict_session(event_id, s, now=now) for s in sessions]
+    session_predictions = [predict_session(event_id, s, now=now, use_learned=use_learned) for s in sessions]
     return SchedulePrediction(event_id=event_id, sessions=session_predictions)
 
 

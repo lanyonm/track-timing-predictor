@@ -131,6 +131,10 @@ async def _fetch_result_pages(event_id: int, sessions: list[Session]) -> None:
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
+def _use_learned(request: Request) -> bool:
+    return request.cookies.get("use_learned") == "true"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -161,7 +165,8 @@ async def get_schedule(request: Request, event_id: int):
     await _fetch_result_pages(event_id, sessions)
     await _fetch_live_heats(event_id, sessions)
     now = datetime.now()
-    schedule = predict_schedule(event_id, sessions, now=now)
+    use_learned = _use_learned(request)
+    schedule = predict_schedule(event_id, sessions, now=now, use_learned=use_learned)
 
     return templates.TemplateResponse("schedule.html", {
         "request": request,
@@ -170,6 +175,7 @@ async def get_schedule(request: Request, event_id: int):
         "now": now,
         "refresh_seconds": settings.refresh_interval_seconds,
         "base_url": settings.tracktiming_base_url,
+        "use_learned": use_learned,
     })
 
 
@@ -202,7 +208,7 @@ async def refresh_schedule(request: Request, event_id: int):
     # Track status transitions for wall-clock fallback learning.
     update_status_cache(event_id, sessions, now)
 
-    schedule = predict_schedule(event_id, sessions, now=now)
+    schedule = predict_schedule(event_id, sessions, now=now, use_learned=_use_learned(request))
 
     return templates.TemplateResponse("_schedule_body.html", {
         "request": request,
@@ -211,6 +217,17 @@ async def refresh_schedule(request: Request, event_id: int):
         "now": now,
         "base_url": settings.tracktiming_base_url,
     })
+
+
+@app.post("/settings/use-learned")
+async def toggle_use_learned(event_id: int = Form(...), use_learned: str = Form("off")):
+    """Toggle the learned-durations feature flag for the current browser session."""
+    response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
+    if use_learned == "on":
+        response.set_cookie(key="use_learned", value="true")
+    else:
+        response.delete_cookie(key="use_learned")
+    return response
 
 
 @app.get("/learned", response_class=HTMLResponse)
