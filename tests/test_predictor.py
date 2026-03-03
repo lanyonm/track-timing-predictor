@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from app.disciplines import CHANGEOVER_MINUTES, PER_HEAT_DURATIONS
 from app.models import EventStatus, Session, TrackEvent
 from app.parser import parse_schedule
 from app.predictor import (
@@ -337,11 +338,12 @@ class TestHeatCountDuration:
         )
 
     def test_heat_count_overrides_default(self):
-        """With 3 keirin heats, duration = 3 × 5.0 + 2.0 changeover = 17.0 min."""
+        """With 3 keirin heats, duration = 3 × per_heat + changeover."""
         record_heat_count(self.EVENT_ID, 99, 0, 3)
         session = self._make_session()
         sp = predict_session(self.EVENT_ID, session, now=None)
-        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(17.0)
+        expected = 3 * PER_HEAT_DURATIONS["keirin"] + CHANGEOVER_MINUTES["keirin"]
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(expected)
         assert sp.event_predictions[0].heat_count == 3
         assert not sp.event_predictions[0].is_observed
 
@@ -350,9 +352,9 @@ class TestHeatCountDuration:
         record_heat_count(self.EVENT_ID, 99, 0, 2)
         session = self._make_session()
         sp = predict_session(self.EVENT_ID, session, now=None)
-        # first event: 2 × 5.0 + 2.0 = 12.0 min → second starts at 08:12
+        expected_duration = 2 * PER_HEAT_DURATIONS["keirin"] + CHANGEOVER_MINUTES["keirin"]
         second_start = sp.event_predictions[1].predicted_start
-        assert second_start == _add_minutes(time(8, 0), 12.0)
+        assert second_start == _add_minutes(time(8, 0), expected_duration)
 
     def test_no_heat_count_uses_default(self):
         """Without a cached heat count, falls back to DEFAULT_DURATIONS."""
