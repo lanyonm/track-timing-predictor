@@ -41,7 +41,7 @@ def _parse_summary(text: str) -> tuple[str, time]:
     Parse 'Schedule - Friday - 08:15' into ('Friday', time(8, 15)).
     Raises ValueError if the format does not match.
     """
-    match = re.match(r"Schedule\s*-\s*(\w+)\s*-\s*(\d{1,2}:\d{2})", text.strip())
+    match = re.match(r"Schedule\s*-\s*(.+?)\s*-\s*(\d{1,2}:\d{2})", text.strip())
     if not match:
         raise ValueError(f"Unexpected summary format: {text!r}")
     return match.group(1), _parse_time(match.group(2))

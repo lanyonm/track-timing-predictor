@@ -7,7 +7,7 @@ import pytest
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
-from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
+from app.parser import _parse_summary, parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
 
 SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
 
@@ -125,6 +125,35 @@ class TestParseSchedule:
     def test_live_url_absent_for_completed_events(self, sessions):
         completed = [e for s in sessions for e in s.events if e.status == EventStatus.COMPLETED]
         assert all(e.live_url is None for e in completed)
+
+
+# ── _parse_summary ────────────────────────────────────────────────────────────
+
+
+class TestParseSummary:
+    def test_single_word_day(self):
+        day, start = _parse_summary("Schedule - Friday - 08:15")
+        assert day == "Friday"
+        assert start.hour == 8 and start.minute == 15
+
+    def test_multi_word_day_morning(self):
+        day, start = _parse_summary("Schedule - Friday Morning - 08:30")
+        assert day == "Friday Morning"
+        assert start.hour == 8 and start.minute == 30
+
+    def test_multi_word_day_afternoon(self):
+        day, start = _parse_summary("Schedule - Tuesday Afternoon - 12:30")
+        assert day == "Tuesday Afternoon"
+        assert start.hour == 12 and start.minute == 30
+
+    def test_multi_word_day_evening(self):
+        day, start = _parse_summary("Schedule - Saturday Evening - 18:30")
+        assert day == "Saturday Evening"
+        assert start.hour == 18 and start.minute == 30
+
+    def test_invalid_format_raises(self):
+        with pytest.raises(ValueError):
+            _parse_summary("Event Documents")
 
 
 # ── detect_discipline ─────────────────────────────────────────────────────────
