@@ -28,7 +28,7 @@
     id="schedule-container"
     hx-get="/schedule/{{ event_id }}/refresh"
     hx-trigger="every {{ refresh_seconds }}s"
-    hx-swap="innerHTML"
+    hx-swap="innerHTML scroll:false"
     hx-indicator="#refresh-indicator"
   >
     {% include "_schedule_body.html" %}
@@ -37,10 +37,30 @@
   <span id="refresh-indicator" class="htmx-indicator">Refreshing…</span>
 </section>
 <script>
-  document.getElementById('schedule-container').addEventListener('htmx:afterSwap', function () {
-    const now = new Date();
-    document.getElementById('last-updated').textContent =
-      now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  });
+  (function () {
+    var container = document.getElementById('schedule-container');
+    var openSessions = new Set();
+
+    container.addEventListener('htmx:beforeSwap', function () {
+      openSessions.clear();
+      container.querySelectorAll('details[open]').forEach(function (el) {
+        openSessions.add(el.querySelector('summary .session-label').textContent.trim());
+      });
+    });
+
+    container.addEventListener('htmx:afterSwap', function () {
+      container.querySelectorAll('details').forEach(function (el) {
+        var label = el.querySelector('summary .session-label').textContent.trim();
+        if (openSessions.has(label)) {
+          el.setAttribute('open', '');
+        } else {
+          el.removeAttribute('open');
+        }
+      });
+
+      document.getElementById('last-updated').textContent =
+        new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    });
+  })();
 </script>
 {% endblock %}
