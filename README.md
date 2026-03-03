@@ -61,6 +61,17 @@ static/
 └── style.css
 ```
 
+## Taxonomy
+
+The app organises track cycling data in a four-level hierarchy:
+
+| Level | Term | Definition |
+|-------|------|------------|
+| 1 | **Competition** | A tracktiming.live event identified by an integer ID (the external API calls this `EventId`) |
+| 2 | **Session** | A day's racing block within a competition (e.g. "Friday 08:15") |
+| 3 | **Event** | An individual race/discipline entry within a session (e.g. "Elite Men Sprint Qualifying") |
+| 4 | **Heat** | One sequential ride within a multi-heat event (e.g. Heat 3 of 8 in sprint qualifying) |
+
 ## How durations are estimated
 
 Each event's slot duration is determined by the first available source:

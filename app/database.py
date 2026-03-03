@@ -43,7 +43,7 @@ def init_db() -> None:
 
 
 def record_duration(
-    event_id: int,
+    competition_id: int,
     session_id: int,
     event_position: int,
     event_name: str,
@@ -58,7 +58,7 @@ def record_duration(
                 (event_id, session_id, event_position, event_name, discipline, duration_minutes)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (event_id, session_id, event_position, event_name, discipline, duration_minutes),
+            (competition_id, session_id, event_position, event_name, discipline, duration_minutes),
         )
 
 

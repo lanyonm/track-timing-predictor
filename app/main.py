@@ -36,14 +36,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 
-async def _fetch_live_heats(event_id: int, sessions: list[Session]) -> None:
+async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> None:
     """
     Fetch the live results page for any event that has a live_url and parse
     the current heat number. Called on every refresh since the page changes
     as each heat completes.
     """
     to_fetch = [
-        (event_id, s.session_id, e.position, e.live_url)
+        (competition_id, s.session_id, e.position, e.live_url)
         for s in sessions
         for e in s.events
         if e.live_url
@@ -66,16 +66,16 @@ async def _fetch_live_heats(event_id: int, sessions: list[Session]) -> None:
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
-async def _fetch_start_lists(event_id: int, sessions: list[Session]) -> None:
+async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> None:
     """
     Concurrently fetch start list pages for all events that have a start_list_url
     and whose heat count has not yet been cached. Records heat counts in-memory.
     """
     to_fetch = [
-        (event_id, s.session_id, e.position, e.start_list_url, e.discipline)
+        (competition_id, s.session_id, e.position, e.start_list_url, e.discipline)
         for s in sessions
         for e in s.events
-        if e.start_list_url and get_heat_count(event_id, s.session_id, e.position) is None
+        if e.start_list_url and get_heat_count(competition_id, s.session_id, e.position) is None
     ]
     if not to_fetch:
         return
@@ -95,7 +95,7 @@ async def _fetch_start_lists(event_id: int, sessions: list[Session]) -> None:
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
-async def _fetch_result_pages(event_id: int, sessions: list[Session]) -> None:
+async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> None:
     """
     Fetch result pages for all completed events that don't yet have a Generated
     timestamp cached. Parses both the Generated timestamp (for generated-time
@@ -106,10 +106,10 @@ async def _fetch_result_pages(event_id: int, sessions: list[Session]) -> None:
     the day, even when the app is loaded mid-event.
     """
     to_fetch = [
-        (event_id, s.session_id, e.position, e.result_url, e.discipline)
+        (competition_id, s.session_id, e.position, e.result_url, e.discipline)
         for s in sessions
         for e in s.events
-        if e.result_url and get_generated_time(event_id, s.session_id, e.position) is None
+        if e.result_url and get_generated_time(competition_id, s.session_id, e.position) is None
     ]
     if not to_fetch:
         return
@@ -172,7 +172,7 @@ async def get_schedule(request: Request, event_id: int):
     return templates.TemplateResponse("schedule.html", {
         "request": request,
         "schedule": schedule,
-        "event_id": event_id,
+        "competition_id": event_id,
         "now": now,
         "refresh_seconds": settings.refresh_interval_seconds,
         "base_url": settings.tracktiming_base_url,
@@ -214,7 +214,7 @@ async def refresh_schedule(request: Request, event_id: int):
     return templates.TemplateResponse("_schedule_body.html", {
         "request": request,
         "schedule": schedule,
-        "event_id": event_id,
+        "competition_id": event_id,
         "now": now,
         "base_url": settings.tracktiming_base_url,
     })

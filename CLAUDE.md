@@ -24,6 +24,17 @@ Install dependencies: `pip install -r requirements.txt`
 
 Environment variable: `DB_PATH` overrides the default SQLite database path (`timings.db`).
 
+## Taxonomy
+
+| Level | Term | Definition |
+|---|---|---|
+| 1 | **Competition** | A tracktiming.live competition identified by an integer `competition_id` (the external API calls this `EventId`) |
+| 2 | **Session** | A day's racing block within a competition (`Session` model) |
+| 3 | **Event** | An individual race/discipline entry within a session (`Event` model) |
+| 4 | **Heat** | One sequential ride within a multi-heat event (`heat_count`, `active_heat`) |
+
+**Note:** Route URLs and HTML form fields still use `event_id` (bound to `/schedule/{event_id}`) to avoid breaking bookmarks and match the upstream tracktiming.live `EventId` parameter. Python code and templates use `competition_id`.
+
 ## Architecture
 
 The app predicts per-event start times for track cycling competitions fetched from tracktiming.live.
@@ -31,12 +42,12 @@ The app predicts per-event start times for track cycling competitions fetched fr
 **Request flow:**
 1. `main.py` receives a tracktiming.live EventId via form or URL
 2. `fetcher.py` POSTs to the Jaxon API to get schedule HTML
-3. `parser.py` parses the HTML into `Session`/`TrackEvent` models
+3. `parser.py` parses the HTML into `Session`/`Event` models
 4. `main.py` concurrently fetches start lists, result pages, and live heat pages
 5. `predictor.py` computes predicted start times and returns a `SchedulePrediction`
 6. Jinja2 renders the schedule; HTMX polls `/schedule/{id}/refresh` every 30s for live updates
 
-**In-memory caches in `predictor.py`** (keyed by `(event_id, session_id, position)`):
+**In-memory caches in `predictor.py`** (keyed by `(competition_id, session_id, position)`):
 - `_status_cache` — tracks event status transitions for the learning fallback
 - `_observed_durations` — Finish Time + changeover from result pages (most accurate)
 - `_heat_counts` — heat counts parsed from start-list pages

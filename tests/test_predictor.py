@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.disciplines import CHANGEOVER_MINUTES, PER_HEAT_DURATIONS
-from app.models import EventStatus, Session, TrackEvent
+from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
 from app.predictor import (
     _add_minutes,
@@ -157,8 +157,8 @@ class TestComputeDelay:
 # ── predict_session ───────────────────────────────────────────────────────────
 
 
-def _make_event(position: int, status: EventStatus, discipline: str = "scratch_race") -> TrackEvent:
-    return TrackEvent(
+def _make_event(position: int, status: EventStatus, discipline: str = "scratch_race") -> Event:
+    return Event(
         position=position,
         name=f"Event {position}",
         discipline=discipline,
@@ -443,12 +443,12 @@ class TestIsActive:
             day="Friday",
             scheduled_start=time(8, 0),
             events=[
-                TrackEvent(
+                Event(
                     position=0, name="Keirin R1", discipline="keirin",
                     status=EventStatus.UPCOMING, is_special=False,
                     live_url="liveresults.php?EventId=1",
                 ),
-                TrackEvent(
+                Event(
                     position=1, name="Keirin R2", discipline="keirin",
                     status=EventStatus.NOT_READY, is_special=False,
                 ),
@@ -468,16 +468,16 @@ class TestIsActive:
             day="Friday",
             scheduled_start=time(8, 0),
             events=[
-                TrackEvent(
+                Event(
                     position=0, name="Event 0", discipline="scratch_race",
                     status=EventStatus.COMPLETED, is_special=False,
                 ),
-                TrackEvent(
+                Event(
                     position=1, name="Event 1", discipline="keirin",
                     status=EventStatus.UPCOMING, is_special=False,
                     live_url="liveresults.php?EventId=1",
                 ),
-                TrackEvent(
+                Event(
                     position=2, name="Event 2", discipline="keirin",
                     status=EventStatus.NOT_READY, is_special=False,
                 ),
@@ -661,12 +661,12 @@ class TestGeneratedTimeDuration:
             day="Saturday",
             scheduled_start=time(8, 0),
             events=[
-                TrackEvent(position=10, name="E10", discipline="scratch_race",
-                           status=statuses[0], is_special=False),
-                TrackEvent(position=11, name="E11", discipline="keirin",
-                           status=statuses[1], is_special=False),
-                TrackEvent(position=12, name="E12", discipline="keirin",
-                           status=statuses[2], is_special=False),
+                Event(position=10, name="E10", discipline="scratch_race",
+                      status=statuses[0], is_special=False),
+                Event(position=11, name="E11", discipline="keirin",
+                      status=statuses[1], is_special=False),
+                Event(position=12, name="E12", discipline="keirin",
+                      status=statuses[2], is_special=False),
             ],
         )
 
@@ -751,10 +751,10 @@ class TestGeneratedTimeDuration:
             day="Sunday",
             scheduled_start=time(8, 0),
             events=[
-                TrackEvent(position=11, name="U11 Keirin Final", discipline="keirin",
-                           status=EventStatus.COMPLETED, is_special=False),
-                TrackEvent(position=12, name="Keirin Repechage", discipline="keirin",
-                           status=EventStatus.UPCOMING, is_special=False),
+                Event(position=11, name="U11 Keirin Final", discipline="keirin",
+                      status=EventStatus.COMPLETED, is_special=False),
+                Event(position=12, name="Keirin Repechage", discipline="keirin",
+                      status=EventStatus.UPCOMING, is_special=False),
             ],
         )
         sp = predict_session(self.EVENT_ID + 2, session, now=None)
@@ -780,8 +780,8 @@ class TestUpdateStatusCacheWallClockBound:
             day="Sunday",
             scheduled_start=time(12, 0),
             events=[
-                TrackEvent(position=1, name="E1", discipline=discipline,
-                           status=status, is_special=False),
+                Event(position=1, name="E1", discipline=discipline,
+                      status=status, is_special=False),
             ],
         )
 
@@ -835,9 +835,9 @@ class TestPredictSchedule:
         schedule = predict_schedule(26008, sessions, now=None)
         assert len(schedule.sessions) == 3
 
-    def test_event_id_preserved(self, sessions):
+    def test_competition_id_preserved(self, sessions):
         schedule = predict_schedule(26008, sessions, now=None)
-        assert schedule.event_id == 26008
+        assert schedule.competition_id == 26008
 
     def test_fully_completed_session_delay_is_bounded(self, sessions):
         """

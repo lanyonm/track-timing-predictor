@@ -3,46 +3,46 @@ from datetime import datetime, time
 from app.database import get_learned_duration, record_duration
 from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
 from app.models import (
+    Event,
     EventStatus,
     Prediction,
     SchedulePrediction,
     Session,
     SessionPrediction,
-    TrackEvent,
 )
 
 # Disciplines that contribute zero minutes to the cumulative timeline
 _ZERO_DURATION_DISCIPLINES = {"end_of_session"}
 
 # In-memory cache tracking event status transitions for learning.
-# Key: (event_id, session_id, position)
+# Key: (competition_id, session_id, position)
 # Value: {"status": EventStatus, "seen_at": datetime}
 _status_cache: dict[tuple[int, int, int], dict] = {}
 
 # Observed slot durations derived from result-page Finish Times.
 # These override estimates for completed events in the prediction timeline.
-# Key: (event_id, session_id, position), Value: duration in minutes
+# Key: (competition_id, session_id, position), Value: duration in minutes
 _observed_durations: dict[tuple[int, int, int], float] = {}
 
 # Heat counts derived from start-list pages.
 # Used to compute duration as heat_count × per_heat_duration + changeover.
-# Key: (event_id, session_id, position), Value: number of heats
+# Key: (competition_id, session_id, position), Value: number of heats
 _heat_counts: dict[tuple[int, int, int], int] = {}
 
 # Current heat number derived from the live results page.
 # Updated on every refresh while the event is active.
-# Key: (event_id, session_id, position), Value: current heat number (1-based)
+# Key: (competition_id, session_id, position), Value: current heat number (1-based)
 _live_heats: dict[tuple[int, int, int], int] = {}
 
 # Generated timestamps parsed from result pages.
 # The difference between consecutive timestamps gives the actual inter-event
 # slot duration for any discipline, including those without a Finish Time field.
-# Key: (event_id, session_id, position), Value: datetime when result was generated
+# Key: (competition_id, session_id, position), Value: datetime when result was generated
 _generated_times: dict[tuple[int, int, int], datetime] = {}
 
 
 def record_observed_duration(
-    event_id: int,
+    competition_id: int,
     session_id: int,
     position: int,
     finish_time_minutes: float,
@@ -54,9 +54,9 @@ def record_observed_duration(
     Also persists to the learning database.
     """
     slot = finish_time_minutes + get_changeover(discipline)
-    _observed_durations[(event_id, session_id, position)] = slot
+    _observed_durations[(competition_id, session_id, position)] = slot
     record_duration(
-        event_id=event_id,
+        competition_id=competition_id,
         session_id=session_id,
         event_position=position,
         event_name=discipline,
@@ -66,47 +66,47 @@ def record_observed_duration(
 
 
 def record_heat_count(
-    event_id: int,
+    competition_id: int,
     session_id: int,
     position: int,
     count: int,
 ) -> None:
     """Store the number of heats for an event, derived from its start list page."""
-    _heat_counts[(event_id, session_id, position)] = count
+    _heat_counts[(competition_id, session_id, position)] = count
 
 
-def get_heat_count(event_id: int, session_id: int, position: int) -> int | None:
+def get_heat_count(competition_id: int, session_id: int, position: int) -> int | None:
     """Return cached heat count, or None if not yet fetched."""
-    return _heat_counts.get((event_id, session_id, position))
+    return _heat_counts.get((competition_id, session_id, position))
 
 
-def record_live_heat(event_id: int, session_id: int, position: int, heat: int) -> None:
+def record_live_heat(competition_id: int, session_id: int, position: int, heat: int) -> None:
     """Store the current heat number parsed from the live results page."""
-    _live_heats[(event_id, session_id, position)] = heat
+    _live_heats[(competition_id, session_id, position)] = heat
 
 
-def get_live_heat(event_id: int, session_id: int, position: int) -> int | None:
+def get_live_heat(competition_id: int, session_id: int, position: int) -> int | None:
     """Return the most recently parsed live heat number, or None if not available."""
-    return _live_heats.get((event_id, session_id, position))
+    return _live_heats.get((competition_id, session_id, position))
 
 
 def record_generated_time(
-    event_id: int,
+    competition_id: int,
     session_id: int,
     position: int,
     generated_at: datetime,
 ) -> None:
     """Store the result-page Generated timestamp for a completed event."""
-    _generated_times[(event_id, session_id, position)] = generated_at
+    _generated_times[(competition_id, session_id, position)] = generated_at
 
 
 def get_generated_time(
-    event_id: int,
+    competition_id: int,
     session_id: int,
     position: int,
 ) -> datetime | None:
     """Return the cached Generated timestamp, or None if not yet fetched."""
-    return _generated_times.get((event_id, session_id, position))
+    return _generated_times.get((competition_id, session_id, position))
 
 
 def _get_duration(discipline: str, use_learned: bool = True) -> float:
@@ -168,7 +168,7 @@ def _compute_delay(
 
 
 def predict_session(
-    event_id: int,
+    competition_id: int,
     session: Session,
     now: datetime | None = None,
     use_learned: bool = True,
@@ -202,15 +202,15 @@ def predict_session(
     events = session.events
     gen_durations: dict[int, float] = {}
     for i in range(len(events) - 1):
-        t0 = _generated_times.get((event_id, session.session_id, events[i].position))
-        t1 = _generated_times.get((event_id, session.session_id, events[i + 1].position))
+        t0 = _generated_times.get((competition_id, session.session_id, events[i].position))
+        t1 = _generated_times.get((competition_id, session.session_id, events[i + 1].position))
         if t0 is not None and t1 is not None:
             mins = (t1 - t0).total_seconds() / 60.0
             # Expected duration: use heat-count estimate if available, else the
             # STATIC default (not learned averages).  Learned data may itself be
             # corrupted by bad gen-duration observations from earlier runs, so it
             # must not influence the bounds used to validate new observations.
-            key_i = (event_id, session.session_id, events[i].position)
+            key_i = (competition_id, session.session_id, events[i].position)
             hc_i = _heat_counts.get(key_i)
             if hc_i is not None:
                 expected = hc_i * get_per_heat_duration(events[i].discipline) + get_changeover(events[i].discipline)
@@ -220,7 +220,7 @@ def predict_session(
                 gen_durations[i] = mins
 
     for i, e in enumerate(events):
-        key = (event_id, session.session_id, e.position)
+        key = (competition_id, session.session_id, e.position)
         if key in _observed_durations:
             durations.append(_observed_durations[key])
             is_observed_list.append(True)
@@ -282,7 +282,7 @@ def predict_session(
         # Priority: (1) live results page heat, (2) time-based fallback estimate.
         active_heat: int | None = None
         if is_active and now is not None:
-            live_heat = get_live_heat(event_id, session.session_id, event.position)
+            live_heat = get_live_heat(competition_id, session.session_id, event.position)
             if live_heat is not None:
                 # live_heat = count of finished heats; the running heat is the next one.
                 next_heat = live_heat + 1
@@ -328,17 +328,17 @@ def predict_session(
 
 
 def predict_schedule(
-    event_id: int,
+    competition_id: int,
     sessions: list[Session],
     now: datetime | None = None,
     use_learned: bool = True,
 ) -> SchedulePrediction:
-    session_predictions = [predict_session(event_id, s, now=now, use_learned=use_learned) for s in sessions]
-    return SchedulePrediction(event_id=event_id, sessions=session_predictions)
+    session_predictions = [predict_session(competition_id, s, now=now, use_learned=use_learned) for s in sessions]
+    return SchedulePrediction(competition_id=competition_id, sessions=session_predictions)
 
 
 def update_status_cache(
-    event_id: int,
+    competition_id: int,
     sessions: list[Session],
     now: datetime,
 ) -> list[tuple[int, int, int, str]]:
@@ -347,7 +347,7 @@ def update_status_cache(
 
     - When an event transitions UPCOMING -> COMPLETED, records the wall-clock
       elapsed time to the learning database (fallback when no Finish Time).
-    - Returns a list of (event_id, session_id, position, result_url) for
+    - Returns a list of (competition_id, session_id, position, result_url) for
       newly-completed events that have a result URL, so the caller can fetch
       result pages to obtain precise Finish Times.
     """
@@ -355,7 +355,7 @@ def update_status_cache(
 
     for session in sessions:
         for event in session.events:
-            key = (event_id, session.session_id, event.position)
+            key = (competition_id, session.session_id, event.position)
             cached = _status_cache.get(key)
 
             if cached is None:
@@ -379,7 +379,7 @@ def update_status_cache(
                 max_elapsed = 3.0 * get_default_duration(event.discipline)
                 if 0.5 <= elapsed <= max_elapsed:
                     record_duration(
-                        event_id=event_id,
+                        competition_id=competition_id,
                         session_id=session.session_id,
                         event_position=event.position,
                         event_name=event.name,
@@ -391,7 +391,7 @@ def update_status_cache(
                 # Signal caller to fetch result page if URL is available.
                 if event.result_url:
                     newly_completed.append(
-                        (event_id, session.session_id, event.position, event.result_url)
+                        (competition_id, session.session_id, event.position, event.result_url)
                     )
 
             elif cached["status"] != event.status:

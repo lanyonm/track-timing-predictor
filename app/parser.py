@@ -4,7 +4,7 @@ from datetime import datetime, time
 from bs4 import BeautifulSoup, Tag
 
 from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
-from app.models import EventStatus, Session, TrackEvent
+from app.models import Event, EventStatus, Session
 
 
 def _extract_section_html(jxn_data: dict, section_id: str) -> str:
@@ -164,7 +164,7 @@ def parse_generated_time(html: str) -> datetime | None:
 def parse_schedule(jxn_data: dict) -> list[Session]:
     """
     Parse the Jaxon response into a list of Session objects,
-    each containing an ordered list of TrackEvent objects.
+    each containing an ordered list of Event objects.
     """
     html = _extract_section_html(jxn_data, "scheduleview")
     soup = BeautifulSoup(html, "html.parser")
@@ -186,7 +186,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
         except (ValueError, TypeError):
             session_id = 0
 
-        events: list[TrackEvent] = []
+        events: list[Event] = []
         for position, row in enumerate(details.find_all("tr")):
             h4 = row.find("h4")
             if not h4:
@@ -197,7 +197,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
             discipline = detect_discipline(name)
             status, result_url, start_list_url, audit_url, live_url = _parse_row(row)
 
-            events.append(TrackEvent(
+            events.append(Event(
                 position=position,
                 name=name,
                 discipline=discipline,

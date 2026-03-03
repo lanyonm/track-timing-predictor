@@ -12,8 +12,8 @@ class EventStatus(str, Enum):
     COMPLETED = "completed"
 
 
-class TrackEvent(BaseModel):
-    position: int
+class Event(BaseModel):
+    position: int  # 0-based sequence index within the session; not a finishing position
     name: str
     discipline: str
     status: EventStatus
@@ -28,11 +28,11 @@ class Session(BaseModel):
     session_id: int
     day: str
     scheduled_start: time
-    events: list[TrackEvent]
+    events: list[Event]
 
 
 class Prediction(BaseModel):
-    event: TrackEvent
+    event: Event
     predicted_start: time
     estimated_duration_minutes: float
     is_adjusted: bool
@@ -60,5 +60,5 @@ class SessionPrediction(BaseModel):
 
 
 class SchedulePrediction(BaseModel):
-    event_id: int
+    competition_id: int
     sessions: list[SessionPrediction]
