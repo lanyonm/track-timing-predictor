@@ -9,4 +9,4 @@ timings.db
 *.db
 .DS_Store
 .claude/
-*_files/
+.playwright-mcp/
