@@ -109,9 +109,9 @@ SPECIAL_EVENT_NAMES = {"break", "end of session", "medal ceremonies", "medal cer
 # added separately via get_changeover().
 PER_HEAT_DURATIONS: dict[str, float] = {
     # Sprint qualifying: one 200m TT ride per heat (~1:15 ride + ~15 s gap)
-    "sprint_qualifying": 1.5,
+    "sprint_qualifying": 1.25,
     # Sprint match: one 2-rider match per heat (~3:00 + recovery)
-    "sprint_match": 3.5,
+    "sprint_match": 3.0,
     # Individual pursuit: 2 riders race simultaneously per heat
     "pursuit_4k": 5.0,    # elite men 4km: ~4:15/ride per heat
     "pursuit_3k": 4.0,    # elite women / junior men 3km: ~3:25/ride per heat
@@ -119,7 +119,7 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     # Team pursuit: 2 teams race simultaneously per heat (~4:30-5 min/ride)
     "team_pursuit": 5.0,
     # Team sprint: 2 teams per heat (~2:40 ride + setup)
-    "team_sprint": 3.5,
+    "team_sprint": 2.67,
     # Mass start races are almost always 1 heat; per-heat ≈ full race duration
     "scratch_race": 12.0,
     # Assumes 60 laps on a 250m track at ~50 km/h average speed
@@ -129,13 +129,13 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     # Assumes 30 laps on a 250m track at ~50 km/h average speed
     "tempo_race": 10.0,
     # Madison: typical 15-20km race ~20-27 min + 2 min changeover
-    "madison": 22.0,
+    "madison": 24.0,
     # Keirin: one heat of ~6 riders (~4:30 race + recovery between heats)
-    "keirin": 5.0,
+    "keirin": 4.5,
     # Time trials: one rider per heat; per-rider time + small gap between starts
-    "time_trial_500": 2.5,    # 500m: ~2:20/rider
-    "time_trial_750": 3.0,    # 750m: ~2:40/rider
-    "time_trial_kilo": 3.0,   # 1000m: ~2:30/rider
+    "time_trial_500": 2.33,    # 500m: ~2:20/rider
+    "time_trial_750": 2.67,    # 750m: ~2:40/rider
+    "time_trial_kilo": 2.5,   # 1000m: ~2:30/rider
     "time_trial_generic": 3.0,
 }
 

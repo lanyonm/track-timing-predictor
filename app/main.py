@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.config import settings
 from app.database import get_all_learned_durations, init_db
+from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.fetcher import fetch_initial_layout, fetch_live_html, fetch_refresh, fetch_result_html, fetch_start_list_html
 from app.models import Session
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
@@ -228,6 +229,16 @@ async def toggle_use_learned(event_id: int = Form(...), use_learned: str = Form(
     else:
         response.delete_cookie(key="use_learned")
     return response
+
+
+@app.get("/defaults", response_class=HTMLResponse)
+async def default_durations(request: Request):
+    """Display the built-in default durations for inspection."""
+    rows = [
+        {"discipline": d, "default": DEFAULT_DURATIONS[d], "per_heat": PER_HEAT_DURATIONS.get(d)}
+        for d in DEFAULT_DURATIONS
+    ]
+    return templates.TemplateResponse("defaults.html", {"request": request, "rows": rows})
 
 
 @app.get("/learned", response_class=HTMLResponse)
