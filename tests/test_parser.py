@@ -263,8 +263,8 @@ class TestParseLiveHeat:
         "Heat 2\n1  RIDER_C  11.987 Q\n2  RIDER_D  12.111\n"
     )
     # Real pages captured from tracktiming.live
-    HEAT1_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-first-active.html").read_text()
-    HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-second-active.html").read_text()
+    KEIRIN_HEAT1_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-first-active.html").read_text()
+    KEIRIN_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-second-active.html").read_text()
     TS_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-second-active.html").read_text()
     TS_HEAT3_ACTIVE_EARLY_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-third-active-1.html").read_text()
     TS_HEAT3_ACTIVE_MID_HTML   = (_FIXTURES / "live-results-sample-team-sprint-4-heats-third-active-2.html").read_text()
@@ -304,11 +304,11 @@ class TestParseLiveHeat:
 
     def test_real_page_heat1_active_returns_none(self):
         """Real live page: Heat 1 active, both heats show 0.000 placeholders → None."""
-        assert parse_live_heat(self.HEAT1_ACTIVE_HTML) is None
+        assert parse_live_heat(self.KEIRIN_HEAT1_ACTIVE_HTML) is None
 
     def test_real_page_heat2_active_returns_one(self):
         """Real live page: Heat 1 done (has 12.571s timing), Heat 2 active → 1 completed."""
-        assert parse_live_heat(self.HEAT2_ACTIVE_HTML) == 1
+        assert parse_live_heat(self.KEIRIN_HEAT2_ACTIVE_HTML) == 1
 
     def test_team_event_explicit_header_heat1_active(self):
         """'Riders On Track for Heat 1 of N' → 0 completed → None."""
