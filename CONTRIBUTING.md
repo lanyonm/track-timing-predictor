@@ -6,8 +6,9 @@ Thank you for your interest in contributing to Track Timing Predictor!
 
 Please open an issue with:
 - A description of the problem or feature request
-- The tracktiming.live Event ID you were using (if applicable)
+- The tracktiming.live event url you were using
 - Steps to reproduce (for bugs)
+- Saved html for the live page when the issue occurred (helps with emergent parsing issues)
 
 ## Development setup
 
