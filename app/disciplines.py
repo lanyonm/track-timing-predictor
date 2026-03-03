@@ -77,11 +77,14 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "team_pursuit": 10.0,
     # Team sprint: ~4 rides × 2:40/ride per category
     "team_sprint": 10.0,
-    # Bunch races (one category); race time varies by distance, +2 min changeover:
+    # Mass start races; race time varies by distance, +2 min changeover:
     "scratch_race": 12.0,
+    # Assumes 60 laps on a 250m track at ~50 km/h average speed
     "points_race": 20.0,
-    "elimination_race": 15.0,
-    "tempo_race": 20.0,
+    # Assumes ~15 riders on a 250m track at ~50 km/h average speed
+    "elimination_race": 8.0,
+    # Assumes 30 laps on a 250m track at ~50 km/h average speed
+    "tempo_race": 10.0,
     # Madison: typical 15-20km race ~20-27 min + 2 min changeover
     "madison": 22.0,
     # Keirin: 4:30 race + 2:00 changeover
@@ -117,11 +120,15 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "team_pursuit": 5.0,
     # Team sprint: 2 teams per heat (~2:40 ride + setup)
     "team_sprint": 3.5,
-    # Bunch races are almost always 1 heat; per-heat ≈ full race duration
-    "scratch_race": 10.0,
-    "points_race": 22.0,
-    "elimination_race": 15.0,
-    "tempo_race": 20.0,
+    # Mass start races are almost always 1 heat; per-heat ≈ full race duration
+    "scratch_race": 12.0,
+    # Assumes 60 laps on a 250m track at ~50 km/h average speed
+    "points_race": 20.0,
+    # Assumes ~15 riders on a 250m track at ~50 km/h average speed
+    "elimination_race": 8.0,
+    # Assumes 30 laps on a 250m track at ~50 km/h average speed
+    "tempo_race": 10.0,
+    # Madison: typical 15-20km race ~20-27 min + 2 min changeover
     "madison": 22.0,
     # Keirin: one heat of ~6 riders (~4:30 race + recovery between heats)
     "keirin": 5.0,
@@ -133,7 +140,7 @@ PER_HEAT_DURATIONS: dict[str, float] = {
 }
 
 # Minutes to add to a result-page Finish Time to account for changeover between events.
-# Only applicable to disciplines where "Finish Time" appears in result pages (bunch races).
+# Only applicable to disciplines where "Finish Time" appears in result pages (mass start races).
 CHANGEOVER_MINUTES: dict[str, float] = {
     "scratch_race": 2.0,
     "points_race": 2.0,
