@@ -811,7 +811,7 @@ class TestUpdateStatusCacheWallClockBound:
             with get_db() as conn:
                 row = conn.execute(
                     "SELECT COUNT(*) AS cnt FROM event_durations "
-                    "WHERE discipline = 'keirin' AND event_id = 88002"
+                    "WHERE discipline = 'keirin' AND competition_id = 88002"
                 ).fetchone()
             return row["cnt"]
 

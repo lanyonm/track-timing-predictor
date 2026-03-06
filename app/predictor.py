@@ -109,6 +109,11 @@ def get_generated_time(
     return _generated_times.get((competition_id, session_id, position))
 
 
+def get_observed_duration(competition_id: int, session_id: int, position: int) -> float | None:
+    """Return the cached observed slot duration in minutes, or None if not yet recorded."""
+    return _observed_durations.get((competition_id, session_id, position))
+
+
 def _get_duration(discipline: str, use_learned: bool = True) -> float:
     """Return learned duration if available and enabled, otherwise use the default."""
     if use_learned:
@@ -220,17 +225,17 @@ def predict_session(
                 gen_durations[i] = mins
 
     for i, e in enumerate(events):
-        key = (competition_id, session.session_id, e.position)
-        if key in _observed_durations:
-            durations.append(_observed_durations[key])
+        observed = get_observed_duration(competition_id, session.session_id, e.position)
+        hc = get_heat_count(competition_id, session.session_id, e.position)
+        if observed is not None:
+            durations.append(observed)
             is_observed_list.append(True)
             heat_count_list.append(None)
         elif i in gen_durations:
             durations.append(gen_durations[i])
             is_observed_list.append(True)
             heat_count_list.append(None)
-        elif key in _heat_counts:
-            hc = _heat_counts[key]
+        elif hc is not None:
             dur = hc * get_per_heat_duration(e.discipline) + get_changeover(e.discipline)
             durations.append(dur)
             is_observed_list.append(False)

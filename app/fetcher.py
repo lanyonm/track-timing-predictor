@@ -10,13 +10,13 @@ _HEADERS = {
 }
 
 
-def _event_url(event_id: int) -> str:
-    return f"{settings.tracktiming_base_url}/eventpage.php?EventId={event_id}"
+def _event_url(competition_id: int) -> str:
+    return f"{settings.tracktiming_base_url}/eventpage.php?EventId={competition_id}"
 
 
-async def fetch_initial_layout(event_id: int) -> dict:
+async def fetch_initial_layout(competition_id: int) -> dict:
     """POST getInitialPageLayout to get the full schedule HTML."""
-    url = _event_url(event_id)
+    url = _event_url(competition_id)
     headers = {**_HEADERS, "Referer": url}
     payload = "jxnfun=getInitialPageLayout&jxnr=1"
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -52,9 +52,9 @@ async def fetch_live_html(live_path: str) -> str:
         return response.text
 
 
-async def fetch_refresh(event_id: int) -> dict:
+async def fetch_refresh(competition_id: int) -> dict:
     """POST refreshPage to get live status updates."""
-    url = _event_url(event_id)
+    url = _event_url(competition_id)
     headers = {**_HEADERS, "Referer": url}
     # Pass open session IDs ["1","2"] and group filter "All"
     payload = 'jxnfun=refreshPage&jxnr=1&jxnargs%5B%5D=%5B%221%22%2C%222%22%2C%223%22%5D&jxnargs%5B%5D=All'

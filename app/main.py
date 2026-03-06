@@ -162,9 +162,11 @@ async def get_schedule(request: Request, event_id: int):
             detail=f"No schedule found for event {event_id}.",
         )
 
-    await _fetch_start_lists(event_id, sessions)
-    await _fetch_result_pages(event_id, sessions)
-    await _fetch_live_heats(event_id, sessions)
+    await asyncio.gather(
+        _fetch_start_lists(event_id, sessions),
+        _fetch_result_pages(event_id, sessions),
+        _fetch_live_heats(event_id, sessions),
+    )
     now = datetime.now()
     use_learned = _use_learned(request)
     schedule = predict_schedule(event_id, sessions, now=now, use_learned=use_learned)
@@ -195,16 +197,16 @@ async def refresh_schedule(request: Request, event_id: int):
     now = datetime.now()
     sessions = parse_schedule(jxn_data)
 
-    # Fetch any start lists not yet cached (e.g. newly published since initial load).
-    await _fetch_start_lists(event_id, sessions)
-
-    # Fetch result pages for completed events not yet in the generated-time cache.
-    # This populates Generated timestamps (for inter-event durations) and Finish
-    # Times (for bunch-race observed durations), retroactively if needed.
-    await _fetch_result_pages(event_id, sessions)
-
-    # Fetch live results page to get current heat number (changes each heat).
-    await _fetch_live_heats(event_id, sessions)
+    await asyncio.gather(
+        # Fetch any start lists not yet cached (e.g. newly published since initial load).
+        _fetch_start_lists(event_id, sessions),
+        # Fetch result pages for completed events not yet in the generated-time cache.
+        # This populates Generated timestamps (for inter-event durations) and Finish
+        # Times (for bunch-race observed durations), retroactively if needed.
+        _fetch_result_pages(event_id, sessions),
+        # Fetch live results page to get current heat number (changes each heat).
+        _fetch_live_heats(event_id, sessions),
+    )
 
     # Track status transitions for wall-clock fallback learning.
     update_status_cache(event_id, sessions, now)

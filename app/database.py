@@ -6,7 +6,7 @@ from app.config import settings
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS event_durations (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id         INTEGER NOT NULL,
+    competition_id   INTEGER NOT NULL,
     session_id       INTEGER NOT NULL,
     event_position   INTEGER NOT NULL,
     event_name       TEXT NOT NULL,
@@ -40,6 +40,10 @@ def get_db():
 def init_db() -> None:
     with get_db() as conn:
         conn.executescript(_SCHEMA)
+        try:
+            conn.execute("ALTER TABLE event_durations RENAME COLUMN event_id TO competition_id")
+        except Exception:
+            pass  # Already renamed or column does not exist under the old name
 
 
 def record_duration(
@@ -55,7 +59,7 @@ def record_duration(
         conn.execute(
             """
             INSERT INTO event_durations
-                (event_id, session_id, event_position, event_name, discipline, duration_minutes)
+                (competition_id, session_id, event_position, event_name, discipline, duration_minutes)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (competition_id, session_id, event_position, event_name, discipline, duration_minutes),
