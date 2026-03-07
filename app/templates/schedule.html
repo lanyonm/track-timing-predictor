@@ -6,18 +6,15 @@
     <h2>Competition {{ competition_id }}</h2>
     <a href="https://tracktiming.live/eventpage.php?EventId={{ competition_id }}" target="_blank" class="source-link">View on tracktiming.live</a>
   </div>
-  <p class="meta">
-    Last updated: <span id="last-updated">{{ now.strftime('%H:%M:%S') }}</span>
-    &nbsp;·&nbsp;
-    Auto-refreshes every {{ refresh_seconds }}s
-    &nbsp;·&nbsp;
-    <a href="/defaults">View default durations</a>
-    &nbsp;·&nbsp;
-    <a href="/learned">View learned durations</a>
-    &nbsp;·&nbsp;
-    <form method="post" action="/settings/use-learned" style="display:inline">
+  <p class="meta meta-bar">
+    <span>Last updated: <span id="last-updated">{{ now.strftime('%H:%M:%S') }}</span>
+    &nbsp;·&nbsp; Auto-refreshes every {{ refresh_seconds }}s
+    &nbsp;·&nbsp; <a href="/defaults">View default durations</a>
+    &nbsp;·&nbsp; <a href="/learned">View learned durations</a>
+    &nbsp;·&nbsp;</span>
+    <form method="post" action="/settings/use-learned" class="meta-toggle-form">
       <input type="hidden" name="event_id" value="{{ competition_id }}">
-      <label>
+      <label class="meta-toggle-label">
         <input type="checkbox" name="use_learned" value="on"
                {% if use_learned %}checked{% endif %}
                onchange="this.form.submit()">

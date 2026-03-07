@@ -54,7 +54,7 @@ h2 { margin-top: 0; }
   margin-bottom: 0.3rem;
 }
 
-.entry-form input[type="number"] {
+.entry-form input[type="text"] {
   width: 100%;
   padding: 0.5rem 0.75rem;
   font-size: 1.1rem;
@@ -75,6 +75,8 @@ h2 { margin-top: 0; }
 }
 
 .entry-form button:hover { background: #2e2e50; }
+
+.entry-form .meta { margin-top: 0.5rem; }
 
 /* ── Schedule header ──────────────────────────────────────── */
 .schedule-header {
@@ -216,6 +218,9 @@ tr.active td { font-weight: 600; }
   display: inline;
 }
 
+/* ── Meta bar (schedule page) ─────────────────────────────── */
+.meta-toggle-form { display: inline; margin: 0; padding: 0; }
+
 /* ── Misc ─────────────────────────────────────────────────── */
 .no-data {
   padding: 1rem;
@@ -224,3 +229,181 @@ tr.active td { font-weight: 600; }
 }
 
 a { color: #1a1a2e; }
+
+/* ── Mobile: card layout (≤ 600px) ───────────────────────── */
+@media (max-width: 600px) {
+  body { font-size: 16px; }
+
+  /* Session summary — larger tap target */
+  details summary { padding: 0.85rem 1rem; }
+
+  /* Badges */
+  .badge { font-size: 0.8rem; }
+
+  /* ── Table → card transformation ── */
+  details { overflow: visible; }
+  table   { display: block; }
+  thead   { display: none; }
+  tbody   { display: block; background: #e8eaf0; padding: 0.35rem 0 0.4rem; }
+
+  tr {
+    display: flex;
+    flex-wrap: wrap;
+    background: #fff;
+    border-radius: 7px;
+    margin: 0.3rem 0.5rem;
+    border: 1px solid #e0e0e0;
+    overflow: hidden;
+  }
+
+  td {
+    display: block;
+    border-bottom: none;
+    padding: 0;
+  }
+
+  /* Event name — full width, primary */
+  td:nth-child(1) {
+    order: 1;
+    flex: 0 0 100%;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #1a1a1a;
+    padding: 0.6rem 0.8rem 0.2rem;
+    line-height: 1.3;
+  }
+
+  /* Predicted time — secondary, inline */
+  td.time {
+    order: 2;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #1a1a2e;
+    padding: 0 0 0.35rem 0.8rem;
+  }
+
+  /* Duration — secondary, after time */
+  td.duration {
+    order: 2;
+    font-size: 0.78rem;
+    color: #777;
+    padding: 0 0.8rem 0.35rem 0.4rem;
+  }
+
+  td.duration::before {
+    content: "·";
+    margin-right: 4px;
+    color: #bbb;
+  }
+
+  td.duration .duration-label {
+    font-size: 0.73rem;
+    color: #999;
+    margin-left: 3px;
+  }
+
+  /* Status/actions — full width, bottom */
+  td.status-label {
+    order: 3;
+    flex: 0 0 100%;
+    padding: 0.2rem 0.7rem 0.45rem;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 0; /* hide lone dash without hiding buttons */
+  }
+
+  /* ── Row states as card variants ── */
+
+  /* Completed: remove global tr strikethrough; apply only to name cell */
+  tr.status-completed {
+    opacity: 0.52;
+    text-decoration: none;
+  }
+
+  tr.status-completed:not(.special) {
+    text-decoration: none; /* override global */
+  }
+
+  tr.status-completed:not(.special) td:nth-child(1) {
+    text-decoration: line-through;
+    text-decoration-color: #bbb;
+    color: #666;
+    font-weight: 500;
+  }
+
+  /* Special completed — no strikethrough */
+  tr.status-completed.special td:nth-child(1) {
+    text-decoration: none;
+    color: #888;
+    font-weight: 400;
+  }
+
+  /* Upcoming — green left accent */
+  tr.status-upcoming {
+    border-left: 4px solid #2d8a2d;
+    background: #f6fbf6;
+  }
+
+  tr.status-upcoming td { font-weight: inherit; }
+
+  /* Not ready — subdued name */
+  tr.status-not_ready td:nth-child(1) {
+    color: #aaa;
+    font-weight: 400;
+  }
+
+  /* Active — amber left accent (override global 3px) */
+  tr.active {
+    border-left: 4px solid #f0a500;
+  }
+
+  /* ── Action buttons ── */
+  .evt-btn {
+    display: inline-flex;
+    align-items: center;
+    height: 34px;
+    padding: 0 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  tr.status-completed .evt-btn {
+    height: 28px;
+    font-size: 0.73rem;
+    padding: 0 10px;
+  }
+
+  /* ── Meta bar — toggle pill ── */
+  .meta.meta-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.45rem;
+    margin-top: 0;
+  }
+
+  .meta-toggle-form { display: block; }
+
+  label.meta-toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 36px;
+    padding: 4px 12px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #3730a3;
+    cursor: pointer;
+  }
+
+  label.meta-toggle-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #1a1a2e;
+    cursor: pointer;
+  }
+}

@@ -7,13 +7,13 @@
   <form onsubmit="event.preventDefault(); window.location='/schedule/' + document.getElementById('event_id').value">
     <label for="event_id">Event ID</label>
     <input
-      type="number"
+      type="text"
+      inputmode="numeric"
+      pattern="[0-9]*"
       id="event_id"
       name="event_id"
       placeholder="e.g. 26008"
-      min="1"
       required
-      autofocus
     >
     <button type="submit">Load Schedule</button>
   </form>
