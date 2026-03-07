@@ -1,8 +1,10 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, Form, HTTPException, Request
+from pythonjsonlogger import jsonlogger
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -23,6 +25,23 @@ from app.predictor import (
     record_observed_duration,
     update_status_cache,
 )
+
+
+def setup_logging() -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(jsonlogger.JsonFormatter(
+        fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%SZ",
+        rename_fields={"asctime": "timestamp", "levelname": "level"},
+    ))
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(logging.INFO)
+    # Quiet noisy uvicorn access logs in production; keep warnings
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+
+setup_logging()
 
 
 @asynccontextmanager
@@ -134,6 +153,11 @@ async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> N
 
 def _use_learned(request: Request) -> bool:
     return request.cookies.get("use_learned") == "true"
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 @app.get("/", response_class=HTMLResponse)
