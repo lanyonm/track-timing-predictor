@@ -374,6 +374,28 @@ a { color: #1a1a2e; }
     padding: 0 10px;
   }
 
+  /* ── Defaults table — opt out of card transform ── */
+  table.defaults-table,
+  table.defaults-table thead,
+  table.defaults-table tbody,
+  table.defaults-table tr,
+  table.defaults-table td { display: revert; }
+
+  table.defaults-table tbody { background: transparent; padding: 0; }
+
+  table.defaults-table td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid #eee;
+  }
+
+  table.defaults-table td:nth-child(1) {
+    font-size: inherit;
+    font-weight: inherit;
+    color: inherit;
+    padding: 0.4rem 0.6rem;
+    line-height: inherit;
+  }
+
   /* ── Meta bar — toggle pill ── */
   .meta.meta-bar {
     display: flex;
