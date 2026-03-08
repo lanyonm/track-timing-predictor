@@ -54,7 +54,6 @@ jobs:
         run: npm install -g aws-cdk
 
       - name: Deploy PR stack
-        working-directory: cdk
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
@@ -97,7 +96,6 @@ jobs:
         run: npm install -g aws-cdk
 
       - name: Destroy PR stack
-        working-directory: cdk
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1

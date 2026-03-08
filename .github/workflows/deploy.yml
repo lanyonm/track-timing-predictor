@@ -58,7 +58,6 @@ jobs:
         run: npm install -g aws-cdk
 
       - name: Deploy CDK stacks
-        working-directory: cdk
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
