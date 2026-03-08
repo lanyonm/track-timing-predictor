@@ -15,6 +15,8 @@ from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.fetcher import fetch_initial_layout, fetch_live_html, fetch_refresh, fetch_result_html, fetch_start_list_html
 from app.models import Session
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
+from mangum import Mangum
+
 from app.predictor import (
     get_generated_time,
     get_heat_count,
@@ -276,3 +278,6 @@ async def learned_durations(request: Request):
         "durations": durations,
         "min_samples": settings.min_learned_samples,
     })
+
+
+handler = Mangum(app, lifespan="auto")

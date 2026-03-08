@@ -1,0 +1,109 @@
+name: PR Environment
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+    branches: [main]
+
+jobs:
+  deploy-pr:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/track-timing-github-actions
+          aws-region: us-east-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: track-timing-predictor
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            --push \
+            .
+
+      - name: Set up Python for CDK
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: cdk/requirements.txt
+
+      - name: Install CDK Python dependencies
+        working-directory: cdk
+        run: pip install -r requirements.txt
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk
+
+      - name: Deploy PR stack
+        working-directory: cdk
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: us-east-1
+          ENV_NAME: pr-${{ github.event.pull_request.number }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cdk deploy TrackTimingStack-${ENV_NAME} \
+            --require-approval never \
+            --context env_name=${ENV_NAME} \
+            --context image_tag=${IMAGE_TAG}
+
+  destroy-pr:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/track-timing-github-actions
+          aws-region: us-east-1
+
+      - name: Set up Python for CDK
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: cdk/requirements.txt
+
+      - name: Install CDK Python dependencies
+        working-directory: cdk
+        run: pip install -r requirements.txt
+
+      - name: Install AWS CDK CLI
+        run: npm install -g aws-cdk
+
+      - name: Destroy PR stack
+        working-directory: cdk
+        env:
+          CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          CDK_DEFAULT_REGION: us-east-1
+          ENV_NAME: pr-${{ github.event.pull_request.number }}
+        run: |
+          cdk destroy TrackTimingStack-${ENV_NAME} \
+            --force \
+            --context env_name=${ENV_NAME} \
+            --context image_tag=placeholder
