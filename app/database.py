@@ -50,10 +50,6 @@ def init_db() -> None:
         return  # DynamoDB table is managed by CDK; nothing to initialise locally
     with get_db() as conn:
         conn.executescript(_SCHEMA)
-        try:
-            conn.execute("ALTER TABLE event_durations RENAME COLUMN event_id TO competition_id")
-        except Exception:
-            pass  # Already renamed or column does not exist under the old name
 
 
 # ---------------------------------------------------------------------------
