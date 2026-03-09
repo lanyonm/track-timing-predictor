@@ -23,15 +23,11 @@ class TrackTimingBaseStack(Stack):
                     tag_status=ecr.TagStatus.UNTAGGED,
                     max_image_age=Duration.days(1),
                 ),
-                # Expire old SHA-tagged images but never touch prod-latest.
-                # ECR lifecycle rules use tag prefix matching; SHA tags are
-                # 40-char hex strings starting with 0-9 or a-f.
+                # Keep the 10 most recently pushed images. prod-latest is
+                # retagged on every deploy so it is always among the newest.
                 ecr.LifecycleRule(
-                    tag_prefix_list=[
-                        "0", "1", "2", "3", "4", "5", "6", "7",
-                        "8", "9", "a", "b", "c", "d", "e", "f",
-                    ],
-                    max_image_count=5,
+                    tag_status=ecr.TagStatus.ANY,
+                    max_image_count=10,
                 ),
             ],
         )
