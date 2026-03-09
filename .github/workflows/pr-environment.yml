@@ -61,6 +61,7 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           cdk deploy TrackTimingStack-${ENV_NAME} \
+            --exclusively \
             --require-approval never \
             --context env_name=${ENV_NAME} \
             --context image_tag=${IMAGE_TAG}

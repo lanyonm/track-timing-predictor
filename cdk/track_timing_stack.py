@@ -62,7 +62,6 @@ class TrackTimingStack(Stack):
             timeout=Duration.seconds(60),
             environment={
                 "DYNAMODB_TABLE": f"track-timing-{env_name}",
-                "PYTHONUNBUFFERED": "1",
             },
             log_group=log_group,
         )

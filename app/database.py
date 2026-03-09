@@ -191,15 +191,19 @@ def get_learned_duration(discipline: str) -> float | None:
 
 def get_all_learned_durations() -> dict[str, tuple[float, int]]:
     """Return all learned durations as {discipline: (avg_minutes, sample_count)}."""
-    if settings.dynamodb_table:
-        return _dynamo_get_all_learned_durations()
-    with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT discipline, AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt
-            FROM event_durations
-            GROUP BY discipline
-            ORDER BY discipline
-            """
-        ).fetchall()
-    return {r["discipline"]: (r["avg_dur"], r["cnt"]) for r in rows}
+    try:
+        if settings.dynamodb_table:
+            return _dynamo_get_all_learned_durations()
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT discipline, AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt
+                FROM event_durations
+                GROUP BY discipline
+                ORDER BY discipline
+                """
+            ).fetchall()
+        return {r["discipline"]: (r["avg_dur"], r["cnt"]) for r in rows}
+    except Exception:
+        logger.warning("Error reading all learned durations", exc_info=True)
+        return {}
