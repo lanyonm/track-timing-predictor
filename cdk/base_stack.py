@@ -36,8 +36,12 @@ class TrackTimingBaseStack(Stack):
             ],
         )
 
-        # GitHub Actions OIDC role — scoped to this repo only; AdministratorAccess
-        # for CDK deployments (see hosting-plan.md IAM Roles section for rationale)
+        # GitHub Actions OIDC role — scoped to this repo only via OIDC subject claim.
+        # AdministratorAccess is used because CDK synthesizes IAM roles, policies, and
+        # diverse resource types that are impractical to predict and scope in advance.
+        # Accepted risk: a compromised workflow could escalate within this account.
+        # TODO: Replace with a scoped policy covering CloudFormation, Lambda, DynamoDB,
+        #       ECR, IAM (path-scoped), CloudWatch Logs, and STS.
         self.github_actions_role = iam.Role(
             self,
             "GitHubActionsRole",

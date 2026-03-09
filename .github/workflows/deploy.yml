@@ -7,7 +7,7 @@ name: Deploy to Production
 
 on:
   push:
-    branches: [main, lambda-deploy]
+    branches: [main]
 
 jobs:
   deploy:

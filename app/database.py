@@ -63,10 +63,16 @@ def init_db() -> None:
 #   OVERRIDE#<discipline>   — manual override duration_minutes (N)
 # ---------------------------------------------------------------------------
 
+_dynamo_table_cache = None
+
+
 def _dynamo_table():
-    import boto3
-    dynamodb = boto3.resource("dynamodb", region_name=settings.aws_region)
-    return dynamodb.Table(settings.dynamodb_table)
+    global _dynamo_table_cache
+    if _dynamo_table_cache is None:
+        import boto3
+        dynamodb = boto3.resource("dynamodb", region_name=settings.aws_region)
+        _dynamo_table_cache = dynamodb.Table(settings.dynamodb_table)
+    return _dynamo_table_cache
 
 
 def _dynamo_record_duration(

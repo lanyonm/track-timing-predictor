@@ -22,7 +22,13 @@ pytest tests/test_predictor.py::TestComputeDelay::test_positive_delay_when_behin
 
 Install dependencies: `pip install -r requirements.txt`
 
-Environment variable: `DB_PATH` overrides the default SQLite database path (`timings.db`).
+**Environment variables:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `DB_PATH` | `timings.db` | SQLite database path (local dev only) |
+| `DYNAMODB_TABLE` | `""` | DynamoDB table name; enables DynamoDB backend when set |
+| `AWS_REGION` | `us-east-1` | AWS region for DynamoDB client |
 
 ## Taxonomy
 
@@ -39,6 +45,8 @@ Environment variable: `DB_PATH` overrides the default SQLite database path (`tim
 
 The app predicts per-event start times for track cycling competitions fetched from tracktiming.live.
 
+**Deployment:** Lambda + Function URL (Docker image from ECR). Mangum adapts FastAPI to the Lambda handler. Local dev uses uvicorn. See `plans/hosting-plan.md` for full infrastructure details.
+
 **Request flow:**
 1. `main.py` receives a tracktiming.live EventId via form or URL
 2. `fetcher.py` POSTs to the Jaxon API to get schedule HTML
@@ -54,15 +62,18 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - `_live_heats` — current heat number from live results pages
 - `_generated_times` — Generated timestamps from result pages
 
+**Note:** On Lambda, these caches persist within a warm execution environment but reset on cold starts and are not shared across concurrent invocations. This may cause more frequent re-fetching and slightly less accurate predictions during cold starts.
+
 **Duration source priority** (highest to lowest accuracy):
 1. Observed: result-page Finish Time + changeover (bunch races)
 2. Generated: difference between consecutive result-page Generated timestamps
 3. Heat count: `heat_count × per_heat_duration + changeover`
-4. Default: learned average from SQLite (if ≥3 samples) or `DEFAULT_DURATIONS` fallback
+4. Default: learned average from database (if ≥3 samples) or `DEFAULT_DURATIONS` fallback
 
 **Learning mechanism** (`database.py`):
-- SQLite table `event_durations` accumulates observed durations per discipline
-- `discipline_overrides` table allows manual overrides
+- Dual backend: DynamoDB in production (`DYNAMODB_TABLE` set), SQLite for local dev
+- DynamoDB single-table design: `AGGREGATE#<discipline>` items store running totals; `OVERRIDE#<discipline>` items store manual overrides
+- SQLite tables: `event_durations` accumulates observations, `discipline_overrides` for manual overrides
 - `get_learned_duration()` returns the average when ≥ `min_learned_samples` (3) rows exist
 - Wall-clock learning (UPCOMING→COMPLETED transition) is a fallback, capped at 3× the static default to reject inflated values when start lists are published before the race
 
@@ -77,7 +88,7 @@ The app predicts per-event start times for track cycling competitions fetched fr
 
 ## Key Patterns
 
-- Tests use `conftest.py` to redirect SQLite to a temp file (prevents production DB contamination)
+- Tests use `conftest.py` to redirect SQLite to a temp file and force SQLite mode (prevents production DB contamination)
 - `sample-event-output.json` is a captured Jaxon API response used as a test fixture
 - `is_special` events (Break, End of Session, Medal Ceremonies) are excluded from `is_complete` checks and their COMPLETED status is deferred until the next event starts
 - `end_of_session` discipline contributes 0 minutes to the cumulative timeline
