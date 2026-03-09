@@ -40,6 +40,14 @@ class TrackTimingStack(Stack):
         )
 
         # Lambda — Docker image from ECR
+        log_group = logs.LogGroup(
+            self,
+            "HandlerLogs",
+            log_group_name=f"/aws/lambda/track-timing-{env_name}",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         fn = lambda_.DockerImageFunction(
             self,
             "Handler",
@@ -53,7 +61,7 @@ class TrackTimingStack(Stack):
                 "DYNAMODB_TABLE": f"track-timing-{env_name}",
                 "PYTHONUNBUFFERED": "1",
             },
-            log_retention=logs.RetentionDays.ONE_MONTH,
+            log_group=log_group,
         )
 
         # Grant the Lambda function read/write access to the DynamoDB table

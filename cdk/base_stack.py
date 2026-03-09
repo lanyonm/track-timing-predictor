@@ -19,10 +19,19 @@ class TrackTimingBaseStack(Stack):
             "Repo",
             repository_name="track-timing-predictor",
             lifecycle_rules=[
-                ecr.LifecycleRule(max_image_count=10),
                 ecr.LifecycleRule(
                     tag_status=ecr.TagStatus.UNTAGGED,
                     max_image_age=Duration.days(1),
+                ),
+                # Expire old SHA-tagged images but never touch prod-latest.
+                # ECR lifecycle rules use tag prefix matching; SHA tags are
+                # 40-char hex strings starting with 0-9 or a-f.
+                ecr.LifecycleRule(
+                    tag_prefix_list=[
+                        "0", "1", "2", "3", "4", "5", "6", "7",
+                        "8", "9", "a", "b", "c", "d", "e", "f",
+                    ],
+                    max_image_count=5,
                 ),
             ],
         )
