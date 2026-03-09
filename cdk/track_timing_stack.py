@@ -6,10 +6,13 @@ from aws_cdk import (
     aws_certificatemanager as acm,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
+    aws_cloudwatch as cloudwatch,
+    aws_cloudwatch_actions as cw_actions,
     aws_dynamodb as dynamodb,
     aws_ecr as ecr,
     aws_lambda as lambda_,
     aws_logs as logs,
+    aws_sns as sns,
 )
 from constructs import Construct
 
@@ -99,3 +102,21 @@ class TrackTimingStack(Stack):
             )
 
             CfnOutput(self, "DistributionDomain", value=distribution.distribution_domain_name)
+
+            # CloudWatch alarm — notify on Lambda errors
+            alarm_topic = sns.Topic(self, "AlarmTopic", topic_name="track-timing-prod-alarms")
+            CfnOutput(self, "AlarmTopicArn", value=alarm_topic.topic_arn)
+
+            error_alarm = fn.metric_errors(
+                period=Duration.minutes(5),
+                statistic="Sum",
+            ).create_alarm(
+                self,
+                "ErrorAlarm",
+                alarm_name="track-timing-prod-errors",
+                threshold=5,
+                evaluation_periods=1,
+                comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            )
+            error_alarm.add_alarm_action(cw_actions.SnsAction(alarm_topic))
