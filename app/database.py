@@ -1,8 +1,11 @@
+import logging
 import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS event_durations (
@@ -103,15 +106,22 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
             if count >= settings.min_learned_samples:
                 return total / count
     except Exception:
-        pass
+        logger.exception("DynamoDB error reading learned duration for %s", discipline)
     return None
 
 
 def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
     from boto3.dynamodb.conditions import Attr
-    items = _dynamo_table().scan(
-        FilterExpression=Attr("pk").begins_with("AGGREGATE#")
-    ).get("Items", [])
+    table = _dynamo_table()
+    filter_expr = Attr("pk").begins_with("AGGREGATE#")
+    response = table.scan(FilterExpression=filter_expr)
+    items = response.get("Items", [])
+    while "LastEvaluatedKey" in response:
+        response = table.scan(
+            FilterExpression=filter_expr,
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
     result = {}
     for item in items:
         discipline = item["pk"][len("AGGREGATE#"):]
