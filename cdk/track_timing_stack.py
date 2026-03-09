@@ -70,9 +70,10 @@ class TrackTimingStack(Stack):
         # Grant the Lambda function read/write access to the DynamoDB table
         table.grant_read_write_data(fn)
 
-        # Function URL — public access (no IAM auth)
+        # Function URL — IAM auth; accessed via CloudFront OAC in prod,
+        # directly (unsigned) in PR environments
         fn_url = fn.add_function_url(
-            auth_type=lambda_.FunctionUrlAuthType.NONE,
+            auth_type=lambda_.FunctionUrlAuthType.AWS_IAM if is_prod else lambda_.FunctionUrlAuthType.NONE,
         )
 
         CfnOutput(self, "FunctionUrl", value=fn_url.url)
@@ -90,10 +91,9 @@ class TrackTimingStack(Stack):
                 self,
                 "Distribution",
                 default_behavior=cloudfront.BehaviorOptions(
-                    origin=origins.FunctionUrlOrigin(fn_url),
+                    origin=origins.FunctionUrlOrigin.with_origin_access_control(fn_url),
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
-                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 ),
                 domain_names=["ttp.lanyonm.org"],
                 certificate=certificate,
