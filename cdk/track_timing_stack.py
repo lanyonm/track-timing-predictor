@@ -3,6 +3,9 @@ from aws_cdk import (
     Duration,
     RemovalPolicy,
     Stack,
+    aws_certificatemanager as acm,
+    aws_cloudfront as cloudfront,
+    aws_cloudfront_origins as origins,
     aws_dynamodb as dynamodb,
     aws_ecr as ecr,
     aws_lambda as lambda_,
@@ -73,3 +76,27 @@ class TrackTimingStack(Stack):
         )
 
         CfnOutput(self, "FunctionUrl", value=fn_url.url)
+
+        # CloudFront + custom domain (prod only)
+        if is_prod:
+            certificate = acm.Certificate(
+                self,
+                "Certificate",
+                domain_name="ttp.lanyonm.org",
+                validation=acm.CertificateValidation.from_dns(),
+            )
+
+            distribution = cloudfront.Distribution(
+                self,
+                "Distribution",
+                default_behavior=cloudfront.BehaviorOptions(
+                    origin=origins.FunctionUrlOrigin(fn_url),
+                    viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+                ),
+                domain_names=["ttp.lanyonm.org"],
+                certificate=certificate,
+            )
+
+            CfnOutput(self, "DistributionDomain", value=distribution.distribution_domain_name)
