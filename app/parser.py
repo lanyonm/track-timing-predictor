@@ -1,7 +1,10 @@
+import logging
 import re
 from datetime import datetime, time
 
 from bs4 import BeautifulSoup, Tag
+
+logger = logging.getLogger(__name__)
 
 from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
 from app.models import Event, EventStatus, Session
@@ -158,6 +161,7 @@ def parse_generated_time(html: str) -> datetime | None:
     try:
         return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
     except ValueError:
+        logger.info("Could not parse generated time from matched string: %s", match.group(1))
         return None
 
 
@@ -178,6 +182,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
         try:
             day, scheduled_start = _parse_summary(summary_tag.get_text())
         except ValueError:
+            logger.warning("Could not parse schedule summary: %s", summary_tag.get_text())
             continue  # skip non-schedule sessions (e.g. event documents)
 
         session_id_str = details.get("id", "0")

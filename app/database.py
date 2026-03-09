@@ -189,7 +189,7 @@ def get_learned_duration(discipline: str) -> float | None:
         if row and row["cnt"] >= settings.min_learned_samples:
             return row["avg_dur"]
     except Exception:
-        pass  # DB not yet initialized; fall through to defaults
+        logger.warning("SQLite error reading learned duration for %s", discipline, exc_info=True)
     return None
 
 

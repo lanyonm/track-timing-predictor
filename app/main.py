@@ -3,6 +3,8 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, Form, HTTPException, Request
 from pythonjsonlogger import jsonlogger
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -82,7 +84,7 @@ async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> Non
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:
-                pass
+                logger.warning("Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -111,7 +113,7 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
                 if count:
                     record_heat_count(ev_id, sess_id, pos, count)
             except Exception:
-                pass
+                logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -148,7 +150,7 @@ async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> N
                 if finish_time is not None:
                     record_observed_duration(ev_id, sess_id, pos, finish_time, discipline)
             except Exception:
-                pass
+                logger.warning("Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
