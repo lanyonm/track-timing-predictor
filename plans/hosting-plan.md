@@ -82,7 +82,7 @@ environments. Tags:
 - All tagged images: keep the 10 most recently pushed (`prod-latest` is
   retagged on every deploy so it is always among the newest)
 
-### Logging: CloudWatch
+### Logging and Monitoring: CloudWatch
 
 Each Lambda function gets a dedicated CloudWatch log group:
 - Name: `/aws/lambda/track-timing-{env}`
@@ -90,6 +90,22 @@ Each Lambda function gets a dedicated CloudWatch log group:
 - Removal policy: DESTROY (log groups cleaned up with stack)
 
 The app emits structured JSON logs via `python-json-logger`.
+
+**Error alarm (prod only):** A CloudWatch alarm triggers when the Lambda
+`Errors` metric exceeds 5 in a 5-minute period. The alarm publishes to an
+SNS topic (`track-timing-prod-alarms`). To receive email notifications,
+subscribe to the topic after the first deploy:
+
+```bash
+aws sns subscribe \
+  --topic-arn <AlarmTopicArn from stack output> \
+  --protocol email \
+  --notification-endpoint your-email@example.com
+```
+
+Confirm the subscription via the email you receive. The alarm uses
+`TreatMissingData.NOT_BREACHING` so periods with no invocations (e.g.,
+overnight) do not trigger false alerts.
 
 ## IAM Roles
 
@@ -205,7 +221,5 @@ DNS is managed at Name.com (not Route53). Two CNAME records are required:
 
 - **Rate limiting / WAF:** The CloudFront distribution is publicly accessible
   without throttling. A WAF WebACL could add rate limiting if needed.
-- **CloudWatch alarms:** Add error rate and duration alarms for production
-  monitoring.
 - **Cache externalization:** If Lambda cold starts degrade prediction quality,
   move critical caches (heat counts, observed durations) to DynamoDB with TTL.
