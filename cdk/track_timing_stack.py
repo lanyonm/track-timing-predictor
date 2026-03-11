@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_cloudwatch_actions as cw_actions,
     aws_dynamodb as dynamodb,
     aws_ecr as ecr,
+    aws_iam as iam,
     aws_lambda as lambda_,
     aws_logs as logs,
     aws_sns as sns,
@@ -96,9 +97,20 @@ class TrackTimingStack(Stack):
                     origin=origins.FunctionUrlOrigin.with_origin_access_control(fn_url),
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+                    origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 ),
                 domain_names=["ttp.lanyonm.org"],
                 certificate=certificate,
+            )
+
+            # Workaround for CDK issue #35872: AWS requires both
+            # lambda:InvokeFunctionUrl (added by with_origin_access_control)
+            # and lambda:InvokeFunction for CloudFront OAC dual auth.
+            fn.add_permission(
+                "CloudFrontInvokeFunction",
+                principal=iam.ServicePrincipal("cloudfront.amazonaws.com"),
+                action="lambda:InvokeFunction",
+                source_arn=f"arn:aws:cloudfront::{self.account}:distribution/{distribution.distribution_id}",
             )
 
             CfnOutput(self, "DistributionDomain", value=distribution.distribution_domain_name)

@@ -193,10 +193,19 @@ At expected traffic levels (a few concurrent users during race events):
 
 Prod traffic is served through CloudFront at `https://ttp.lanyonm.org`:
 - **ACM certificate:** DNS-validated for `ttp.lanyonm.org`
-- **CloudFront distribution:** Origin Access Control to the Lambda Function URL
+- **CloudFront distribution:** Origin Access Control (OAC) to the Lambda Function URL
+- **Origin request policy:** `ALL_VIEWER_EXCEPT_HOST_HEADER` — required so CloudFront
+  doesn't forward its own domain as the `Host` header, which would break SigV4 signing
 - **Cache policy:** `CACHING_DISABLED` (the app is dynamic — predictions change
   every 30 seconds)
 - **Viewer protocol:** HTTP redirects to HTTPS
+
+**CDK workaround (dual auth):** AWS requires both `lambda:InvokeFunctionUrl` and
+`lambda:InvokeFunction` in the Lambda resource policy for CloudFront OAC access.
+CDK's `FunctionUrlOrigin.with_origin_access_control()` only grants the first, so
+the stack manually adds the second via `fn.add_permission()`. See
+[CDK #35872](https://github.com/aws/aws-cdk/issues/35872). This workaround can
+be removed once CDK fixes the issue upstream.
 
 DNS is managed at Name.com (not Route53). Two CNAME records are required:
 1. ACM validation CNAME (one-time, created during first deploy)
