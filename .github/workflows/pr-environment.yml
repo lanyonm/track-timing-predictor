@@ -12,6 +12,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +55,7 @@ jobs:
         run: npm install -g aws-cdk
 
       - name: Deploy PR stack
+        id: cdk-deploy
         env:
           CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
           CDK_DEFAULT_REGION: us-east-1
@@ -64,7 +66,17 @@ jobs:
             --exclusively \
             --require-approval never \
             --context env_name=${ENV_NAME} \
-            --context image_tag=${IMAGE_TAG}
+            --context image_tag=${IMAGE_TAG} \
+            --outputs-file cdk-outputs.json
+
+      - name: Comment PR with environment URL
+        env:
+          ENV_NAME: pr-${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FUNCTION_URL=$(jq -r ".\"TrackTimingStack-${ENV_NAME}\".FunctionUrl" cdk-outputs.json)
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "Preview environment deployed: ${FUNCTION_URL}"
 
   destroy-pr:
     if: github.event.action == 'closed'
