@@ -18,6 +18,7 @@ class TrackTimingBaseStack(Stack):
             self,
             "Repo",
             repository_name="track-timing-predictor",
+            image_scan_on_push=True,
             lifecycle_rules=[
                 ecr.LifecycleRule(
                     tag_status=ecr.TagStatus.UNTAGGED,
@@ -49,7 +50,10 @@ class TrackTimingBaseStack(Stack):
                         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                     },
                     "StringLike": {
-                        "token.actions.githubusercontent.com:sub": "repo:lanyonm/track-timing-predictor:*",
+                        "token.actions.githubusercontent.com:sub": [
+                            "repo:lanyonm/track-timing-predictor:ref:refs/heads/*",
+                            "repo:lanyonm/track-timing-predictor:pull_request",
+                        ],
                     },
                 },
             ),

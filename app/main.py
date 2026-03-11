@@ -255,7 +255,7 @@ async def toggle_use_learned(event_id: int = Form(...), use_learned: str = Form(
     """Toggle the learned-durations feature flag for the current browser session."""
     response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
     if use_learned == "on":
-        response.set_cookie(key="use_learned", value="true")
+        response.set_cookie(key="use_learned", value="true", httponly=True, secure=True, samesite="lax")
     else:
         response.delete_cookie(key="use_learned")
     return response
