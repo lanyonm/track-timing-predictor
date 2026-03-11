@@ -19,7 +19,10 @@ from constructs import Construct
 
 
 class TrackTimingStack(Stack):
-    """Per-environment stack: DynamoDB table + Lambda Function URL."""
+    """Per-environment stack: DynamoDB, Lambda (Docker), CloudWatch logs.
+
+    Prod adds CloudFront with OAC, ACM certificate, and error alerting.
+    """
 
     def __init__(
         self,

@@ -2,7 +2,7 @@ name: Deploy to Production
 
 # Prerequisite (one-time manual setup before this workflow can run):
 #   1. aws iam create-open-id-connect-provider for token.actions.githubusercontent.com
-#   2. cdk deploy TrackTimingBase TrackTimingStack-prod  (from CLI with human IAM user)
+#   2. cdk deploy TrackTimingBase TrackTimingStack-prod --context image_tag=prod-latest  (from CLI with human IAM user)
 #   3. Add AWS_ACCOUNT_ID secret to the GitHub repo
 
 on:
