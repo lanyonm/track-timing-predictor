@@ -4,9 +4,11 @@ from contextlib import contextmanager
 from decimal import Decimal
 
 try:
-    from botocore.exceptions import ClientError as _BotoClientError
+    from botocore.exceptions import BotoCoreError as _BotoError
 except ImportError:  # boto3 not installed (local dev without AWS deps)
-    _BotoClientError = Exception
+
+    class _BotoError(Exception):  # type: ignore[no-redef]
+        """Sentinel — never raised; DynamoDB paths are unreachable without boto3."""
 
 from app.config import settings
 
@@ -106,7 +108,7 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
             total = float(item.get("total_minutes", 0))
             if count >= settings.min_learned_samples:
                 return total / count
-    except _BotoClientError:
+    except _BotoError:
         logger.exception("DynamoDB error reading learned duration for %s", discipline)
     return None
 
@@ -209,6 +211,6 @@ def get_all_learned_durations() -> dict[str, tuple[float, int]]:
                 """
             ).fetchall()
         return {r["discipline"]: (r["avg_dur"], r["cnt"]) for r in rows}
-    except Exception:
+    except (_BotoError, sqlite3.Error):
         logger.warning("Error reading all learned durations", exc_info=True)
         return {}
