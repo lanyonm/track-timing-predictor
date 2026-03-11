@@ -77,7 +77,7 @@ class TrackTimingStack(Stack):
         table.grant_read_write_data(fn)
 
         # Function URL — IAM auth; accessed via CloudFront OAC in prod,
-        # directly (unsigned) in PR environments
+        # directly (no auth required) in PR environments
         fn_url = fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.AWS_IAM if is_prod else lambda_.FunctionUrlAuthType.NONE,
         )
@@ -109,6 +109,7 @@ class TrackTimingStack(Stack):
             # Workaround for CDK issue #35872: AWS requires both
             # lambda:InvokeFunctionUrl (added by with_origin_access_control)
             # and lambda:InvokeFunction for CloudFront OAC dual auth.
+            # Dual auth enforcement begins November 2026; remove once CDK fixes upstream.
             fn.add_permission(
                 "CloudFrontInvokeFunction",
                 principal=iam.ServicePrincipal("cloudfront.amazonaws.com"),

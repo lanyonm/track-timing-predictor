@@ -37,7 +37,7 @@ class TrackTimingBaseStack(Stack):
         # diverse resource types that are impractical to predict and scope in advance.
         # Accepted risk: a compromised workflow could escalate within this account.
         # TODO: Replace with a scoped policy covering CloudFormation, Lambda, DynamoDB,
-        #       ECR, IAM (path-scoped), CloudWatch Logs, and STS.
+        #       ECR, IAM (path-scoped), CloudWatch Logs, CloudFront, ACM, SNS, and STS.
         self.github_actions_role = iam.Role(
             self,
             "GitHubActionsRole",

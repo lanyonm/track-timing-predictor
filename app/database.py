@@ -3,6 +3,11 @@ import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
 
+try:
+    from botocore.exceptions import ClientError as _BotoClientError
+except ImportError:  # boto3 not installed (local dev without AWS deps)
+    _BotoClientError = Exception
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -101,7 +106,7 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
             total = float(item.get("total_minutes", 0))
             if count >= settings.min_learned_samples:
                 return total / count
-    except Exception:
+    except _BotoClientError:
         logger.exception("DynamoDB error reading learned duration for %s", discipline)
     return None
 
@@ -184,7 +189,7 @@ def get_learned_duration(discipline: str) -> float | None:
 
         if row and row["cnt"] >= settings.min_learned_samples:
             return row["avg_dur"]
-    except Exception:
+    except sqlite3.Error:
         logger.warning("SQLite error reading learned duration for %s", discipline, exc_info=True)
     return None
 
