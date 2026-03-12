@@ -1,7 +1,18 @@
+import logging
 import sqlite3
 from contextlib import contextmanager
+from decimal import Decimal
+
+try:
+    from botocore.exceptions import BotoCoreError as _BotoError
+except ImportError:  # boto3 not installed (local dev without AWS deps)
+
+    class _BotoError(Exception):  # type: ignore[no-redef]
+        """Sentinel — never raised; DynamoDB paths are unreachable without boto3."""
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS event_durations (
@@ -26,6 +37,10 @@ CREATE INDEX IF NOT EXISTS idx_event_durations_discipline
 """
 
 
+# ---------------------------------------------------------------------------
+# SQLite backend
+# ---------------------------------------------------------------------------
+
 @contextmanager
 def get_db():
     conn = sqlite3.connect(settings.db_path)
@@ -38,13 +53,92 @@ def get_db():
 
 
 def init_db() -> None:
+    if settings.dynamodb_table:
+        return  # DynamoDB table is managed by CDK; nothing to initialise locally
     with get_db() as conn:
         conn.executescript(_SCHEMA)
-        try:
-            conn.execute("ALTER TABLE event_durations RENAME COLUMN event_id TO competition_id")
-        except Exception:
-            pass  # Already renamed or column does not exist under the old name
 
+
+# ---------------------------------------------------------------------------
+# DynamoDB backend
+# ---------------------------------------------------------------------------
+# Single-table design — partition key "pk" only (matches CDK table definition).
+#
+# Item types:
+#   AGGREGATE#<discipline>  — running total_minutes (N) + count (N); used for avg
+#   OVERRIDE#<discipline>   — manual override duration_minutes (N)
+# ---------------------------------------------------------------------------
+
+_dynamo_table_cache = None
+
+
+def _dynamo_table():
+    global _dynamo_table_cache
+    if _dynamo_table_cache is None:
+        import boto3
+        dynamodb = boto3.resource("dynamodb", region_name=settings.aws_region)
+        _dynamo_table_cache = dynamodb.Table(settings.dynamodb_table)
+    return _dynamo_table_cache
+
+
+def _dynamo_record_duration(
+    discipline: str,
+    duration_minutes: float,
+) -> None:
+    _dynamo_table().update_item(
+        Key={"pk": f"AGGREGATE#{discipline}"},
+        UpdateExpression="ADD total_minutes :d, #cnt :one",
+        ExpressionAttributeNames={"#cnt": "count"},
+        ExpressionAttributeValues={
+            ":d": Decimal(str(duration_minutes)),
+            ":one": 1,
+        },
+    )
+
+
+def _dynamo_get_learned_duration(discipline: str) -> float | None:
+    try:
+        table = _dynamo_table()
+        override = table.get_item(Key={"pk": f"OVERRIDE#{discipline}"}).get("Item")
+        if override:
+            return float(override["duration_minutes"])
+        item = table.get_item(Key={"pk": f"AGGREGATE#{discipline}"}).get("Item")
+        if item:
+            count = int(item.get("count", 0))
+            total = float(item.get("total_minutes", 0))
+            if count >= settings.min_learned_samples:
+                return total / count
+    except _BotoError:
+        logger.exception("DynamoDB error reading learned duration for %s", discipline)
+    return None
+
+
+def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
+    from boto3.dynamodb.conditions import Attr
+    table = _dynamo_table()
+    filter_expr = Attr("pk").begins_with("AGGREGATE#")
+    response = table.scan(FilterExpression=filter_expr)
+    items = response.get("Items", [])
+    while "LastEvaluatedKey" in response:
+        response = table.scan(
+            FilterExpression=filter_expr,
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
+    result = {}
+    for item in items:
+        discipline = item["pk"][len("AGGREGATE#"):]
+        count = int(item.get("count", 0))
+        total = float(item.get("total_minutes", 0))
+        if count > 0:
+            result[discipline] = (total / count, count)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Public API — dispatches to DynamoDB when DYNAMODB_TABLE is configured,
+# otherwise falls back to SQLite for local development.
+# ---------------------------------------------------------------------------
 
 def record_duration(
     competition_id: int,
@@ -55,6 +149,9 @@ def record_duration(
     duration_minutes: float,
 ) -> None:
     """Insert one observed event duration into the database."""
+    if settings.dynamodb_table:
+        _dynamo_record_duration(discipline, duration_minutes)
+        return
     with get_db() as conn:
         conn.execute(
             """
@@ -71,6 +168,8 @@ def get_learned_duration(discipline: str) -> float | None:
     Return the average observed duration for a discipline if we have enough samples.
     Returns None if there are insufficient observations or the DB is not initialized.
     """
+    if settings.dynamodb_table:
+        return _dynamo_get_learned_duration(discipline)
     try:
         with get_db() as conn:
             # Check for a manual user override first
@@ -92,20 +191,26 @@ def get_learned_duration(discipline: str) -> float | None:
 
         if row and row["cnt"] >= settings.min_learned_samples:
             return row["avg_dur"]
-    except Exception:
-        pass  # DB not yet initialized; fall through to defaults
+    except sqlite3.Error:
+        logger.warning("SQLite error reading learned duration for %s", discipline, exc_info=True)
     return None
 
 
 def get_all_learned_durations() -> dict[str, tuple[float, int]]:
     """Return all learned durations as {discipline: (avg_minutes, sample_count)}."""
-    with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT discipline, AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt
-            FROM event_durations
-            GROUP BY discipline
-            ORDER BY discipline
-            """
-        ).fetchall()
-    return {r["discipline"]: (r["avg_dur"], r["cnt"]) for r in rows}
+    try:
+        if settings.dynamodb_table:
+            return _dynamo_get_all_learned_durations()
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT discipline, AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt
+                FROM event_durations
+                GROUP BY discipline
+                ORDER BY discipline
+                """
+            ).fetchall()
+        return {r["discipline"]: (r["avg_dur"], r["cnt"]) for r in rows}
+    except (_BotoError, sqlite3.Error):
+        logger.warning("Error reading all learned durations", exc_info=True)
+        return {}

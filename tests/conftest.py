@@ -15,8 +15,11 @@ def test_db(tmp_path_factory):
     contaminating duration estimates and breaking prediction assertions.
     """
     db_path = str(tmp_path_factory.mktemp("db") / "test.db")
-    original = settings.db_path
+    original_db_path = settings.db_path
+    original_dynamodb_table = settings.dynamodb_table
     settings.db_path = db_path
+    settings.dynamodb_table = ""  # Force SQLite backend for tests
     init_db()
     yield
-    settings.db_path = original
+    settings.db_path = original_db_path
+    settings.dynamodb_table = original_dynamodb_table

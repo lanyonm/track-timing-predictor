@@ -3,6 +3,8 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, Form, HTTPException, Request
 from pythonjsonlogger import jsonlogger
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,6 +17,8 @@ from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.fetcher import fetch_initial_layout, fetch_live_html, fetch_refresh, fetch_result_html, fetch_start_list_html
 from app.models import Session
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
+from mangum import Mangum
+
 from app.predictor import (
     get_generated_time,
     get_heat_count,
@@ -80,7 +84,7 @@ async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> Non
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:
-                pass
+                logger.warning("Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -109,7 +113,7 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
                 if count:
                     record_heat_count(ev_id, sess_id, pos, count)
             except Exception:
-                pass
+                logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -146,7 +150,7 @@ async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> N
                 if finish_time is not None:
                     record_observed_duration(ev_id, sess_id, pos, finish_time, discipline)
             except Exception:
-                pass
+                logger.warning("Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -251,7 +255,7 @@ async def toggle_use_learned(event_id: int = Form(...), use_learned: str = Form(
     """Toggle the learned-durations feature flag for the current browser session."""
     response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
     if use_learned == "on":
-        response.set_cookie(key="use_learned", value="true")
+        response.set_cookie(key="use_learned", value="true", httponly=True, secure=True, samesite="lax")
     else:
         response.delete_cookie(key="use_learned")
     return response
@@ -276,3 +280,6 @@ async def learned_durations(request: Request):
         "durations": durations,
         "min_samples": settings.min_learned_samples,
     })
+
+
+handler = Mangum(app, lifespan="auto")
