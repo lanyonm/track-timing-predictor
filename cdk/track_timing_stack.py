@@ -102,6 +102,7 @@ class TrackTimingStack(Stack):
                 default_behavior=cloudfront.BehaviorOptions(
                     origin=origins.FunctionUrlOrigin.with_origin_access_control(fn_url),
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                    allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 ),
