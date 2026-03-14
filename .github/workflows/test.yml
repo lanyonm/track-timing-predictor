@@ -21,13 +21,13 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run tests with coverage
-        run: python -m pytest tests/ -v --cov=app --cov-report=term
+        run: python -m pytest tests/ -v --cov=app --cov-report=term --cov-report=json
 
       - name: Extract coverage percentage
         if: github.ref == 'refs/heads/main'
         id: coverage
         run: |
-          COVERAGE=$(python -m pytest tests/ --cov=app --cov-report=term -q 2>/dev/null | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
+          COVERAGE=$(python -c "import json; print(json.load(open('coverage.json'))['totals']['percent_covered_display'])")
           echo "percentage=$COVERAGE" >> "$GITHUB_OUTPUT"
 
       - name: Update coverage badge
