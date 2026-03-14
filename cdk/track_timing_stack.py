@@ -46,6 +46,9 @@ class TrackTimingStack(Stack):
                 name="pk", type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=is_prod,
+            ),
             removal_policy=RemovalPolicy.RETAIN if is_prod else RemovalPolicy.DESTROY,
         )
 
