@@ -1,5 +1,8 @@
 # Track Timing Predictor
 
+[![Tests](https://github.com/lanyonm/track-timing-predictor/actions/workflows/test.yml/badge.svg)](https://github.com/lanyonm/track-timing-predictor/actions/workflows/test.yml)
+![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/lanyonm/4425fffc5da8c86bbd7f97c14b8f42f9/raw/ttp-coverage-badge.json)
+
 A web app that predicts per-event start times for track cycling events hosted on [tracktiming.live](https://tracktiming.live/).
 
 ## How it works

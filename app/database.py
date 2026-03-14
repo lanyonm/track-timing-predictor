@@ -85,15 +85,18 @@ def _dynamo_record_duration(
     discipline: str,
     duration_minutes: float,
 ) -> None:
-    _dynamo_table().update_item(
-        Key={"pk": f"AGGREGATE#{discipline}"},
-        UpdateExpression="ADD total_minutes :d, #cnt :one",
-        ExpressionAttributeNames={"#cnt": "count"},
-        ExpressionAttributeValues={
-            ":d": Decimal(str(duration_minutes)),
-            ":one": 1,
-        },
-    )
+    try:
+        _dynamo_table().update_item(
+            Key={"pk": f"AGGREGATE#{discipline}"},
+            UpdateExpression="ADD total_minutes :d, #cnt :one",
+            ExpressionAttributeNames={"#cnt": "count"},
+            ExpressionAttributeValues={
+                ":d": Decimal(str(duration_minutes)),
+                ":one": 1,
+            },
+        )
+    except _BotoError:
+        logger.exception("DynamoDB error recording duration for %s", discipline)
 
 
 def _dynamo_get_learned_duration(discipline: str) -> float | None:
@@ -211,6 +214,9 @@ def get_all_learned_durations() -> dict[str, tuple[float, int]]:
                 """
             ).fetchall()
         return {r["discipline"]: (r["avg_dur"], r["cnt"]) for r in rows}
-    except (_BotoError, sqlite3.Error):
-        logger.warning("Error reading all learned durations", exc_info=True)
+    except _BotoError:
+        logger.error("DynamoDB error reading all learned durations (table=%s)", settings.dynamodb_table, exc_info=True)
+        return {}
+    except sqlite3.Error:
+        logger.error("SQLite error reading all learned durations (db=%s)", settings.db_path, exc_info=True)
         return {}
