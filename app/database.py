@@ -4,11 +4,10 @@ from contextlib import contextmanager
 from decimal import Decimal
 
 try:
-    from botocore.exceptions import BotoCoreError as _BotoError
+    from botocore.exceptions import BotoCoreError, ClientError
+    _BotoError = (BotoCoreError, ClientError)
 except ImportError:  # boto3 not installed (local dev without AWS deps)
-
-    class _BotoError(Exception):  # type: ignore[no-redef]
-        """Sentinel — never raised; DynamoDB paths are unreachable without boto3."""
+    _BotoError = ()  # type: ignore[assignment]
 
 from app.config import settings
 
@@ -96,7 +95,7 @@ def _dynamo_record_duration(
             },
         )
     except _BotoError:
-        logger.exception("DynamoDB error recording duration for %s", discipline)
+        logger.error("DynamoDB error recording duration for %s", discipline, exc_info=True)
 
 
 def _dynamo_get_learned_duration(discipline: str) -> float | None:
@@ -112,7 +111,7 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
             if count >= settings.min_learned_samples:
                 return total / count
     except _BotoError:
-        logger.exception("DynamoDB error reading learned duration for %s", discipline)
+        logger.error("DynamoDB error reading learned duration for %s", discipline, exc_info=True)
     return None
 
 
@@ -195,7 +194,7 @@ def get_learned_duration(discipline: str) -> float | None:
         if row and row["cnt"] >= settings.min_learned_samples:
             return row["avg_dur"]
     except sqlite3.Error:
-        logger.warning("SQLite error reading learned duration for %s", discipline, exc_info=True)
+        logger.error("SQLite error reading learned duration for %s (db=%s)", discipline, settings.db_path, exc_info=True)
     return None
 
 
