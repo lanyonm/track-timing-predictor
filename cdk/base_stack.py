@@ -34,11 +34,8 @@ class TrackTimingBaseStack(Stack):
         )
 
         # GitHub Actions OIDC role — scoped to this repo only via OIDC subject claim.
-        # AdministratorAccess is used because CDK synthesizes IAM roles, policies, and
-        # diverse resource types that are impractical to predict and scope in advance.
-        # Accepted risk: a compromised workflow could escalate within this account.
-        # TODO: Replace with a scoped policy covering CloudFormation, Lambda, DynamoDB,
-        #       ECR, IAM (path-scoped), CloudWatch Logs, CloudFront, ACM, SNS, and STS.
+        # CDK bootstrap roles carry the permissions to manage CloudFormation stacks
+        # and resources; this role only needs to assume them plus push to ECR.
         self.github_actions_role = iam.Role(
             self,
             "GitHubActionsRole",
@@ -57,7 +54,56 @@ class TrackTimingBaseStack(Stack):
                     },
                 },
             ),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name("AdministratorAccess"),
-            ],
+            inline_policies={
+                "CdkDeployPolicy": iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(
+                            sid="AssumeCdkBootstrapRoles",
+                            actions=["sts:AssumeRole"],
+                            resources=[
+                                f"arn:aws:iam::{self.account}:role/cdk-hnb659fds-*-role-{self.account}-us-east-1",
+                            ],
+                        ),
+                        iam.PolicyStatement(
+                            sid="CloudFormationDescribe",
+                            actions=[
+                                "cloudformation:DescribeStacks",
+                                "cloudformation:DescribeStackEvents",
+                                "cloudformation:GetTemplate",
+                                "cloudformation:GetTemplateSummary",
+                            ],
+                            resources=["*"],
+                        ),
+                        iam.PolicyStatement(
+                            sid="EcrAuthToken",
+                            actions=["ecr:GetAuthorizationToken"],
+                            resources=["*"],
+                        ),
+                        iam.PolicyStatement(
+                            sid="EcrPushAppImage",
+                            actions=[
+                                "ecr:BatchCheckLayerAvailability",
+                                "ecr:GetDownloadUrlForLayer",
+                                "ecr:BatchGetImage",
+                                "ecr:PutImage",
+                                "ecr:InitiateLayerUpload",
+                                "ecr:UploadLayerPart",
+                                "ecr:CompleteLayerUpload",
+                                "ecr:DescribeRepositories",
+                                "ecr:ListImages",
+                            ],
+                            resources=[
+                                f"arn:aws:ecr:us-east-1:{self.account}:repository/track-timing-predictor",
+                            ],
+                        ),
+                        iam.PolicyStatement(
+                            sid="SsmBootstrapVersion",
+                            actions=["ssm:GetParameter"],
+                            resources=[
+                                f"arn:aws:ssm:us-east-1:{self.account}:parameter/cdk-bootstrap/hnb659fds/version",
+                            ],
+                        ),
+                    ]
+                ),
+            },
         )
