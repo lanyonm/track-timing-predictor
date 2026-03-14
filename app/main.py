@@ -5,7 +5,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from pythonjsonlogger import jsonlogger
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -169,12 +169,6 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.post("/schedule")
-async def show_schedule(event_id: int = Form(...)):
-    """Redirect to the bookmarkable GET route for the given event."""
-    return RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
-
-
 @app.get("/schedule/{event_id}", response_class=HTMLResponse)
 async def get_schedule(request: Request, event_id: int):
     """GET version of schedule so links and bookmarks work."""
@@ -250,8 +244,8 @@ async def refresh_schedule(request: Request, event_id: int):
     })
 
 
-@app.post("/settings/use-learned")
-async def toggle_use_learned(event_id: int = Form(...), use_learned: str = Form("off")):
+@app.get("/settings/use-learned")
+async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Query("off")):
     """Toggle the learned-durations feature flag for the current browser session."""
     response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
     if use_learned == "on":

@@ -45,7 +45,7 @@ Install dependencies: `pip install -r requirements.txt`
 
 The app predicts per-event start times for track cycling competitions fetched from tracktiming.live.
 
-**Deployment:** Lambda + Function URL (Docker image from ECR). Mangum adapts FastAPI to the Lambda handler. Local dev uses uvicorn. See `plans/hosting-plan.md` for full infrastructure details.
+**Deployment:** Lambda + Function URL (Docker image from ECR). Mangum adapts FastAPI to the Lambda handler. Local dev uses uvicorn. See `plans/hosting-plan.md` for full infrastructure details. **All routes must be GET** — CloudFront OAC with Lambda Function URLs doesn't support POST request bodies (SigV4 payload signature mismatch causes 403s).
 
 **Request flow:**
 1. `main.py` receives a tracktiming.live EventId via form or URL
