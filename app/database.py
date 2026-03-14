@@ -116,25 +116,29 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
 
 
 def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
-    from boto3.dynamodb.conditions import Attr
-    table = _dynamo_table()
-    filter_expr = Attr("pk").begins_with("AGGREGATE#")
-    response = table.scan(FilterExpression=filter_expr)
-    items = response.get("Items", [])
-    while "LastEvaluatedKey" in response:
-        response = table.scan(
-            FilterExpression=filter_expr,
-            ExclusiveStartKey=response["LastEvaluatedKey"],
-        )
-        items.extend(response.get("Items", []))
-    result = {}
-    for item in items:
-        discipline = item["pk"][len("AGGREGATE#"):]
-        count = int(item.get("count", 0))
-        total = float(item.get("total_minutes", 0))
-        if count > 0:
-            result[discipline] = (total / count, count)
-    return result
+    try:
+        from boto3.dynamodb.conditions import Attr
+        table = _dynamo_table()
+        filter_expr = Attr("pk").begins_with("AGGREGATE#")
+        response = table.scan(FilterExpression=filter_expr)
+        items = response.get("Items", [])
+        while "LastEvaluatedKey" in response:
+            response = table.scan(
+                FilterExpression=filter_expr,
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            items.extend(response.get("Items", []))
+        result = {}
+        for item in items:
+            discipline = item["pk"][len("AGGREGATE#"):]
+            count = int(item.get("count", 0))
+            total = float(item.get("total_minutes", 0))
+            if count > 0:
+                result[discipline] = (total / count, count)
+        return result
+    except _BotoError:
+        logger.error("DynamoDB error reading all learned durations (table=%s)", settings.dynamodb_table, exc_info=True)
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -154,15 +158,18 @@ def record_duration(
     if settings.dynamodb_table:
         _dynamo_record_duration(discipline, duration_minutes)
         return
-    with get_db() as conn:
-        conn.execute(
-            """
-            INSERT INTO event_durations
-                (competition_id, session_id, event_position, event_name, discipline, duration_minutes)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (competition_id, session_id, event_position, event_name, discipline, duration_minutes),
-        )
+    try:
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO event_durations
+                    (competition_id, session_id, event_position, event_name, discipline, duration_minutes)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (competition_id, session_id, event_position, event_name, discipline, duration_minutes),
+            )
+    except sqlite3.Error:
+        logger.error("SQLite error recording duration for %s (db=%s)", discipline, settings.db_path, exc_info=True)
 
 
 def get_learned_duration(discipline: str) -> float | None:
@@ -200,9 +207,9 @@ def get_learned_duration(discipline: str) -> float | None:
 
 def get_all_learned_durations() -> dict[str, tuple[float, int]]:
     """Return all learned durations as {discipline: (avg_minutes, sample_count)}."""
+    if settings.dynamodb_table:
+        return _dynamo_get_all_learned_durations()
     try:
-        if settings.dynamodb_table:
-            return _dynamo_get_all_learned_durations()
         with get_db() as conn:
             rows = conn.execute(
                 """
@@ -213,9 +220,6 @@ def get_all_learned_durations() -> dict[str, tuple[float, int]]:
                 """
             ).fetchall()
         return {r["discipline"]: (r["avg_dur"], r["cnt"]) for r in rows}
-    except _BotoError:
-        logger.error("DynamoDB error reading all learned durations (table=%s)", settings.dynamodb_table, exc_info=True)
-        return {}
     except sqlite3.Error:
         logger.error("SQLite error reading all learned durations (db=%s)", settings.db_path, exc_info=True)
         return {}

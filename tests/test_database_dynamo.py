@@ -113,10 +113,20 @@ class TestDynamoGetLearnedDuration:
     def test_returns_none_for_unknown_discipline(self, dynamo_table):
         assert database._dynamo_get_learned_duration("nonexistent") is None
 
-    def test_error_returns_none_and_logs(self, dynamo_table, caplog):
-        """DynamoDB errors should return None and log."""
+    def test_client_error_returns_none_and_logs(self, dynamo_table, caplog):
+        """ClientError should return None and log."""
         with patch.object(
             database, "_dynamo_table", side_effect=_make_client_error()
+        ):
+            with caplog.at_level(logging.ERROR, logger="app.database"):
+                result = database._dynamo_get_learned_duration("keirin")
+            assert result is None
+            assert "DynamoDB error reading learned duration" in caplog.text
+
+    def test_botocore_error_returns_none_and_logs(self, dynamo_table, caplog):
+        """BotoCoreError should return None and log."""
+        with patch.object(
+            database, "_dynamo_table", side_effect=BotoCoreError()
         ):
             with caplog.at_level(logging.ERROR, logger="app.database"):
                 result = database._dynamo_get_learned_duration("keirin")
@@ -152,13 +162,23 @@ class TestDynamoGetAllLearnedDurations:
 
 
 class TestGetAllLearnedDurationsErrorHandling:
-    def test_dynamo_error_returns_empty_and_logs(self, dynamo_table, caplog):
-        """DynamoDB errors in get_all_learned_durations should return {} and log at error."""
+    def test_client_error_returns_empty_and_logs(self, dynamo_table, caplog):
+        """ClientError in _dynamo_get_all_learned_durations should return {} and log."""
         with patch.object(
             database, "_dynamo_table", side_effect=_make_client_error()
         ):
             with caplog.at_level(logging.ERROR, logger="app.database"):
-                result = database.get_all_learned_durations()
+                result = database._dynamo_get_all_learned_durations()
+            assert result == {}
+            assert "DynamoDB error reading all learned durations" in caplog.text
+
+    def test_botocore_error_returns_empty_and_logs(self, dynamo_table, caplog):
+        """BotoCoreError in _dynamo_get_all_learned_durations should return {} and log."""
+        with patch.object(
+            database, "_dynamo_table", side_effect=BotoCoreError()
+        ):
+            with caplog.at_level(logging.ERROR, logger="app.database"):
+                result = database._dynamo_get_all_learned_durations()
             assert result == {}
             assert "DynamoDB error reading all learned durations" in caplog.text
 
