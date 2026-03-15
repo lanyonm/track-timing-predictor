@@ -93,3 +93,10 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - `is_special` events (Break, End of Session, Medal Ceremonies) are excluded from `is_complete` checks and their COMPLETED status is deferred until the next event starts
 - `end_of_session` discipline contributes 0 minutes to the cumulative timeline
 - Templates: `schedule.html` is the full page; `_schedule_body.html` is the HTMX partial returned by `/schedule/{id}/refresh`
+
+## Active Technologies
+- Python 3.11+ (same as existing app) + httpx (HTTP client, existing), beautifulsoup4 (HTML parsing, existing), boto3 (DynamoDB, existing), argparse (CLI, stdlib) (002-duration-data-import)
+- SQLite (local dev) + DynamoDB (production) — extended schema with classification + gender columns; JSON files for intermediate outpu (002-duration-data-import)
+
+## Recent Changes
+- 002-duration-data-import: Added Python 3.11+ (same as existing app) + httpx (HTTP client, existing), beautifulsoup4 (HTML parsing, existing), boto3 (DynamoDB, existing), argparse (CLI, stdlib)
