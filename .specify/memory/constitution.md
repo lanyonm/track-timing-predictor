@@ -152,6 +152,12 @@ trade-off.
 - PRs MUST pass `pytest` via CI (GitHub Actions) before merge — CI is
   the enforcement mechanism, not human discipline.
 - Changes should be focused — one concern per PR.
+- Implementation tasks (e.g., from speckit tasks.md) MUST be scoped to
+  fit within a single LLM context window. A task that requires reading
+  more than ~800 lines of reference code plus producing significant
+  output SHOULD be split into sub-tasks with distinct reference file
+  sets. This prevents context compaction from degrading implementation
+  quality.
 - CLAUDE.md is the authoritative development reference and MUST be kept
   current with architectural changes.
 - All routes MUST use GET. CloudFront OAC with Lambda Function URLs
@@ -168,4 +174,4 @@ trade-off.
 - CLAUDE.md is the runtime development guidance file; the constitution
   governs design principles and trade-off evaluation.
 
-**Version**: 1.1.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-14
+**Version**: 1.2.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-15
