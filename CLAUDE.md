@@ -93,3 +93,10 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - `is_special` events (Break, End of Session, Medal Ceremonies) are excluded from `is_complete` checks and their COMPLETED status is deferred until the next event starts
 - `end_of_session` discipline contributes 0 minutes to the cumulative timeline
 - Templates: `schedule.html` is the full page; `_schedule_body.html` is the HTMX partial returned by `/schedule/{id}/refresh`
+
+## Active Technologies
+- Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing) (001-racer-schedule-lookup)
+- In-memory caches (existing pattern) — no database changes (001-racer-schedule-lookup)
+
+## Recent Changes
+- 001-racer-schedule-lookup: Added Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing)

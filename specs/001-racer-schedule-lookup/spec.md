@@ -5,6 +5,15 @@
 **Status**: Draft
 **Input**: User description: "Individual racer predicted race time lookup — allow a racer to enter their name and see personalized predicted start times for events they are competing in."
 
+## Clarifications
+
+### Session 2026-03-14
+- Q: Should a returning user's cookie-stored name be auto-applied on page load (events highlighted immediately) or only pre-fill the input? → A: Auto-apply — cookie name is used on page load, events highlighted immediately.
+- Q: How should the name input communicate its purpose to first-time visitors? → A: Placeholder text inside the input (e.g., "Your name to highlight your events"). A privacy policy page may be needed in the future given name/cookie storage.
+- Q: When should the URL update to include the encoded racer name? → A: On form submission — URL updates when the name is applied to the schedule, not live as the user types.
+- Q: Should name matching support partial/substring input or require a full name? → A: Full name match — racer must enter their complete name (case-insensitive).
+- Q: Should the system require the tracktiming "LASTNAME Firstname" order, or accept either name order? → A: Accept either order — system normalizes and matches regardless of first/last name order.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Racer Looks Up Their Personal Schedule (Priority: P1)
@@ -60,11 +69,11 @@ A racer who previously entered their name returns to the site for the same or a 
 
 **Why this priority**: Quality-of-life improvement that supports the goal of the app remembering returning users. Sets the foundation for future personalization features including palmares.
 
-**Independent Test**: Can be tested by entering a name, navigating away, then returning to verify the name is pre-filled.
+**Independent Test**: Can be tested by entering a name, navigating away, then returning to verify the name is pre-filled and events are automatically highlighted.
 
 **Acceptance Scenarios**:
 
-1. **Given** a racer previously entered their name on the site, **When** they visit a new competition schedule, **Then** their name is pre-filled in the name input field.
+1. **Given** a racer previously entered their name on the site, **When** they visit a new competition schedule, **Then** their name is pre-filled in the name input field and matching events are automatically highlighted without any additional interaction.
 2. **Given** a racer has a remembered name, **When** they want to change it, **Then** they can easily clear and replace the pre-filled name.
 
 ---
@@ -75,8 +84,8 @@ A racer who previously entered their name returns to the site for the same or a 
   - All matching events across all sessions should be highlighted.
 - What happens when two racers share the same name?
   - Both entries are matched. The system matches on name text, not a unique identifier. Note: for the future palmares feature, same-name racers would produce identical encoded URLs and cookies. A future disambiguator (e.g., bib number or team) may be needed for palmares, but is out of scope for this feature.
-- What happens when the racer name is entered with different capitalization or spacing?
-  - Name matching should be case-insensitive and tolerant of minor whitespace differences.
+- What happens when the racer name is entered with different capitalization, spacing, or name order?
+  - Name matching is case-insensitive, tolerant of minor whitespace differences, and accepts either "Firstname Lastname" or "Lastname Firstname" order.
 - What happens when start list data is not yet available for an event?
   - Events without start list data cannot be matched; the racer is informed that some start lists are not yet published.
 - What happens when the racer clears their name?
@@ -91,14 +100,14 @@ A racer who previously entered their name returns to the site for the same or a 
 ### Functional Requirements
 
 - **FR-001**: System MUST parse rider names from start list pages for each event, associating each rider with their heat assignment.
-- **FR-002**: System MUST provide a name input on the schedule view page where the racer can enter their name.
-- **FR-003**: System MUST match the entered racer name against parsed start list data using case-insensitive comparison.
+- **FR-002**: System MUST provide a name input on the schedule view page with descriptive placeholder text (e.g., "Your name to highlight your events") so first-time visitors understand the feature's purpose without additional UI elements.
+- **FR-003**: System MUST match the entered racer name against parsed start list data using full-name, case-insensitive comparison with name-order normalization (e.g., "Sean Hall" and "Hall Sean" both match "HALL Sean"). Partial or substring matches are not supported.
 - **FR-004**: System MUST visually highlight events where the racer is competing within the full schedule view, so the racer retains context of surrounding events.
 - **FR-005**: System MUST display the racer's specific heat number for multi-heat events where the racer is competing.
 - **FR-006**: System MUST calculate and display a predicted start time for the racer's specific heat within a multi-heat event.
 - **FR-007**: System MUST preserve the racer name across auto-refresh polling cycles so highlighted events persist.
-- **FR-008**: System MUST include the racer name in the page URL in an encoded (non-plaintext) format so personalized schedules can be bookmarked and shared without exposing the name as readable text.
-- **FR-009**: System MUST store the racer name in a browser cookie so returning users have their name pre-filled on subsequent visits across competitions.
+- **FR-008**: System MUST include the racer name in the page URL in an encoded (non-plaintext) format upon form submission (not live during typing) so personalized schedules can be bookmarked and shared without exposing the name as readable text.
+- **FR-009**: System MUST store the racer name in a browser cookie so returning users have their name pre-filled and automatically applied (events highlighted on page load) on subsequent visits across competitions.
 - **FR-010**: System MUST indicate when start list data is unavailable for some events, so the racer understands their schedule may be incomplete.
 - **FR-011**: System MUST display the personalized schedule effectively on both desktop and mobile viewports.
 - **FR-012**: System MUST allow the racer to clear their name, which removes highlighting and clears the stored cookie.
@@ -119,7 +128,7 @@ A racer who previously entered their name returns to the site for the same or a 
 - **SC-004**: The personalized schedule is fully usable on mobile devices with screen widths as small as 320px and at browser zoom levels up to 200%.
 - **SC-005**: Shared personalized schedule links load correctly for any recipient without requiring them to re-enter the racer name.
 - **SC-006**: The racer name input and matching adds no more than 1 second to the schedule load time.
-- **SC-007**: A returning racer sees their previously entered name pre-filled, reducing input time to zero for repeat visits.
+- **SC-007**: A returning racer sees their previously entered name pre-filled and events automatically highlighted on page load, reducing interaction to zero for repeat visits (e.g., day 2 of a multi-day competition).
 
 ## Assumptions
 
@@ -130,3 +139,4 @@ A racer who previously entered their name returns to the site for the same or a 
 - A browser cookie is an acceptable persistence mechanism for the racer name, following the existing pattern used for the learned-durations toggle.
 - The racer name encoding in URLs (Base64) addresses cosmetic/optics concerns but is not a security measure — it prevents casual readability, not determined decoding.
 - Same-name racers are an accepted limitation for this feature. The future palmares feature may require an additional disambiguator (e.g., bib number or team) to distinguish racers with identical names.
+- A privacy policy page is not in scope for this feature but may be needed in the future given that the site stores racer names in cookies and encodes them in shareable URLs.
