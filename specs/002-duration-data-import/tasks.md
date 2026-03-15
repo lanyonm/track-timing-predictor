@@ -54,8 +54,9 @@
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Implement competition extraction script in `tools/extract_competition.py` — argparse CLI accepting single competition ID, fetches schedule via existing `app/fetcher.py` pattern, parses via `app/parser.py`, iterates sessions and events, fetches result/start-list pages for completed events, extracts durations using source priority (finish_time > generated_diff > heat_count), applies categorizer to each event name, builds CompetitionReport with sessions/events/duration_observations/uncategorized_summary, writes JSON to `data/competitions/<competition_id>.json`, handles API errors with retry-once-then-exit (edge case spec), flags outlier durations > 120 min with warning
-- [ ] T010 [US1] Add test fixture for extraction in `tests/fixtures/` — capture or create a sample competition response fixture that covers: multiple sessions, completed/incomplete events, events with result pages, events with start-list pages showing heat counts, French event names, special events (Break, Medal Ceremonies)
+- [ ] T009 [US1] Implement duration extraction helpers in `tools/extract_competition.py` — functions to: extract observed duration from a result page (Finish Time + changeover for bunch races, following `app/predictor.py` patterns for `_observed_durations`), extract generated-timestamp duration from consecutive result-page Generated timestamps (following `_generated_times` pattern), extract heat count from a start-list page (following `_heat_counts` pattern), select best duration by source priority (finish_time > generated_diff > heat_count), flag outlier durations > 120 min with warning. Reference files: `app/predictor.py`, `app/parser.py`, `app/disciplines.py`
+- [ ] T010 [US1] Implement CLI orchestration in `tools/extract_competition.py` — argparse CLI accepting single competition ID, fetches schedule via existing `app/fetcher.py` pattern, parses via `app/parser.py`, iterates sessions and events, fetches result/start-list pages for completed events, calls duration extraction helpers (T009) for each event, applies categorizer to each event name, builds CompetitionReport with sessions/events/duration_observations/uncategorized_summary, writes JSON to `data/competitions/<competition_id>.json`, handles API errors with retry-once-then-exit (edge case spec), skips sessions with no completed events with warning. Reference files: `app/fetcher.py`, `app/models.py`, `app/categorizer.py`
+- [ ] T011 [US1] Add test fixture for extraction in `tests/fixtures/` — capture or create a sample competition response fixture that covers: multiple sessions, completed/incomplete events, events with result pages, events with start-list pages showing heat counts, French event names, special events (Break, Medal Ceremonies)
 
 **Checkpoint**: Extraction script produces valid JSON reports from tracktiming.live competitions
 
@@ -71,17 +72,17 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T011 [P] [US2] Write SQLite schema migration tests in `tests/test_loader.py` — test: classification, gender, and per_heat_duration_minutes columns are added to event_durations table, cascading fallback index exists, natural key unique index exists, existing rows retain NULL for new columns
-- [ ] T012 [P] [US2] Write loader integration tests in `tests/test_loader.py` — test: valid JSON file loads all records into SQLite, idempotent re-load does not duplicate records (natural key upsert), unrecognized discipline emits warning but stores record, cascading fallback returns correct averages at each level (discipline+classification+gender → discipline+classification → discipline+gender → discipline), invalid JSON file produces clear error message, record with missing required fields produces clear error message, per-heat duration is computed and stored when both duration_minutes and heat_count are present, per-heat duration is NULL when heat_count is absent
-- [ ] T013 [P] [US2] Write DynamoDB loader tests in `tests/test_loader_dynamo.py` using boto3 Stubber (following pattern in `tests/test_database_dynamo.py`) — test: records written to correct aggregate key patterns (AGGREGATE#disc#class#gender, AGGREGATE#disc#class, AGGREGATE#disc##gender, AGGREGATE#disc), observation items (OBS#comp#sess#pos) prevent double-counting and include per_heat_duration_minutes when present, cascading fallback queries return most-specific level with ≥3 samples
+- [ ] T012 [P] [US2] Write SQLite schema migration tests in `tests/test_loader.py` — test: classification, gender, and per_heat_duration_minutes columns are added to event_durations table, cascading fallback index exists, natural key unique index exists, existing rows retain NULL for new columns
+- [ ] T013 [P] [US2] Write loader integration tests in `tests/test_loader.py` — test: valid JSON file loads all records into SQLite, idempotent re-load does not duplicate records (natural key upsert), unrecognized discipline emits warning but stores record, cascading fallback returns correct averages at each level (discipline+classification+gender → discipline+classification → discipline+gender → discipline), invalid JSON file produces clear error message, record with missing required fields produces clear error message, per-heat duration is computed and stored when both duration_minutes and heat_count are present, per-heat duration is NULL when heat_count is absent
+- [ ] T014 [P] [US2] Write DynamoDB loader tests in `tests/test_loader_dynamo.py` using boto3 Stubber (following pattern in `tests/test_database_dynamo.py`) — test: records written to correct aggregate key patterns (AGGREGATE#disc#class#gender, AGGREGATE#disc#class, AGGREGATE#disc##gender, AGGREGATE#disc), observation items (OBS#comp#sess#pos) prevent double-counting and include per_heat_duration_minutes when present, cascading fallback queries return most-specific level with ≥3 samples
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] Extend SQLite schema in `app/database.py` — add `classification`, `gender`, and `per_heat_duration_minutes` columns via ALTER TABLE (safe migration), create `idx_event_durations_category` index on (discipline, classification, gender), create `idx_event_durations_natural_key` unique index on (competition_id, session_id, event_position)
-- [ ] T015 [US2] Implement cascading fallback query `get_learned_duration_cascading()` in `app/database.py` — accepts (discipline, classification, gender), queries 4 levels in order per research.md §4, returns first level with count ≥ min_learned_samples (3), falls through to existing `get_learned_duration()` behavior at broadest level
-- [ ] T016 [US2] Extend DynamoDB backend in `app/database.py` — implement multi-level aggregate writes (4 AGGREGATE items per observation), implement OBS# observation items for idempotency checking, implement cascading fallback GetItem queries (4 levels, most specific first), extend override items to support structured keys (OVERRIDE#disc#class#gender through OVERRIDE#disc)
-- [ ] T017 [US2] Implement loader script in `tools/load_durations.py` — argparse CLI accepting one or more JSON file paths, reads CompetitionReport JSON, validates duration records against constitution bounds (0.5× to 2.0× static default), computes per-heat duration (duration_minutes ÷ heat_count − changeover via `app/disciplines.get_changeover()`) when both duration and heat_count are present and stores in `per_heat_duration_minutes` column, writes to SQLite or DynamoDB based on DYNAMODB_TABLE env var, uses natural key (competition_id, session_id, event_position) for idempotent upsert, emits warning for unrecognized disciplines not in `app/disciplines.py`, reports summary: records loaded, skipped (duplicate), skipped (out of bounds), warnings
-- [ ] T018 [US2] Update `tests/conftest.py` with fixture helpers for category testing — add factory helpers for creating DurationRecord instances (using models defined in T006) with structured categories, add temp DB setup that includes the new schema columns (classification, gender, per_heat_duration_minutes)
+- [ ] T015 [US2] Extend SQLite schema in `app/database.py` — add `classification`, `gender`, and `per_heat_duration_minutes` columns via ALTER TABLE (safe migration), create `idx_event_durations_category` index on (discipline, classification, gender), create `idx_event_durations_natural_key` unique index on (competition_id, session_id, event_position)
+- [ ] T016 [US2] Implement cascading fallback query `get_learned_duration_cascading()` in `app/database.py` — accepts (discipline, classification, gender), queries 4 levels in order per research.md §4, returns first level with count ≥ min_learned_samples (3), falls through to existing `get_learned_duration()` behavior at broadest level
+- [ ] T017 [US2] Extend DynamoDB backend in `app/database.py` — implement multi-level aggregate writes (4 AGGREGATE items per observation), implement OBS# observation items for idempotency checking, implement cascading fallback GetItem queries (4 levels, most specific first), extend override items to support structured keys (OVERRIDE#disc#class#gender through OVERRIDE#disc)
+- [ ] T018 [US2] Implement loader script in `tools/load_durations.py` — argparse CLI accepting one or more JSON file paths, reads CompetitionReport JSON, validates duration records against constitution bounds (0.5× to 2.0× static default), computes per-heat duration (duration_minutes ÷ heat_count − changeover via `app/disciplines.get_changeover()`) when both duration and heat_count are present and stores in `per_heat_duration_minutes` column, writes to SQLite or DynamoDB based on DYNAMODB_TABLE env var, uses natural key (competition_id, session_id, event_position) for idempotent upsert, emits warning for unrecognized disciplines not in `app/disciplines.py`, reports summary: records loaded, skipped (duplicate), skipped (out of bounds), warnings
+- [ ] T019 [US2] Update `tests/conftest.py` with fixture helpers for category testing — add factory helpers for creating DurationRecord instances (using models defined in T006) with structured categories, add temp DB setup that includes the new schema columns (classification, gender, per_heat_duration_minutes)
 
 **Checkpoint**: Loader writes structured observations and the app returns granular learned averages via cascading fallback
 
@@ -91,8 +92,8 @@
 
 **Purpose**: Validation, cleanup, and verification across both user stories
 
-- [ ] T019 [P] Run quickstart.md validation — execute the quickstart workflow end-to-end against a known competition ID using only `--help` output and quickstart.md instructions (not source knowledge) to verify extract → inspect → load → verify pipeline works as documented, verify JSON output is human-readable (FR-010), note elapsed time to confirm < 2 minutes (SC-003)
-- [ ] T020 Ensure all existing tests pass — run full `pytest` suite to verify no regressions in existing app behavior from schema changes or model additions
+- [ ] T020 [P] Run quickstart.md validation — execute the quickstart workflow end-to-end against a known competition ID using only `--help` output and quickstart.md instructions (not source knowledge) to verify extract → inspect → load → verify pipeline works as documented, verify JSON output is human-readable (FR-010), note elapsed time to confirm < 2 minutes (SC-003)
+- [ ] T021 Ensure all existing tests pass — run full `pytest` suite to verify no regressions in existing app behavior from schema changes or model additions
 
 ---
 
@@ -109,7 +110,7 @@
 ### User Story Dependencies
 
 - **User Story 1 (P1)**: Can start after Phase 2. Depends on: `EventCategory` model (T003), categorizer (T004), data models (T006). Independent of US2.
-- **User Story 2 (P2)**: Can start after Phase 2. Depends on: `EventCategory` model (T003), data models (T006). Independent of US1 (loader reads JSON files directly). However, end-to-end validation (T019) requires both.
+- **User Story 2 (P2)**: Can start after Phase 2. Depends on: `EventCategory` model (T003), data models (T006). Independent of US1 (loader reads JSON files directly). However, end-to-end validation (T020) requires both.
 
 ### Within Each User Story
 
@@ -122,9 +123,9 @@
 
 - T005 (categorizer tests) can run in parallel with T006 (data models)
 - T007 + T008 (US1 tests) can run in parallel
-- T011 + T012 + T013 (US2 tests) can run in parallel
+- T012 + T013 + T014 (US2 tests) can run in parallel
 - US1 (Phase 3) and US2 (Phase 4) can be worked on in parallel after Phase 2
-- T019 + T020 (Polish) can run in parallel
+- T020 + T021 (Polish) can run in parallel
 
 ---
 
@@ -136,8 +137,9 @@ Task: "Write extraction integration tests in tests/test_extract_competition.py"
 Task: "Write extraction edge case tests in tests/test_extract_competition.py"
 
 # Then implement sequentially:
-Task: "Implement extraction script in tools/extract_competition.py"
-Task: "Add test fixture for extraction in tests/fixtures/"
+Task: "Implement duration extraction helpers in tools/extract_competition.py"  # T009
+Task: "Implement CLI orchestration in tools/extract_competition.py"           # T010
+Task: "Add test fixture for extraction in tests/fixtures/"                    # T011
 ```
 
 ## Parallel Example: User Story 2
@@ -148,13 +150,13 @@ Task: "Write SQLite schema migration tests in tests/test_loader.py"
 Task: "Write loader integration tests in tests/test_loader.py"
 Task: "Write DynamoDB loader tests in tests/test_loader_dynamo.py"
 
-# Then implement sequentially (T014-T016 all modify app/database.py):
-Task: "Extend SQLite schema in app/database.py"           # T014
-Task: "Implement cascading fallback query in app/database.py"  # T015 (depends on T014)
-Task: "Extend DynamoDB backend in app/database.py"        # T016 (depends on T014-T015, same file)
-Task: "Implement loader script in tools/load_durations.py" # T017 (depends on T014-T016)
-# T018 can run in parallel with T014-T016 (different file):
-Task: "Update conftest.py with fixture helpers"            # T018
+# Then implement sequentially (T015-T017 all modify app/database.py):
+Task: "Extend SQLite schema in app/database.py"           # T015
+Task: "Implement cascading fallback query in app/database.py"  # T016 (depends on T015)
+Task: "Extend DynamoDB backend in app/database.py"        # T017 (depends on T015-T016, same file)
+Task: "Implement loader script in tools/load_durations.py" # T018 (depends on T015-T017)
+# T019 can run in parallel with T015-T017 (different file):
+Task: "Update conftest.py with fixture helpers"            # T019
 ```
 
 ---
@@ -165,7 +167,7 @@ Task: "Update conftest.py with fixture helpers"            # T018
 
 1. Complete Phase 1: Setup (T001–T002)
 2. Complete Phase 2: Foundational (T003–T006)
-3. Complete Phase 3: User Story 1 (T007–T010)
+3. Complete Phase 3: User Story 1 (T007–T011)
 4. **STOP and VALIDATE**: Run extraction against known competitions, verify JSON output
 5. Deploy/demo if ready — developers can inspect extracted data and manually review categories
 
