@@ -94,24 +94,29 @@ A racer who previously entered their name returns to the site for the same or a 
   - Completed events are still shown as matched but retain their completed visual styling (with racer match as a secondary indicator).
 - What happens when an event has only one heat (e.g., a final)?
   - The event is highlighted as a match but no heat detail is shown (heat info is only relevant for multi-heat events).
+- How are racer-matched events communicated to screen reader users?
+  - `.racer-match` rows include `aria-label="Your event"`. Message elements (success, no-match, missing start lists) use `role="status"` for live region announcements.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: System MUST parse rider names from start list pages for each event, associating each rider with their heat assignment.
-- **FR-002**: System MUST provide a name input on the schedule view page with descriptive placeholder text (e.g., "Your name to highlight your events") so first-time visitors understand the feature's purpose without additional UI elements.
+- **FR-002**: System MUST provide a name input on the schedule view page in a new `.racer-form-bar` row between the existing meta bar and the schedule container. The form is a flex row containing: a text input with placeholder "Your name to highlight your events" (pre-filled when name is set), a "Highlight" submit button, and a "Clear" text link (visible only when a name is active). On mobile, the form stacks full-width. A `<small>` hint below the input reads "Enter your full name as shown on the start list" (visible always, not only on error).
 - **FR-003**: System MUST match the entered racer name against parsed start list data using full-name, case-insensitive comparison with name-order normalization (e.g., "Sean Hall" and "Hall Sean" both match "HALL Sean"). Partial or substring matches are not supported.
-- **FR-004**: System MUST visually highlight events where the racer is competing within the full schedule view, so the racer retains context of surrounding events.
-- **FR-005**: System MUST display the racer's specific heat number for multi-heat events where the racer is competing.
-- **FR-006**: System MUST calculate and display a predicted start time for the racer's specific heat within a multi-heat event.
+- **FR-004**: System MUST visually highlight events where the racer is competing using a blue left border (`4px solid #1a73e8`) as the racer identity signal and a blue background tint (`#e8f0fe`) as the default row background. Active events MUST retain their amber background (`#fff3cd`) when racer-matched; completed events MUST retain reduced opacity and strikethrough. The blue border is always present on racer-matched rows regardless of event status, consistent across desktop and mobile viewports.
+- **FR-005**: System MUST display the racer's specific heat number for multi-heat events as a prominent inline badge after the event name, using a solid blue pill style (`background: #1a73e8; color: #fff; font-weight: 700`). Single-heat events show the badge but no heat-specific time line.
+- **FR-006**: System MUST calculate and display a predicted start time for the racer's specific heat within a multi-heat event. The heat time MUST appear on its own line below the duration value in the Est. Duration column, formatted as "Your heat: HH:MM" in blue text (`color: #1a53a0`). The event-level predicted start time in the Predicted Start column remains unchanged.
 - **FR-007**: System MUST preserve the racer name across auto-refresh polling cycles so highlighted events persist.
 - **FR-008**: System MUST include the racer name in the page URL in an encoded (non-plaintext) format upon form submission (not live during typing) so personalized schedules can be bookmarked and shared without exposing the name as readable text.
 - **FR-009**: System MUST store the racer name in a browser cookie so returning users have their name pre-filled and automatically applied (events highlighted on page load) on subsequent visits across competitions.
-- **FR-010**: System MUST indicate when start list data is unavailable for some events, so the racer understands their schedule may be incomplete.
+- **FR-010**: System MUST display contextual messaging once above the session list in `_schedule_body.html` based on match state: (a) **Success**: when `racer_name` is set and `match_count > 0`, display "Found N event(s) for [name]" using blue info styling (`background: #dce8fc; color: #1a53a0`). (b) **Missing start lists**: when `events_without_start_lists > 0`, display "N event(s) do not yet have start lists" using blue info styling (shown alongside success or no-match messages). (c) **No matches**: when `racer_name` is set and `match_count == 0` and at least one event has a start list, display "No matching events found for [name]" using amber warning styling (`background: #fff3cd; color: #856404`). (d) **No data**: when `racer_name` is set and ALL events lack start lists (`events_without_start_lists == total_events`), display only "Start lists are not yet published — check back closer to the event" using blue info styling (suppress the "no matches" message since there is nothing to search).
 - **FR-011**: System MUST display the personalized schedule effectively on both desktop and mobile viewports.
-- **FR-012**: System MUST allow the racer to clear their name, which removes highlighting and clears the stored cookie.
+- **FR-012**: System MUST allow the racer to clear their name via a "Clear" text link (`font-size: 0.82rem; color: #666`) in the form bar, which removes highlighting and clears the stored cookie. The clear link is hidden when no name is active.
 - **FR-013**: System MUST remain fully functional and readable at browser zoom levels up to 200%, since users at the velodrome may not have their glasses and rely on browser zoom for readability.
+- **FR-014**: System MUST preserve all existing action links (Results, Start List, Audit, Live) on event rows regardless of racer-match status. Racer highlighting MUST NOT remove, hide, or alter the visibility of action links.
+- **FR-015**: When a racer name is active, sessions that contain at least one racer-matched event MUST be auto-opened (via the `open` attribute on `<details>`) even if the session is complete. This ensures a racer's events in completed sessions are visible without manual expansion.
+- **FR-016**: After form submission, the redirect URL from `/settings/racer-name` MUST include a `#schedule-container` fragment so the browser scrolls past the header and form to the schedule content. This reduces scrolling on long schedules, especially on mobile.
 
 ### Key Entities
 
@@ -129,6 +134,26 @@ A racer who previously entered their name returns to the site for the same or a 
 - **SC-005**: Shared personalized schedule links load correctly for any recipient without requiring them to re-enter the racer name.
 - **SC-006**: The racer name input and matching adds no more than 1 second to the schedule load time.
 - **SC-007**: A returning racer sees their previously entered name pre-filled and events automatically highlighted on page load, reducing interaction to zero for repeat visits (e.g., day 2 of a multi-day competition).
+
+## UI Design Reference
+
+Visual mockup: [`docs/ui-recommendations-mockup.html`](../../docs/ui-recommendations-mockup.html) — open in a browser to see all proposed UI elements with current vs. proposed side-by-side comparisons. Resize to ≤600px for mobile card layout.
+
+**Design language summary:**
+
+| Signal | Visual | Scope |
+|--------|--------|-------|
+| Racer identity | Blue left border `4px solid #1a73e8` | Always present on `.racer-match` rows |
+| Default racer bg | Blue tint `#e8f0fe` | `.racer-match` rows (unless overridden by active) |
+| Active status | Amber bg `#fff3cd` | Preserved on `.racer-match.active` rows |
+| Completed status | Opacity `0.45` + line-through | Preserved on `.racer-match.status-completed` rows |
+| Heat badge | Solid blue pill `bg: #1a73e8; color: #fff` | Inline after event name |
+| Heat time | "Your heat: HH:MM" in `color: #1a53a0` | Own line below duration in Est. Duration column |
+| Success message | Blue info `bg: #dce8fc` | Once above session list (when matches > 0) |
+| No-match message | Amber warning `bg: #fff3cd` | Once above session list (only when start lists exist to search) |
+| No-data message | Blue info `bg: #dce8fc` | Once above session list (when ALL start lists missing) |
+| Missing start lists | Blue info `bg: #dce8fc` | Once above session list |
+| Action buttons | `margin: 0 4px 4px 0` | Vertical spacing between stacking buttons |
 
 ## Assumptions
 

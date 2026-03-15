@@ -49,7 +49,7 @@
 | `name` | query | `str` | no | Racer name (plain text). Empty or absent = clear. |
 
 **Behavior**:
-- If `name` present and non-empty: Base64-encode, set cookie, redirect to `/schedule/{event_id}?r=<encoded>`
+- If `name` present and non-empty: Base64-encode, set cookie, redirect to `/schedule/{event_id}?r=<encoded>#schedule-container` (fragment scrolls to schedule content, FR-016)
 - If `name` absent or empty: delete cookie, redirect to `/schedule/{event_id}`
 
 **Response**: 303 redirect.
@@ -74,6 +74,7 @@
 | `racer_name` | `str \| None` | For "no matches" / "N events without start lists" messaging |
 | `match_count` | `int` | Number of matched events |
 | `events_without_start_lists` | `int` | For FR-010 messaging |
+| `total_events` | `int` | Total non-special events across all sessions (for FR-010 "no data" conditional) |
 
 **Per-prediction variables** (via `Prediction.rider_match`):
 

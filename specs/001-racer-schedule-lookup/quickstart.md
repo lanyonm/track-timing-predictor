@@ -16,7 +16,7 @@
 5. Calculate per-heat predicted start time: `event_start + (heat - 1) × per_heat_duration`
 6. Add `racer_name`, `match_count`, `events_without_start_lists` to `SchedulePrediction`
 7. Write tests for matching logic (case-insensitive, order-independent, no-match)
-8. Verify: `pytest tests/test_predictor.py`
+8. Verify: `pytest tests/test_rider_matching.py`
 
 ### Phase 3: Routes — Wire up name input and cookies
 1. Add `_resolve_racer_name(request, r_param)` helper to `app/main.py`
@@ -53,7 +53,7 @@
 | `app/templates/_schedule_body.html` | Add `.racer-match` class, heat detail, messaging |
 | `static/style.css` | Add `.racer-match` highlight styles |
 | `tests/test_parser.py` | Add `TestParseStartListRiders` |
-| `tests/test_predictor.py` | Add rider matching tests |
+| `tests/test_rider_matching.py` | Add rider name matching and per-heat timing tests |
 | `tests/test_main.py` | Add racer name route tests |
 
 ## Dependencies

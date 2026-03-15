@@ -41,6 +41,14 @@ New optional field:
 |-------|------|-------------|
 | `rider_match` | `RiderMatch \| None` | Present when the queried racer name matches a rider in this event's start list |
 
+### SessionPrediction (existing, app/models.py)
+
+New optional field:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `has_racer_match` | `bool` | True when any event in this session has a `rider_match`. Used by FR-015 to auto-open sessions containing racer events. Default `False`. |
+
 ### SchedulePrediction (existing, app/models.py)
 
 New optional field:
@@ -50,6 +58,7 @@ New optional field:
 | `racer_name` | `str \| None` | The racer name being searched for (decoded from URL param), or None if no name provided |
 | `match_count` | `int` | Number of events where the racer was matched (0 if no name or no matches) |
 | `events_without_start_lists` | `int` | Number of events that have no start list data (for FR-010 messaging) |
+| `total_events` | `int` | Total count of non-special events across all sessions (for FR-010 "no data" conditional) |
 
 ## In-Memory Caches (predictor.py)
 

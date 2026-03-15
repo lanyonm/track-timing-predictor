@@ -52,6 +52,9 @@ specs/001-racer-schedule-lookup/
 ├── checklists/
 │   └── requirements.md  # Spec quality checklist
 └── tasks.md             # Phase 2 output (/speckit.tasks command)
+
+docs/
+└── ui-recommendations-mockup.html  # Visual mockup (open in browser)
 ```
 
 ### Source Code (repository root)
@@ -73,12 +76,40 @@ static/
 └── style.css            # Add .racer-match highlight styles (desktop + mobile)
 
 tests/
-├── test_parser.py       # Add TestParseStartListRiders
-├── test_predictor.py    # Add rider matching and per-heat timing tests
-└── test_main.py         # Add racer name route tests
+├── test_parser.py          # Add TestParseStartListRiders
+├── test_predictor.py       # Existing predictor tests (unchanged)
+├── test_rider_matching.py  # New: rider name matching and per-heat timing tests (T005–T008)
+└── test_main.py            # Add racer name route tests
 ```
 
 **Structure Decision**: Existing single-project layout. All changes are extensions to existing modules — no new files except test additions. This follows the established pattern where each module has a single responsibility.
+
+## UI Design Decisions
+
+Visual mockup at `docs/ui-recommendations-mockup.html` is the authoritative reference for all UI changes. Key decisions:
+
+**Two-signal design**: Blue left border (`4px solid #1a73e8`) signals racer identity; background color signals event status. These are independent — a racer-matched active event has blue border + amber background, so both signals are visible simultaneously.
+
+**Heat badge**: Solid blue pill (`background: #1a73e8; color: #fff`) inline after the event name. High contrast for prominence.
+
+**Heat time placement**: "Your heat: HH:MM" appears on its own line below the duration value in the Est. Duration column (not in the Predicted Start column). The event-level predicted start remains unchanged so the racer can see both the event start and their specific heat start.
+
+**State interaction rules**:
+- `.racer-match`: blue border + blue tint bg (`#e8f0fe`)
+- `.racer-match.active`: blue border + amber bg (`#fff3cd` preserved)
+- `.racer-match.status-completed`: blue border + blue tint bg + opacity 0.45 + line-through
+- `.racer-match.status-upcoming`: blue border + blue tint bg (overrides green)
+- All rules apply identically on desktop and mobile (4px border width matches existing mobile borders)
+
+**Action links**: Always preserved on all rows regardless of racer-match status (FR-014). Button links have `margin: 0 4px 4px 0` for vertical breathing room when stacking.
+
+**Messaging hierarchy** (FR-010): Four states — success ("Found N events"), no-match warning (only when start lists exist to search), missing-start-lists info, and no-data info (all start lists missing — suppresses misleading "no matches"). Success message provides immediate feedback so the racer doesn't have to scan the entire schedule.
+
+**Session auto-open** (FR-015): When a racer name is active, sessions containing matched events stay open even if complete. `SessionPrediction.has_racer_match` drives this.
+
+**Form UX**: Button label is "Highlight" (not "Find"). A `<small>` hint below the input reads "Enter your full name as shown on the start list" to prevent single-name or partial entries. Redirect includes `#schedule-container` fragment for scroll-to-content (FR-016).
+
+**Accessibility**: `.racer-match` rows include `aria-label="Your event"`. Message elements use `role="status"` for screen reader live region announcements.
 
 ## Complexity Tracking
 
