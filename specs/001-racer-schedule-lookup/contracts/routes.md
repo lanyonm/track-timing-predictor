@@ -17,8 +17,8 @@
 3. None (no personalization)
 
 **Side effects**:
-- If `r` parameter present and valid, sets/updates `racer_name` cookie
 - If name resolved, includes `racer_name` in template context and match data in predictions
+- Note: The `?r=` parameter does NOT set a cookie. Cookie management is exclusively handled by `/settings/racer-name`. A shared-link recipient sees personalization for that visit; to persist it, they submit the form.
 
 **Response**: HTML page (`schedule.html`) with optional racer highlighting.
 

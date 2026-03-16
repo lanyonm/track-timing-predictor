@@ -90,7 +90,7 @@ Visual mockup at `docs/ui-recommendations-mockup.html` is the authoritative refe
 
 **Two-signal design**: Blue left border (`4px solid #1a73e8`) signals racer identity; background color signals event status. These are independent — a racer-matched active event has blue border + amber background, so both signals are visible simultaneously.
 
-**Heat badge**: Solid blue pill (`background: #1a73e8; color: #fff`) inline after the event name. High contrast for prominence.
+**Heat badge**: Solid blue pill (`background: #1a73e8; color: #fff`) inline after the event name. Multi-heat events display "Heat N"; single-heat events display "Racing". High contrast for prominence.
 
 **Heat time placement**: "Your heat: HH:MM" appears on its own line below the duration value in the Est. Duration column (not in the Predicted Start column). The event-level predicted start remains unchanged so the racer can see both the event start and their specific heat start.
 
@@ -111,8 +111,13 @@ Visual mockup at `docs/ui-recommendations-mockup.html` is the authoritative refe
 
 **Accessibility**: `.racer-match` rows include `aria-label="Your event"`. Message elements use `role="status"` for screen reader live region announcements.
 
+## Naming Convention
+
+"Racer" is the user-facing/UI term (racer name, racer match); "rider" is the code/data model term (RiderEntry, RiderMatch). Both refer to the same concept — a competitor in a start list.
+
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | Principle VIII: `racer_name` cookie stores user-entered name | Required for returning-user auto-apply (FR-009, SC-007) — core multi-day competition UX. Names are publicly available on tracktiming.live. Cookie is httponly/secure/samesite. | No persistence: user re-enters name every visit, fails US4. localStorage: not server-accessible, breaks HTMX model. Session-only: doesn't survive browser close, fails multi-day use case. |
+| Principle III SHOULD: `_resolve_racer_name` as plain helper | Function combines query param + cookie resolution with racer-specific semantics — not a reusable cross-cutting concern. Called from exactly 2 routes. | `Depends()` injectable: adds abstraction for single-use logic, no testability benefit. |

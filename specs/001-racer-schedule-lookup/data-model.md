@@ -25,6 +25,7 @@ Represents a matched rider within a specific event prediction.
 | Field | Type | Description |
 |-------|------|-------------|
 | `heat` | `int` | The heat number the matched rider is in |
+| `heat_count` | `int` | Total number of heats for this event (from `_heat_counts` cache; 1 if not in cache) |
 | `heat_predicted_start` | `datetime \| None` | Predicted start time for the rider's specific heat |
 
 **Source**: Computed in `predictor.py` when a racer name matches a `RiderEntry`.
@@ -93,7 +94,7 @@ Output: matching RiderEntry or None
 
 | Cookie | Value | Attributes | Purpose |
 |--------|-------|------------|---------|
-| `racer_name` | Plain text name as entered by user | `httponly=True, secure=True, samesite=lax, max_age=31536000` (1 year) | Pre-fill and auto-apply on return visits |
+| `racer_name` | Plain text name as entered by user | `httponly=True, samesite=lax, max_age=31536000` (1 year); match existing `use_learned` cookie pattern for `secure` attribute | Pre-fill and auto-apply on return visits |
 
 **Note**: Cookie stores the user's original input (not normalized), so the input field shows what they typed. Normalization happens at match time.
 
