@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -16,7 +17,7 @@ from app.database import get_all_learned_durations, init_db
 from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.fetcher import fetch_initial_layout, fetch_live_html, fetch_refresh, fetch_result_html, fetch_start_list_html
 from app.models import Session
-from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
+from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
 from mangum import Mangum
 
 from app.predictor import (
@@ -27,6 +28,7 @@ from app.predictor import (
     record_heat_count,
     record_live_heat,
     record_observed_duration,
+    record_start_list_riders,
     update_status_cache,
 )
 
@@ -112,6 +114,9 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
                 count = parse_heat_count(html)
                 if count:
                     record_heat_count(ev_id, sess_id, pos, count)
+                riders = parse_start_list_riders(html)
+                if riders:
+                    record_start_list_riders(ev_id, sess_id, pos, riders)
             except Exception:
                 logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
@@ -159,6 +164,19 @@ def _use_learned(request: Request) -> bool:
     return request.cookies.get("use_learned") == "true"
 
 
+def _resolve_racer_name(request: Request, r: str | None) -> str | None:
+    """Decode URL-safe Base64 `r` param if present, fall back to `racer_name` cookie."""
+    if r:
+        try:
+            return base64.urlsafe_b64decode(r).decode("utf-8")
+        except Exception:
+            logger.info("racer_name_resolve_failed", extra={"source": "url", "error": "invalid_base64"})
+    cookie_val = request.cookies.get("racer_name")
+    if cookie_val:
+        return cookie_val
+    return None
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -170,7 +188,7 @@ async def index(request: Request):
 
 
 @app.get("/schedule/{event_id}", response_class=HTMLResponse)
-async def get_schedule(request: Request, event_id: int):
+async def get_schedule(request: Request, event_id: int, r: str | None = Query(None)):
     """GET version of schedule so links and bookmarks work."""
     try:
         jxn_data = await fetch_initial_layout(event_id)
@@ -191,7 +209,14 @@ async def get_schedule(request: Request, event_id: int):
     )
     now = datetime.now()
     use_learned = _use_learned(request)
-    schedule = predict_schedule(event_id, sessions, now=now, use_learned=use_learned)
+    racer_name = _resolve_racer_name(request, r)
+    schedule = predict_schedule(event_id, sessions, now=now, use_learned=use_learned, racer_name=racer_name)
+    racer_encoded = base64.urlsafe_b64encode(racer_name.encode("utf-8")).decode("ascii") if racer_name else None
+    logger.info("racer_name_resolved", extra={
+        "source": "url" if r and racer_name else ("cookie" if racer_name else "none"),
+        "racer_name": racer_name,
+        "match_count": schedule.match_count,
+    })
 
     return templates.TemplateResponse("schedule.html", {
         "request": request,
@@ -201,11 +226,13 @@ async def get_schedule(request: Request, event_id: int):
         "refresh_seconds": settings.refresh_interval_seconds,
         "base_url": settings.tracktiming_base_url,
         "use_learned": use_learned,
+        "racer_name": racer_name,
+        "racer_encoded": racer_encoded,
     })
 
 
 @app.get("/schedule/{event_id}/refresh", response_class=HTMLResponse)
-async def refresh_schedule(request: Request, event_id: int):
+async def refresh_schedule(request: Request, event_id: int, r: str | None = Query(None)):
     """
     HTMX polling endpoint. Called every N seconds to update the schedule.
     Returns only the schedule body partial for injection into the page.
@@ -233,7 +260,8 @@ async def refresh_schedule(request: Request, event_id: int):
     # Track status transitions for wall-clock fallback learning.
     update_status_cache(event_id, sessions, now)
 
-    schedule = predict_schedule(event_id, sessions, now=now, use_learned=_use_learned(request))
+    racer_name = _resolve_racer_name(request, r)
+    schedule = predict_schedule(event_id, sessions, now=now, use_learned=_use_learned(request), racer_name=racer_name)
 
     return templates.TemplateResponse("_schedule_body.html", {
         "request": request,
@@ -241,7 +269,21 @@ async def refresh_schedule(request: Request, event_id: int):
         "competition_id": event_id,
         "now": now,
         "base_url": settings.tracktiming_base_url,
+        "racer_name": racer_name,
     })
+
+
+@app.get("/settings/racer-name")
+async def set_racer_name(event_id: int = Query(...), name: str | None = Query(None)):
+    """Set or clear the racer name cookie, then redirect back to schedule."""
+    if name:
+        encoded = base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
+        response = RedirectResponse(url=f"/schedule/{event_id}?r={encoded}#schedule-container", status_code=303)
+        response.set_cookie(key="racer_name", value=name, httponly=True, samesite="lax", max_age=31536000)
+    else:
+        response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
+        response.delete_cookie(key="racer_name")
+    return response
 
 
 @app.get("/settings/use-learned")

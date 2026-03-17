@@ -1,5 +1,19 @@
+{% if racer_name is defined and racer_name %}
+  {% if schedule.match_count > 0 %}
+    <p class="racer-message racer-message-info" role="status">Found {{ schedule.match_count }} event(s) for "{{ racer_name }}"</p>
+  {% endif %}
+  {% if schedule.events_without_start_lists > 0 %}
+    <p class="racer-message racer-message-info" role="status">{{ schedule.events_without_start_lists }} event(s) do not yet have start lists</p>
+  {% endif %}
+  {% if schedule.match_count == 0 and schedule.events_without_start_lists < schedule.total_events %}
+    <p class="racer-message" role="status">No matching events found for "{{ racer_name }}"</p>
+  {% endif %}
+  {% if schedule.events_without_start_lists == schedule.total_events %}
+    <p class="racer-message racer-message-info" role="status">Start lists are not yet published — check back closer to the event</p>
+  {% endif %}
+{% endif %}
 {% for sp in schedule.sessions %}
-<details {% if not sp.is_complete %}open{% endif %}>
+<details {% if not sp.is_complete or sp.has_racer_match %}open{% endif %}>
   <summary>
     <span class="session-label">{{ sp.session.day }} &mdash; Scheduled {{ sp.session.scheduled_start.strftime('%H:%M') }}</span>
     {% if sp.observed_delay_minutes > 1.0 %}
@@ -19,8 +33,14 @@
     </thead>
     <tbody>
     {% for pred in sp.event_predictions %}
-      <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}{% if pred.is_active %} active{% endif %}">
-        <td>{{ pred.event.name }}</td>
+      <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}{% if pred.is_active %} active{% endif %}{% if pred.rider_match %} racer-match{% endif %}"{% if pred.rider_match %} aria-label="Your event"{% endif %}>
+        <td>{{ pred.event.name }}{% if pred.rider_match %}
+          {% if pred.rider_match.heat_count > 1 %}
+            <span class="badge racer-heat">Heat {{ pred.rider_match.heat }}</span>
+          {% else %}
+            <span class="badge racer-heat">Racing</span>
+          {% endif %}
+        {% endif %}</td>
         <td class="time">{{ pred.predicted_start.strftime('%H:%M') }}</td>
         <td class="duration">
           {{ pred.estimated_duration_minutes | round(1) }}m
@@ -31,6 +51,9 @@
             {%- else -%}est.
             {%- endif -%}
           </span>
+          {% if pred.rider_match and pred.rider_match.heat_count > 1 and pred.rider_match.heat_predicted_start %}
+            <span class="heat-time">Your heat: {{ pred.rider_match.heat_predicted_start.strftime('%H:%M') }}</span>
+          {% endif %}
         </td>
         <td class="status-label">
           {% if pred.event.live_url %}

@@ -61,6 +61,7 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - `_heat_counts` — heat counts parsed from start-list pages
 - `_live_heats` — current heat number from live results pages
 - `_generated_times` — Generated timestamps from result pages
+- `_start_list_riders` — parsed `RiderEntry` lists from start-list pages (for racer name matching)
 
 **Note:** On Lambda, these caches persist within a warm execution environment but reset on cold starts and are not shared across concurrent invocations. This may cause more frequent re-fetching and slightly less accurate predictions during cold starts.
 
@@ -80,6 +81,16 @@ The app predicts per-event start times for track cycling competitions fetched fr
 **Discipline detection** (`disciplines.py`):
 - Keyword list in `DISCIPLINE_KEYWORDS` matched against lowercase event names
 - Order matters — more specific phrases must appear before less specific ones (e.g. `"elite men individual pursuit"` before `"individual pursuit"`)
+
+**Racer name resolution** (`main.py::_resolve_racer_name`):
+- Priority: URL `?r=` param (Base64-decoded) → `racer_name` cookie → None
+- `/settings/racer-name` sets cookie + redirects with `?r=` param
+- `hx-get` URL includes `?r=` so HTMX refresh preserves racer name
+- Cookie: `racer_name`, httponly, samesite=lax, 1-year max_age
+
+**Racer matching** (`predictor.py::get_rider_match`):
+- Names normalized to lowercase token frozensets for order-independent comparison
+- Per-heat predicted start: `event_start + (heat - 1) × per_heat_duration`
 
 **Live delay adjustment** (`predictor.py::_compute_delay`):
 - Only applied when session is in-progress (has both completed and pending events)

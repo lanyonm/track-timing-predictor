@@ -7,7 +7,7 @@ import pytest
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
-from app.parser import _parse_summary, parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
+from app.parser import _parse_summary, parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
 
 SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
 
@@ -408,3 +408,103 @@ class TestParseGeneratedTime:
     def test_whitespace_tolerance(self):
         html = "Generated:  2026-03-01 14:05:00"
         assert parse_generated_time(html) == datetime(2026, 3, 1, 14, 5, 0)
+
+
+# ── parse_start_list_riders ──────────────────────────────────────────────────
+
+
+class TestParseStartListRiders:
+    # Sprint qualifying format: 1 rider per heat, heat label + bib + name in same row
+    SPRINT_QUAL_HTML = (
+        '<table><tbody>'
+        '<tr><td><h4>Heat 1</h4></td><td><h4><Strong>212</Strong></h4></td><td><h4>PITTARD Charlie</h4></td></tr>'
+        '<tr><td><h4>Heat 2</h4></td><td><h4><Strong>211</Strong></h4></td><td><h4>RANKL Avery</h4></td></tr>'
+        '<tr><td><h4>Heat 3</h4></td><td><h4><Strong>215</Strong></h4></td><td><h4>ALDEN Calla</h4></td></tr>'
+        '</tbody></table>'
+    )
+
+    # Multi-rider heat format: heat header row then rider rows
+    KEIRIN_HTML = (
+        '<table>'
+        '<tbody><tr><td colspan="6"><h4><Strong>Heat 1</Strong></h4></td></tr>'
+        '<tr><td><h4><Strong>14</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>LU Adam</h4></td></tr>'
+        '<tr><td><h4><Strong>15</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>KUZMENKO Stanislav</h4></td></tr>'
+        '</tbody>'
+        '<tbody><tr><td colspan="6"><h4><Strong>Heat 2</Strong></h4></td></tr>'
+        '<tr><td><h4><Strong>21</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>RIDGE Nickolas</h4></td></tr>'
+        '</tbody>'
+        '</table>'
+    )
+
+    def test_sprint_qualifying_parsing(self):
+        riders = parse_start_list_riders(self.SPRINT_QUAL_HTML)
+        assert len(riders) == 3
+        assert riders[0].name == "PITTARD Charlie"
+        assert riders[0].heat == 1
+        assert riders[1].name == "RANKL Avery"
+        assert riders[1].heat == 2
+        assert riders[2].heat == 3
+
+    def test_normalized_tokens(self):
+        riders = parse_start_list_riders(self.SPRINT_QUAL_HTML)
+        assert riders[0].normalized_tokens == frozenset({"pittard", "charlie"})
+
+    def test_multi_rider_heat_parsing(self):
+        riders = parse_start_list_riders(self.KEIRIN_HTML)
+        assert len(riders) == 3
+        heat_1_riders = [r for r in riders if r.heat == 1]
+        heat_2_riders = [r for r in riders if r.heat == 2]
+        assert len(heat_1_riders) == 2
+        assert len(heat_2_riders) == 1
+        assert heat_1_riders[0].name == "LU Adam"
+        assert heat_2_riders[0].name == "RIDGE Nickolas"
+
+    def test_empty_start_list(self):
+        html = "Generated: 2026-02-27 08:25:21Timing & Results by Racetiming.ca"
+        riders = parse_start_list_riders(html)
+        assert riders == []
+
+    def test_no_riders_in_heat(self):
+        html = '<table><tbody><tr><td><h4>Heat 1</h4></td><td><h4>No riders</h4></td></tr></tbody></table>'
+        riders = parse_start_list_riders(html)
+        assert riders == []
+
+    def test_hyphenated_name(self):
+        html = (
+            '<table><tbody>'
+            '<tr><td colspan="6"><h4><Strong>Heat 1</Strong></h4></td></tr>'
+            "<tr><td><h4><Strong>300</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>O'BRIEN-SMITH Mary-Jane</h4></td></tr>"
+            '</tbody></table>'
+        )
+        riders = parse_start_list_riders(html)
+        assert len(riders) == 1
+        assert riders[0].name == "O'BRIEN-SMITH Mary-Jane"
+        assert riders[0].normalized_tokens == frozenset({"o'brien-smith", "mary-jane"})
+
+    def test_bunch_race_no_heat_labels(self):
+        """Bunch races (scratch, points, etc.) list riders without Heat N labels."""
+        html = (
+            '<table><tbody>'
+            '<tr><td><h4><Strong>101</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>LANYON Michael</h4></td></tr>'
+            '<tr><td><h4><Strong>102</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>SMITH John</h4></td></tr>'
+            '<tr><td><h4><Strong>103</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>JONES Sarah</h4></td></tr>'
+            '</tbody></table>'
+        )
+        riders = parse_start_list_riders(html)
+        assert len(riders) == 3
+        assert riders[0].name == "LANYON Michael"
+        assert riders[0].heat == 1
+        assert riders[1].name == "SMITH John"
+        assert riders[1].heat == 1
+        assert riders[2].name == "JONES Sarah"
+        assert riders[2].heat == 1
+
+    def test_bunch_race_normalized_tokens(self):
+        """Bunch race riders get proper normalized tokens."""
+        html = (
+            '<table><tbody>'
+            '<tr><td><h4><Strong>101</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>LANYON Michael</h4></td></tr>'
+            '</tbody></table>'
+        )
+        riders = parse_start_list_riders(html)
+        assert riders[0].normalized_tokens == frozenset({"lanyon", "michael"})

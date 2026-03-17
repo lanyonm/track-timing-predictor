@@ -107,7 +107,7 @@ Visual mockup at `docs/ui-recommendations-mockup.html` is the authoritative refe
 
 **Session auto-open** (FR-015): When a racer name is active, sessions containing matched events stay open even if complete. `SessionPrediction.has_racer_match` drives this.
 
-**Form UX**: Button label is "Highlight" (not "Find"). A `<small>` hint below the input reads "Enter your full name as shown on the start list" to prevent single-name or partial entries. Redirect includes `#schedule-container` fragment for scroll-to-content (FR-016).
+**Form UX**: Button label is "Highlight" (not "Find"). A `<small>` hint below the input reads "Enter your full name as shown on the start list" to prevent single-name or partial entries; the hint is hidden when a racer name is active (FR-002). Redirect includes `#schedule-container` fragment for scroll-to-content (FR-016).
 
 **Accessibility**: `.racer-match` rows include `aria-label="Your event"`. Message elements use `role="status"` for screen reader live region announcements.
 

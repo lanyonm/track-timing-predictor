@@ -22,9 +22,27 @@
     </span>
   </p>
 
+  <div class="racer-form-bar">
+    <form action="/settings/racer-name" method="get">
+      <input type="hidden" name="event_id" value="{{ competition_id }}">
+      <div class="racer-form-row">
+        <input type="text" name="name" aria-label="Racer name" aria-describedby="racer-hint"
+               placeholder="Your name to highlight your events"
+               {% if racer_name %}value="{{ racer_name }}"{% endif %}>
+        <button type="submit">Highlight</button>
+        {% if racer_name %}
+          <a href="/settings/racer-name?event_id={{ competition_id }}" class="racer-clear-link">Clear</a>
+        {% endif %}
+      </div>
+      {% if not racer_name %}
+      <small id="racer-hint" class="racer-form-hint">Enter your full name as shown on the start list</small>
+      {% endif %}
+    </form>
+  </div>
+
   <div
     id="schedule-container"
-    hx-get="/schedule/{{ competition_id }}/refresh"
+    hx-get="/schedule/{{ competition_id }}/refresh{% if racer_encoded %}?r={{ racer_encoded }}{% endif %}"
     hx-trigger="every {{ refresh_seconds }}s"
     hx-swap="innerHTML scroll:false"
     hx-indicator="#refresh-indicator"
