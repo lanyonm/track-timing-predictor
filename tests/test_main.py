@@ -112,7 +112,7 @@ class TestResolveRacerName:
 
 
 class TestInvalidBase64:
-    def test_invalid_base64_falls_back_to_cookie(self):
+    def test_invalid_base64_returns_none_despite_cookie(self):
         scope = {
             "type": "http",
             "method": "GET",
@@ -122,7 +122,7 @@ class TestInvalidBase64:
         }
         request = Request(scope)
         result = _resolve_racer_name(request, "!!!not-valid-base64!!!")
-        assert result == "Alice"
+        assert result is None
 
     def test_invalid_base64_no_cookie_returns_none(self):
         scope = {

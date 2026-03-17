@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import time
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class EventStatus(str, Enum):
@@ -16,13 +16,23 @@ class RiderEntry(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str
-    heat: int
-    normalized_tokens: frozenset[str]
+    heat: int = Field(ge=1)
+    normalized_tokens: frozenset[str] = frozenset()
+
+    @model_validator(mode="after")
+    def _set_normalized_tokens(self) -> "RiderEntry":
+        object.__setattr__(self, "normalized_tokens", self.normalize_name(self.name))
+        return self
+
+    @staticmethod
+    def normalize_name(name: str) -> frozenset[str]:
+        """Split on whitespace, lowercase each token, return frozenset for order-independent comparison."""
+        return frozenset(name.lower().split())
 
 
 class RiderMatch(BaseModel):
-    heat: int
-    heat_count: int
+    heat: int = Field(ge=1)
+    heat_count: int = Field(ge=1)
     heat_predicted_start: time | None = None
 
 
@@ -56,6 +66,7 @@ class Prediction(BaseModel):
     is_active: bool = False      # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event
     rider_match: RiderMatch | None = None
+    has_start_list: bool = False
 
 
 class SessionPrediction(BaseModel):
@@ -63,6 +74,9 @@ class SessionPrediction(BaseModel):
     event_predictions: list[Prediction]
     observed_delay_minutes: float
     has_racer_match: bool = False
+    match_count: int = 0
+    events_without_start_lists: int = 0
+    total_events: int = 0
 
     @property
     def is_complete(self) -> bool:

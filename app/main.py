@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import binascii
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -23,6 +24,7 @@ from mangum import Mangum
 from app.predictor import (
     get_generated_time,
     get_heat_count,
+    get_start_list_riders,
     predict_schedule,
     record_generated_time,
     record_heat_count,
@@ -94,13 +96,18 @@ async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> Non
 async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> None:
     """
     Concurrently fetch start list pages for all events that have a start_list_url
-    and whose heat count has not yet been cached. Records heat counts in-memory.
+    and whose heat count has not yet been cached. Records heat counts and parsed
+    rider entries (for racer name matching) in-memory.
     """
+    # Skip if both heat count and riders are already cached from a prior fetch.
     to_fetch = [
         (competition_id, s.session_id, e.position, e.start_list_url, e.discipline)
         for s in sessions
         for e in s.events
-        if e.start_list_url and get_heat_count(competition_id, s.session_id, e.position) is None
+        if e.start_list_url and (
+            get_heat_count(competition_id, s.session_id, e.position) is None
+            or not get_start_list_riders(competition_id, s.session_id, e.position)
+        )
     ]
     if not to_fetch:
         return
@@ -111,14 +118,23 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
         async with sem:
             try:
                 html = await fetch_start_list_html(url)
+            except Exception:
+                logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                return
+
+            try:
                 count = parse_heat_count(html)
                 if count:
                     record_heat_count(ev_id, sess_id, pos, count)
+            except Exception:
+                logger.warning("Failed to parse heat count for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+
+            try:
                 riders = parse_start_list_riders(html)
                 if riders:
                     record_start_list_riders(ev_id, sess_id, pos, riders)
             except Exception:
-                logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning("Failed to parse start list riders for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -164,13 +180,27 @@ def _use_learned(request: Request) -> bool:
     return request.cookies.get("use_learned") == "true"
 
 
+def _encode_racer_name(name: str) -> str:
+    """Encode a racer name as URL-safe Base64."""
+    return base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
+
+
 def _resolve_racer_name(request: Request, r: str | None) -> str | None:
-    """Decode URL-safe Base64 `r` param if present, fall back to `racer_name` cookie."""
+    """Decode URL-safe Base64 `r` param if present, fall back to `racer_name` cookie.
+
+    When `r` is explicitly provided but invalid, returns None rather than
+    falling back to the cookie — a corrupted URL should not silently serve
+    stale data from a previous session.
+    """
     if r:
         try:
-            return base64.urlsafe_b64decode(r).decode("utf-8")
-        except Exception:
-            logger.info("racer_name_resolve_failed", extra={"source": "url", "error": "invalid_base64"})
+            decoded = base64.urlsafe_b64decode(r).decode("utf-8").strip()
+            if decoded:
+                return decoded
+            logger.warning("racer_name_resolve_failed", extra={"source": "url", "error": "empty_after_decode"})
+        except (binascii.Error, UnicodeDecodeError):
+            logger.warning("racer_name_resolve_failed", extra={"source": "url", "error": "invalid_base64"})
+        return None
     cookie_val = request.cookies.get("racer_name")
     if cookie_val:
         return cookie_val
@@ -189,7 +219,7 @@ async def index(request: Request):
 
 @app.get("/schedule/{event_id}", response_class=HTMLResponse)
 async def get_schedule(request: Request, event_id: int, r: str | None = Query(None)):
-    """GET version of schedule so links and bookmarks work."""
+    """Fetch and display the predicted schedule for a competition."""
     try:
         jxn_data = await fetch_initial_layout(event_id)
     except Exception as e:
@@ -211,7 +241,7 @@ async def get_schedule(request: Request, event_id: int, r: str | None = Query(No
     use_learned = _use_learned(request)
     racer_name = _resolve_racer_name(request, r)
     schedule = predict_schedule(event_id, sessions, now=now, use_learned=use_learned, racer_name=racer_name)
-    racer_encoded = base64.urlsafe_b64encode(racer_name.encode("utf-8")).decode("ascii") if racer_name else None
+    racer_encoded = _encode_racer_name(racer_name) if racer_name else None
     logger.info("racer_name_resolved", extra={
         "source": "url" if r and racer_name else ("cookie" if racer_name else "none"),
         "racer_name": racer_name,
@@ -277,8 +307,7 @@ async def refresh_schedule(request: Request, event_id: int, r: str | None = Quer
 async def set_racer_name(event_id: int = Query(...), name: str | None = Query(None)):
     """Set or clear the racer name cookie, then redirect back to schedule."""
     if name:
-        encoded = base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
-        response = RedirectResponse(url=f"/schedule/{event_id}?r={encoded}#schedule-container", status_code=303)
+        response = RedirectResponse(url=f"/schedule/{event_id}?r={_encode_racer_name(name)}#schedule-container", status_code=303)
         response.set_cookie(key="racer_name", value=name, httponly=True, samesite="lax", max_age=31536000)
     else:
         response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)

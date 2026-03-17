@@ -150,11 +150,11 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
             current_heat = int(heat_match.group(1))
 
             # Sprint qualifying format: Heat label + bib + name in the same row
-            # Look for a name cell (h4 without <Strong>, containing alpha text)
+            # Look for a rider name among the h4 tags in this row
             h4_tags = row.find_all("h4")
             for h4 in h4_tags:
                 text = h4.get_text(strip=True)
-                # Skip "Heat N", bib numbers, team names (in h5), empty
+                # Skip "Heat N" labels, bib numbers, and empty text
                 if re.match(r"^Heat\s+\d+$", text):
                     continue
                 if re.match(r"^\d+$", text):
@@ -163,8 +163,7 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
                     continue
                 # A rider name: "LASTNAME Firstname" — first token has ≥2 uppercase chars
                 if _is_rider_name(text):
-                    tokens = frozenset(text.lower().split())
-                    riders.append(RiderEntry(name=text, heat=current_heat, normalized_tokens=tokens))
+                    riders.append(RiderEntry(name=text, heat=current_heat))
                     break
         else:
             # Rider row: either within a multi-rider heat (current_heat > 0)
@@ -180,8 +179,7 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
                 if re.match(r"^Number of Riders", text):
                     continue
                 if _is_rider_name(text):
-                    tokens = frozenset(text.lower().split())
-                    riders.append(RiderEntry(name=text, heat=heat, normalized_tokens=tokens))
+                    riders.append(RiderEntry(name=text, heat=heat))
                     break
 
     return riders
