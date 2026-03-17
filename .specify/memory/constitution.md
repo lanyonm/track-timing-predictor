@@ -1,13 +1,9 @@
 <!--
-Sync Impact Report (2026-03-14)
-- Version change: 1.0.0 → 1.1.0
-- Modified principles:
-  - III. Separation of Concerns & Architectural Consistency — expanded
-    with FastAPI-specific guidance (Pydantic BaseSettings, dependency
-    injection, shared async HTTP client lifecycle)
+Sync Impact Report (2026-03-17)
+- Version change: 1.2.0 → 1.3.0
 - Modified sections:
-  - External Data Sources — added shared httpx.AsyncClient requirement
-  - Development Workflow — added GET-only route constraint
+  - Development Workflow — added spec backporting requirement for
+    behavior-affecting deviations discovered during implementation
 - Templates requiring updates:
   - .specify/templates/plan-template.md — ✅ no changes needed
   - .specify/templates/spec-template.md — ✅ no changes needed
@@ -160,6 +156,16 @@ trade-off.
   quality.
 - CLAUDE.md is the authoritative development reference and MUST be kept
   current with architectural changes.
+- When implementation reveals a behavior-affecting deviation from the
+  spec — such as a changed error-handling UX, a new edge case, or an
+  altered data flow that users or API consumers would notice — the spec
+  and associated design artifacts (plan.md, tasks.md, data-model.md)
+  MUST be updated before the implementation is considered complete.
+  Internal implementation details (code structure, refactoring,
+  validation patterns, performance optimizations) that do not change
+  observable behavior do NOT require spec updates. The intent is to keep
+  specs accurate as living documents without creating busywork for every
+  code change.
 - All routes MUST use GET. CloudFront OAC with Lambda Function URLs
   does not support POST request bodies (SigV4 payload signature
   mismatch causes 403s). Form submissions MUST use query parameters
@@ -174,4 +180,4 @@ trade-off.
 - CLAUDE.md is the runtime development guidance file; the constitution
   governs design principles and trade-off evaluation.
 
-**Version**: 1.2.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-15
+**Version**: 1.3.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-17
