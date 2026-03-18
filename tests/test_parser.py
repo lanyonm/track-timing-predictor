@@ -278,13 +278,36 @@ class TestParseHeatCount:
 
 
 class TestParseStartListRiders:
+    # Multi-rider heats with marker rows (Keirin Round 1 format)
     MULTI_HEAT_HTML = (
-        "Heat 1\n212  PITTARD Charlie\n211  RANKL Avery\n"
-        "Heat 2\n215  ALDEN Calla\n214  BURTON Maelle\n"
+        "<table>"
+        "<tr><th>Bib</th><th></th><th>Name</th><th>Team</th><th>From</th></tr>"
+        "<tr><td>Heat 1</td></tr>"
+        "<tr><td>14</td><td></td><td>LU Adam</td><td></td><td>TORONTO, ON</td></tr>"
+        "<tr><td>15</td><td></td><td>KUZMENKO Stanislav</td><td>TEAM A</td><td>TORONTO, ON</td></tr>"
+        "<tr><td>Heat 2</td></tr>"
+        "<tr><td>5</td><td></td><td>RIDGE Nickolas</td><td>TEAM B</td><td>TORONTO, ON</td></tr>"
+        "<tr><td>6</td><td></td><td>RALSTON Calum</td><td></td><td>TORONTO, ON</td></tr>"
+        "</table>"
     )
 
+    # Heat-inline rows (Sprint Qualifying format — one rider per heat)
+    HEAT_INLINE_HTML = (
+        "<table>"
+        "<tr><th></th><th>Bib</th><th>Name</th><th>Team</th><th>From</th></tr>"
+        "<tr><td>Heat 1</td><td><strong>212</strong></td><td>PITTARD Charlie</td><td>TEAM A</td><td>ON</td></tr>"
+        "<tr><td>Heat 2</td><td><strong>211</strong></td><td>RANKL Avery</td><td>TEAM B</td><td>ON</td></tr>"
+        "</table>"
+    )
+
+    # No heat headers (Scratch Race format)
     SINGLE_HEAT_HTML = (
-        "212  PITTARD Charlie\n211  RANKL Avery\n215  ALDEN Calla\n"
+        "<table>"
+        "<tr><th>Bib</th><th></th><th>Name</th><th>Team</th><th>From</th></tr>"
+        "<tr><td>2</td><td></td><td>STEIN Dakota</td><td>TEAM A</td><td>PA</td></tr>"
+        "<tr><td>3</td><td></td><td>SANDERS Troy</td><td>TEAM B</td><td>PA</td></tr>"
+        "<tr><td>7</td><td></td><td>POWELL Ethan</td><td>TEAM C</td><td>ON</td></tr>"
+        "</table>"
     )
 
     def test_multi_heat_rider_count(self):
@@ -301,13 +324,24 @@ class TestParseStartListRiders:
     def test_multi_heat_rider_names(self):
         riders = parse_start_list_riders(self.MULTI_HEAT_HTML)
         names = [r.name for r in riders]
-        assert "PITTARD Charlie" in names
-        assert "ALDEN Calla" in names
+        assert "LU Adam" in names
+        assert "RIDGE Nickolas" in names
 
     def test_multi_heat_normalized_tokens(self):
         riders = parse_start_list_riders(self.MULTI_HEAT_HTML)
-        pittard = [r for r in riders if "pittard" in r.normalized_tokens][0]
-        assert pittard.normalized_tokens == frozenset({"pittard", "charlie"})
+        lu = [r for r in riders if "lu" in r.normalized_tokens][0]
+        assert lu.normalized_tokens == frozenset({"lu", "adam"})
+
+    def test_heat_inline_rider_count(self):
+        riders = parse_start_list_riders(self.HEAT_INLINE_HTML)
+        assert len(riders) == 2
+
+    def test_heat_inline_heat_assignments(self):
+        riders = parse_start_list_riders(self.HEAT_INLINE_HTML)
+        assert riders[0].heat == 1
+        assert riders[0].name == "PITTARD Charlie"
+        assert riders[1].heat == 2
+        assert riders[1].name == "RANKL Avery"
 
     def test_single_heat_defaults_to_heat_1(self):
         riders = parse_start_list_riders(self.SINGLE_HEAT_HTML)
@@ -321,9 +355,37 @@ class TestParseStartListRiders:
         html = "<div><span>No rider data here</span></div>"
         assert parse_start_list_riders(html) == []
 
-    def test_heat_header_only_no_riders(self):
-        html = "Heat 1\nHeat 2\n"
-        assert parse_start_list_riders(html) == []
+    def test_skips_metadata_rows(self):
+        html = (
+            "<table>"
+            "<tr><td>Number of Riders: 3</td></tr>"
+            "<tr><td>Starting on the Railing</td></tr>"
+            "<tr><td>2</td><td></td><td>STEIN Dakota</td><td>TEAM A</td><td>PA</td></tr>"
+            "</table>"
+        )
+        riders = parse_start_list_riders(html)
+        assert len(riders) == 1
+        assert riders[0].name == "STEIN Dakota"
+
+    def test_hyphenated_first_name(self):
+        html = (
+            "<table>"
+            "<tr><td>108</td><td></td><td>DUMONT Anne-marie</td><td>TEAM</td><td>ON</td></tr>"
+            "</table>"
+        )
+        riders = parse_start_list_riders(html)
+        assert len(riders) == 1
+        assert riders[0].normalized_tokens == frozenset({"dumont", "anne-marie"})
+
+    def test_multi_word_surname(self):
+        html = (
+            "<table>"
+            "<tr><td>Heat 1</td><td><strong>10</strong></td><td>VAN DER BERG Jan</td><td></td><td>NL</td></tr>"
+            "</table>"
+        )
+        riders = parse_start_list_riders(html)
+        assert len(riders) == 1
+        assert riders[0].normalized_tokens == frozenset({"van", "der", "berg", "jan"})
 
 
 # ── parse_live_heat ────────────────────────────────────────────────────────────

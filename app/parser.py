@@ -100,34 +100,65 @@ def parse_heat_count(html: str) -> int | None:
 
 def parse_start_list_riders(html: str) -> list[RiderEntry]:
     """
-    Extract rider names and heat assignments from a start list page.
+    Extract rider names and heat assignments from a start list HTML page.
 
-    Start list format: "Heat N" headers followed by lines like
-    "212  PITTARD Charlie" (bib number, spaces, LASTNAME Firstname).
-    If no "Heat N" headers are found, all riders are assigned to heat 1.
+    Parses the ``<tr>`` rows of tracktiming.live start list ``.htm`` files.
+    Three row layouts are handled:
+
+    * **Heat-inline**: ``['Heat N', bib, name, team, from]`` — heat label in
+      the first cell alongside rider data.
+    * **Standard rider**: ``[bib, '', name, team, from]`` — bib in the first
+      cell, name in the third.
+    * **Heat-only marker**: ``['Heat N']`` — a single-cell row that sets the
+      current heat for subsequent rider rows.
+
+    Rows that don't match any layout (headers, "Number of Riders", "Starting
+    on the Railing", etc.) are silently skipped.
+
     Returns an empty list if no riders are found.
     """
-    # Pattern: optional bib number, then UPPERCASE last name followed by mixed-case first name
-    rider_re = re.compile(r"(?:^\d+\s+|\s+)([A-Z]{2,}(?:\s+[A-Z]{2,})*\s+[A-Z][a-z][\w-]*(?:\s+[A-Z][a-z][\w-]*)*)")
+    # LASTNAME Firstname pattern — at least one uppercase-only surname token
+    # followed by at least one mixed-case given-name token
+    name_re = re.compile(
+        r"^[A-Z]{2,}(?:\s+[A-Z]{2,})*"   # LASTNAME (possibly multi-word)
+        r"\s+"
+        r"[A-Z][a-z][\w-]*"               # Firstname
+        r"(?:\s+[A-Z][a-z][\w-]*)*$"      # optional middle/extra names
+    )
+    heat_re = re.compile(r"^Heat\s+(\d+)$")
 
-    heat_splits = re.split(r"\bHeat\s+(\d+)\b", html)
+    soup = BeautifulSoup(html, "html.parser")
     entries: list[RiderEntry] = []
+    current_heat = 1
 
-    if len(heat_splits) <= 1:
-        # No "Heat N" headers — treat all riders as heat 1
-        for match in rider_re.finditer(html):
-            name = match.group(1).strip()
+    for row in soup.find_all("tr"):
+        cells = row.find_all("td")
+        if not cells:
+            continue  # skip header rows (<th>)
+
+        cell_texts = [c.get_text(strip=True) for c in cells]
+
+        # Single-cell heat marker row: ['Heat N']
+        if len(cells) == 1:
+            m = heat_re.match(cell_texts[0])
+            if m:
+                current_heat = int(m.group(1))
+            continue
+
+        # Heat-inline row: ['Heat N', bib, name, team, from]
+        heat_match = heat_re.match(cell_texts[0]) if len(cells) >= 3 else None
+        if heat_match:
+            current_heat = int(heat_match.group(1))
+            name = cell_texts[2] if len(cells) >= 3 else ""
+        elif len(cells) >= 3:
+            # Standard rider row: [bib, '', name, team, from]
+            name = cell_texts[2]
+        else:
+            continue
+
+        if name and name_re.match(name):
             tokens = frozenset(name.lower().split())
-            entries.append(RiderEntry(name=name, heat=1, normalized_tokens=tokens))
-    else:
-        # heat_splits: [preamble, "1", section1, "2", section2, ...]
-        for i in range(1, len(heat_splits), 2):
-            heat_num = int(heat_splits[i])
-            section = heat_splits[i + 1] if i + 1 < len(heat_splits) else ""
-            for match in rider_re.finditer(section):
-                name = match.group(1).strip()
-                tokens = frozenset(name.lower().split())
-                entries.append(RiderEntry(name=name, heat=heat_num, normalized_tokens=tokens))
+            entries.append(RiderEntry(name=name, heat=current_heat, normalized_tokens=tokens))
 
     return entries
 
