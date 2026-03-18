@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup, Tag
 logger = logging.getLogger(__name__)
 
 from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
-from app.models import Event, EventStatus, Session
+from app.models import Event, EventStatus, RiderEntry, Session
 
 
 def _extract_section_html(jxn_data: dict, section_id: str) -> str:
@@ -96,6 +96,40 @@ def parse_heat_count(html: str) -> int | None:
     """
     heats = re.findall(r"\bHeat\s+\d+\b", html)
     return len(heats) if heats else None
+
+
+def parse_start_list_riders(html: str) -> list[RiderEntry]:
+    """
+    Extract rider names and heat assignments from a start list page.
+
+    Start list format: "Heat N" headers followed by lines like
+    "212  PITTARD Charlie" (bib number, spaces, LASTNAME Firstname).
+    If no "Heat N" headers are found, all riders are assigned to heat 1.
+    Returns an empty list if no riders are found.
+    """
+    # Pattern: optional bib number, then UPPERCASE last name followed by mixed-case first name
+    rider_re = re.compile(r"(?:^\d+\s+|\s+)([A-Z]{2,}(?:\s+[A-Z]{2,})*\s+[A-Z][a-z][\w-]*(?:\s+[A-Z][a-z][\w-]*)*)")
+
+    heat_splits = re.split(r"\bHeat\s+(\d+)\b", html)
+    entries: list[RiderEntry] = []
+
+    if len(heat_splits) <= 1:
+        # No "Heat N" headers — treat all riders as heat 1
+        for match in rider_re.finditer(html):
+            name = match.group(1).strip()
+            tokens = frozenset(name.lower().split())
+            entries.append(RiderEntry(name=name, heat=1, normalized_tokens=tokens))
+    else:
+        # heat_splits: [preamble, "1", section1, "2", section2, ...]
+        for i in range(1, len(heat_splits), 2):
+            heat_num = int(heat_splits[i])
+            section = heat_splits[i + 1] if i + 1 < len(heat_splits) else ""
+            for match in rider_re.finditer(section):
+                name = match.group(1).strip()
+                tokens = frozenset(name.lower().split())
+                entries.append(RiderEntry(name=name, heat=heat_num, normalized_tokens=tokens))
+
+    return entries
 
 
 def parse_live_heat(html: str) -> int | None:

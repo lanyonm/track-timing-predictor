@@ -7,7 +7,7 @@ import pytest
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
-from app.parser import _parse_summary, parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule
+from app.parser import _parse_summary, parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
 
 SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
 
@@ -272,6 +272,58 @@ class TestParseHeatCount:
         # "Heated" or "Heathen" should not match
         html = "Heated debate\nHeathen\nHeat 1\nRider A\n"
         assert parse_heat_count(html) == 1
+
+
+# ── parse_start_list_riders ───────────────────────────────────────────────────
+
+
+class TestParseStartListRiders:
+    MULTI_HEAT_HTML = (
+        "Heat 1\n212  PITTARD Charlie\n211  RANKL Avery\n"
+        "Heat 2\n215  ALDEN Calla\n214  BURTON Maelle\n"
+    )
+
+    SINGLE_HEAT_HTML = (
+        "212  PITTARD Charlie\n211  RANKL Avery\n215  ALDEN Calla\n"
+    )
+
+    def test_multi_heat_rider_count(self):
+        riders = parse_start_list_riders(self.MULTI_HEAT_HTML)
+        assert len(riders) == 4
+
+    def test_multi_heat_heat_assignments(self):
+        riders = parse_start_list_riders(self.MULTI_HEAT_HTML)
+        heat1 = [r for r in riders if r.heat == 1]
+        heat2 = [r for r in riders if r.heat == 2]
+        assert len(heat1) == 2
+        assert len(heat2) == 2
+
+    def test_multi_heat_rider_names(self):
+        riders = parse_start_list_riders(self.MULTI_HEAT_HTML)
+        names = [r.name for r in riders]
+        assert "PITTARD Charlie" in names
+        assert "ALDEN Calla" in names
+
+    def test_multi_heat_normalized_tokens(self):
+        riders = parse_start_list_riders(self.MULTI_HEAT_HTML)
+        pittard = [r for r in riders if "pittard" in r.normalized_tokens][0]
+        assert pittard.normalized_tokens == frozenset({"pittard", "charlie"})
+
+    def test_single_heat_defaults_to_heat_1(self):
+        riders = parse_start_list_riders(self.SINGLE_HEAT_HTML)
+        assert len(riders) == 3
+        assert all(r.heat == 1 for r in riders)
+
+    def test_empty_html_returns_empty(self):
+        assert parse_start_list_riders("") == []
+
+    def test_malformed_html_returns_empty(self):
+        html = "<div><span>No rider data here</span></div>"
+        assert parse_start_list_riders(html) == []
+
+    def test_heat_header_only_no_riders(self):
+        html = "Heat 1\nHeat 2\n"
+        assert parse_start_list_riders(html) == []
 
 
 # ── parse_live_heat ────────────────────────────────────────────────────────────

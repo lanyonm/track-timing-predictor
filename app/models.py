@@ -6,6 +6,22 @@ from enum import Enum
 from pydantic import BaseModel
 
 
+class RiderEntry(BaseModel):
+    """A rider's presence in a specific event's start list."""
+    name: str
+    heat: int
+    normalized_tokens: frozenset[str]
+
+    model_config = {"frozen": True}
+
+
+class RiderMatch(BaseModel):
+    """A matched rider within a specific event prediction."""
+    heat: int
+    heat_count: int
+    heat_predicted_start: time | None = None
+
+
 class EventStatus(str, Enum):
     NOT_READY = "not_ready"
     UPCOMING = "upcoming"
@@ -41,12 +57,14 @@ class Prediction(BaseModel):
     heat_count: int | None = None  # Set when duration is derived from start-list heat count
     is_active: bool = False      # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event
+    rider_match: RiderMatch | None = None  # Present when queried racer matches this event's start list
 
 
 class SessionPrediction(BaseModel):
     session: Session
     event_predictions: list[Prediction]
     observed_delay_minutes: float
+    has_racer_match: bool = False  # True when any event in this session has a rider_match
 
     @property
     def is_complete(self) -> bool:
@@ -62,3 +80,7 @@ class SessionPrediction(BaseModel):
 class SchedulePrediction(BaseModel):
     competition_id: int
     sessions: list[SessionPrediction]
+    racer_name: str | None = None
+    match_count: int = 0
+    events_without_start_lists: int = 0
+    total_events: int = 0

@@ -53,6 +53,7 @@ The app predicts per-event start times for track cycling competitions fetched fr
 3. `parser.py` parses the HTML into `Session`/`Event` models
 4. `main.py` concurrently fetches start lists, result pages, and live heat pages
 5. `predictor.py` computes predicted start times and returns a `SchedulePrediction`
+5a. If a racer name is provided (URL `?r=` param or `racer_name` cookie), `predictor.py` matches it against cached start list riders and populates `rider_match` on each prediction
 6. Jinja2 renders the schedule; HTMX polls `/schedule/{id}/refresh` every 30s for live updates
 
 **In-memory caches in `predictor.py`** (keyed by `(competition_id, session_id, position)`):
@@ -61,6 +62,7 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - `_heat_counts` — heat counts parsed from start-list pages
 - `_live_heats` — current heat number from live results pages
 - `_generated_times` — Generated timestamps from result pages
+- `_start_list_riders` — parsed rider entries from start-list pages
 
 **Note:** On Lambda, these caches persist within a warm execution environment but reset on cold starts and are not shared across concurrent invocations. This may cause more frequent re-fetching and slightly less accurate predictions during cold starts.
 
@@ -80,6 +82,11 @@ The app predicts per-event start times for track cycling competitions fetched fr
 **Discipline detection** (`disciplines.py`):
 - Keyword list in `DISCIPLINE_KEYWORDS` matched against lowercase event names
 - Order matters — more specific phrases must appear before less specific ones (e.g. `"elite men individual pursuit"` before `"individual pursuit"`)
+
+**Racer name resolution** (`main.py::_resolve_racer_name`):
+- `?r=` query parameter: URL-safe Base64 encoded name (highest priority)
+- `racer_name` cookie: plain text name (fallback)
+- None: no personalization
 
 **Live delay adjustment** (`predictor.py::_compute_delay`):
 - Only applied when session is in-progress (has both completed and pending events)

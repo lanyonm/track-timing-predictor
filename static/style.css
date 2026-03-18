@@ -192,7 +192,7 @@ tr.active td { font-weight: 600; }
   font-weight: 500;
   border-radius: 4px;
   text-decoration: none;
-  margin-right: 4px;
+  margin: 0 4px 4px 0;
   white-space: nowrap;
 }
 
@@ -204,6 +204,26 @@ tr.active td { font-weight: 600; }
 .evt-btn-sl:hover { background: #b8d4f0; }
 .evt-btn-a  { background: #fff3cd; color: #856404; border: 1px solid #e8d99a; }
 .evt-btn-a:hover  { background: #e8d99a; }
+
+/* ── Racer match highlighting ────────────────────────────── */
+tr.racer-match { background: #e8f0fe; border-left: 4px solid #1a73e8; }
+tr.racer-match.active { background: #fff3cd; border-left: 4px solid #1a73e8; }
+tr.racer-match.status-completed { background: #e8f0fe; opacity: 0.45; }
+tr.racer-match.status-upcoming { background: #e8f0fe; border-left: 4px solid #1a73e8; }
+
+.badge.racer-heat { background: #1a73e8; color: #fff; font-size: 0.74rem; font-weight: 700; padding: 0.125rem 0.56rem; }
+.heat-time { display: block; font-size: 0.78rem; font-weight: 600; color: #1a53a0; margin-top: 0.125rem; }
+
+.racer-message { font-size: 0.88rem; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; border-radius: 4px; background: #fff3cd; color: #856404; }
+.racer-message-info { background: #dce8fc; color: #1a53a0; }
+
+.racer-form-bar { margin: 0.5rem 0 1rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.racer-form-bar form { display: flex; gap: 0.5rem; align-items: center; flex: 1; }
+.racer-form-bar input[type="text"] { flex: 1; padding: 0.4rem 0.6rem; font-size: 0.92rem; border: 1px solid #bbb; border-radius: 4px; }
+.racer-form-bar button { padding: 0.4rem 1rem; font-size: 0.88rem; background: #1a1a2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.racer-form-bar button:hover { background: #2e2e50; }
+.racer-form-bar .clear-link { font-size: 0.82rem; color: #666; white-space: nowrap; }
+.racer-form-hint { flex-basis: 100%; font-size: 0.78rem; color: #888; margin-top: -0.25rem; }
 
 /* ── HTMX indicator ───────────────────────────────────────── */
 .htmx-indicator {
@@ -373,6 +393,20 @@ a { color: #1a1a2e; }
     font-size: 0.73rem;
     padding: 0 10px;
   }
+
+  /* ── Racer match — mobile ── */
+  tr.racer-match { border-left: 4px solid #1a73e8; background: #e8f0fe; }
+  tr.racer-match.status-upcoming { border-left: 4px solid #1a73e8; background: #e8f0fe; }
+  tr.racer-match.active { border-left: 4px solid #1a73e8; background: #fff3cd; }
+  .heat-time { font-size: 0.75rem; }
+  .racer-form-bar { flex-wrap: wrap; }
+  .racer-form-bar form { flex-wrap: wrap; }
+  .racer-form-bar input[type="text"] { flex: 0 0 100%; }
+  .racer-form-bar button { flex-grow: 1; }
+
+  /* ── Racer form — mobile accessibility ── */
+  .racer-form-bar input[type="text"] { font-size: 16px; min-height: 44px; }
+  .racer-form-bar button { min-height: 44px; }
 
   /* ── Defaults table — opt out of card transform ── */
   table.defaults-table,
