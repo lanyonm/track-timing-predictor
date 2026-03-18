@@ -1,19 +1,20 @@
 <!--
-Sync Impact Report (2026-03-14)
-- Version change: 1.0.0 → 1.1.0
+Sync Impact Report (2026-03-18)
+- Version change: 1.2.0 → 1.3.0
 - Modified principles:
-  - III. Separation of Concerns & Architectural Consistency — expanded
-    with FastAPI-specific guidance (Pydantic BaseSettings, dependency
-    injection, shared async HTTP client lifecycle)
+  - II. Testable Without External Dependencies — added fixture requirement
+    for parsing functions that consume external data
 - Modified sections:
-  - External Data Sources — added shared httpx.AsyncClient requirement
-  - Development Workflow — added GET-only route constraint
+  - External Data Sources — added evidence requirement for format assertions
 - Templates requiring updates:
   - .specify/templates/plan-template.md — ✅ no changes needed
   - .specify/templates/spec-template.md — ✅ no changes needed
   - .specify/templates/tasks-template.md — ✅ no changes needed
   - .specify/templates/checklist-template.md — ✅ no changes needed
-- No command files exist to update.
+- Command files requiring updates:
+  - .claude/commands/speckit.plan.md — add Evidence field and fixture capture instruction
+  - .claude/commands/speckit.tasks.md — add Fixture Requirement for Parsing Tasks rule
+  - .claude/commands/speckit.analyze.md — add research.md to load list, add detection pass G
 - Follow-up TODOs: none
 -->
 
@@ -39,6 +40,13 @@ backend. Tests MUST NOT require live API calls or DynamoDB.
 
 The `conftest.py` isolation pattern (temp DB, forced SQLite mode) is the
 standard for database-dependent tests.
+
+Parsing functions that consume data fetched from remote sources or
+third-party APIs (HTML, JSON, XML responses, etc.) MUST be tested against
+captured real-world fixtures, not solely against hand-crafted synthetic
+data. When a research decision introduces a new parsing function, the
+research phase MUST capture at least one real data sample and commit it to
+`tests/fixtures/`.
 
 ### III. Separation of Concerns & Architectural Consistency
 
@@ -134,6 +142,11 @@ trade-off.
 - External data sources (e.g., tracktiming.live) may be unversioned,
   undocumented, and could change without notice.
 - Parsing code MUST be defensive.
+- Research decisions that assert a data format (e.g., "start lists are
+  plain text") MUST include a captured sample from the actual source to
+  validate the assertion. Format assumptions without supporting evidence
+  are treated as NEEDS CLARIFICATION. Capturing a real sample is required
+  to satisfy Principle II.
 - New data sources SHOULD follow the established fetch → parse → model
   pattern.
 - Data source-specific logic MUST be isolated so it doesn't leak into
@@ -174,4 +187,4 @@ trade-off.
 - CLAUDE.md is the runtime development guidance file; the constitution
   governs design principles and trade-off evaluation.
 
-**Version**: 1.2.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-15
+**Version**: 1.3.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-18
