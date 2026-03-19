@@ -18,7 +18,7 @@
 
 **Side effects**:
 - If name resolved, includes `racer_name` in template context and match data in predictions
-- Note: The `?r=` parameter does NOT set a cookie. Cookie management is exclusively handled by `/settings/racer-name`. A shared-link recipient sees personalization for that visit; to persist it, they submit the form.
+- If `r` query parameter is present and resolves to a name, the `racer_name` cookie is updated to match (FR-009). This ensures shared links persist the name for the recipient. Cookie attributes: `httponly=True, samesite=lax, max_age=31536000`.
 
 **Response**: HTML page (`schedule.html`) with optional racer highlighting.
 
@@ -67,7 +67,7 @@
 
 ### _schedule_body.html
 
-**New template variables**:
+**New template variables** (via `SchedulePrediction`):
 
 | Variable | Type | Description |
 |----------|------|-------------|
@@ -75,6 +75,11 @@
 | `match_count` | `int` | Number of matched events |
 | `events_without_start_lists` | `int` | For FR-010 messaging |
 | `total_events` | `int` | Total non-special events across all sessions (for FR-010 "no data" conditional) |
+| `next_race_event_name` | `str \| None` | Event name for "Your next race:" / "Racing now:" line |
+| `next_race_heat` | `int \| None` | Heat number (omitted from display when `next_race_heat_count == 1`) |
+| `next_race_heat_count` | `int \| None` | Total heats (1 = single-heat, no "Heat N" in label) |
+| `next_race_time` | `datetime \| None` | Predicted start time for the racer's heat |
+| `next_race_is_active` | `bool` | Determines label: True → "Racing now:", False → "Your next race:" |
 
 **Per-prediction variables** (via `Prediction.rider_match`):
 

@@ -14,15 +14,17 @@
 3. Add `RiderMatch` model and `rider_match` field to `Prediction` in `app/models.py`
 4. Implement name normalization (tokenize, lowercase, frozenset comparison)
 5. Calculate per-heat predicted start time: `event_start + (heat - 1) × per_heat_duration`
-6. Add `racer_name`, `match_count`, `events_without_start_lists` to `SchedulePrediction`
-7. Write tests for matching logic (case-insensitive, order-independent, no-match)
-8. Verify: `pytest tests/test_rider_matching.py`
+6. Add `racer_name`, `match_count`, `events_without_start_lists`, `total_events` to `SchedulePrediction`
+7. Add `next_race_*` fields to `SchedulePrediction` (event_name, heat, heat_count, time, is_active)
+8. Compute next-race info in `predict_session()`: find nearest non-completed matched event (active takes priority)
+9. Write tests for matching logic (case-insensitive, order-independent, no-match, next-race selection)
+10. Verify: `pytest tests/test_rider_matching.py`
 
 ### Phase 3: Routes — Wire up name input and cookies
 1. Add `_resolve_racer_name(request, r_param)` helper to `app/main.py`
-2. Modify `get_schedule()` to accept `r` query param, resolve name, pass to predictor
+2. Modify `get_schedule()` to accept `r` query param, resolve name, pass to predictor; update cookie when `?r=` present (FR-009)
 3. Modify `refresh_schedule()` to accept `r` query param
-4. Add `GET /settings/racer-name` route (cookie set/clear + redirect)
+4. Add `GET /settings/racer-name` route (cookie set/clear + redirect with `#schedule-container` fragment)
 5. Call `parse_start_list_riders()` in `_fetch_start_lists()` alongside `parse_heat_count()`
 6. Verify: `pytest tests/test_main.py`
 
@@ -30,7 +32,7 @@
 1. Add name input form to `schedule.html` (in meta bar area, GET form to `/settings/racer-name`)
 2. Add `?r=` to `hx-get` URL for refresh persistence
 3. Add racer-match CSS class and heat detail to `_schedule_body.html`
-4. Add "no matches" / "start lists unavailable" messaging
+4. Add messaging: success (blue info) with "Racing now:" / "Your next race:" status line, no-match (amber warning), missing start lists (amber warning), no-data (amber warning)
 5. Add `.racer-match` styles to `static/style.css` (highlight color, mobile card accent)
 6. Verify: manual browser testing + existing template render tests
 
@@ -45,7 +47,7 @@
 
 | File | Changes |
 |------|---------|
-| `app/models.py` | Add `RiderEntry`, `RiderMatch`; extend `Prediction`, `SchedulePrediction` |
+| `app/models.py` | Add `RiderEntry`, `RiderMatch`; extend `Prediction`, `SchedulePrediction` (including `next_race_*` fields) |
 | `app/parser.py` | Add `parse_start_list_riders()` |
 | `app/predictor.py` | Add `_start_list_riders` cache, `record_start_list_riders()`, `get_rider_match()`; modify `predict_session()` |
 | `app/main.py` | Add `r` query param handling, `_resolve_racer_name()`, `/settings/racer-name` route; modify `get_schedule()`, `refresh_schedule()`, `_fetch_start_lists()` |

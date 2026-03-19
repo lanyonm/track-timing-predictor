@@ -60,6 +60,11 @@ New optional field:
 | `match_count` | `int` | Number of events where the racer was matched (0 if no name or no matches) |
 | `events_without_start_lists` | `int` | Number of events that have no start list data (for FR-010 messaging) |
 | `total_events` | `int` | Total count of non-special events across all sessions (for FR-010 "no data" conditional) |
+| `next_race_event_name` | `str \| None` | Name of the racer's nearest non-completed matched event (for FR-010 "Your next race" / "Racing now" line) |
+| `next_race_heat` | `int \| None` | Heat number for the next race (omitted from display for single-heat events where `next_race_heat_count == 1`) |
+| `next_race_heat_count` | `int \| None` | Total heats for the next race event (1 = single-heat, no "Heat N" in label) |
+| `next_race_time` | `datetime \| None` | Predicted start time for the racer's specific heat in the next race |
+| `next_race_is_active` | `bool` | True when the next race event is currently active (in progress); determines "Racing now:" vs "Your next race:" label |
 
 ## In-Memory Caches (predictor.py)
 
@@ -69,7 +74,7 @@ New optional field:
 |-------|-----|-------|-------------|
 | `_start_list_riders` | `(competition_id, session_id, position)` | `list[RiderEntry]` | Parsed rider entries per event, populated alongside heat counts |
 
-**Note**: This cache follows the same pattern as existing `_heat_counts` and `_observed_durations` caches. On Lambda, it persists within a warm execution environment but resets on cold starts.
+**Note**: This cache follows the same pattern as existing `_heat_counts` and `_observed_durations` caches. On Lambda, it persists within a warm execution environment but resets on cold starts and is not shared across concurrent invocations. This may cause more frequent re-fetching of start list pages during cold starts, consistent with the existing cache behavior documented in CLAUDE.md.
 
 ## Name Matching Algorithm
 
@@ -77,7 +82,9 @@ New optional field:
 Input: user_name (str)
 Output: matching RiderEntry or None
 
-1. Tokenize user_name: split on whitespace, lowercase each token → user_tokens: frozenset[str]
+0. Normalize user_name: apply Unicode NFKD decomposition, strip non-ASCII
+   characters, remove apostrophes/hyphens/periods
+1. Tokenize: split on whitespace, lowercase each token → user_tokens: frozenset[str]
 2. For each RiderEntry in event's start list:
    a. Compare user_tokens == rider.normalized_tokens
    b. If match → return RiderEntry
@@ -85,6 +92,8 @@ Output: matching RiderEntry or None
 ```
 
 **Properties**:
+- Unicode-normalized: NFKD decomposition strips diacritics (e.g., "Müller" → "Muller")
+- Punctuation-tolerant: apostrophes, hyphens, periods stripped (e.g., "O'Brien" → "OBrien")
 - Case-insensitive: all tokens lowercased
 - Order-independent: frozenset comparison
 - Whitespace-tolerant: split handles multiple spaces
@@ -106,4 +115,4 @@ Output: matching RiderEntry or None
 
 **Decode flow**: `base64.urlsafe_b64decode(r_param).decode("utf-8")`
 
-**Priority**: URL `?r=` parameter takes precedence over cookie. If both present, URL wins (supports shared links overriding the recipient's cookie).
+**Priority**: URL `?r=` parameter takes precedence over cookie. If both present, URL wins and the cookie is updated to match (supports shared links overriding the recipient's stored name). Cookie update happens in the `/schedule/{event_id}` route handler.

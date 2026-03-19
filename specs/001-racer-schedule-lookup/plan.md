@@ -54,7 +54,8 @@ specs/001-racer-schedule-lookup/
 └── tasks.md             # Phase 2 output (/speckit.tasks command)
 
 docs/
-└── ui-recommendations-mockup.html  # Visual mockup (open in browser)
+├── ui-recommendations-mockup.html  # Visual mockup (open in browser) — predates messaging styling changes
+└── racer-input-states-mockup.html  # All form/message/row states (current)
 ```
 
 ### Source Code (repository root)
@@ -78,7 +79,7 @@ static/
 tests/
 ├── test_parser.py          # Add TestParseStartListRiders
 ├── test_predictor.py       # Existing predictor tests (unchanged)
-├── test_rider_matching.py  # New: rider name matching and per-heat timing tests (T005–T008)
+├── test_rider_matching.py  # New: rider name matching and per-heat timing tests (T007)
 └── test_main.py            # Add racer name route tests
 ```
 
@@ -97,13 +98,13 @@ Visual mockup at `docs/ui-recommendations-mockup.html` is the authoritative refe
 **State interaction rules**:
 - `.racer-match`: blue border + blue tint bg (`#e8f0fe`)
 - `.racer-match.active`: blue border + amber bg (`#fff3cd` preserved)
-- `.racer-match.status-completed`: blue border + blue tint bg + opacity 0.45 + line-through
+- `.racer-match.status-completed`: blue border + blue tint bg + opacity 0.45 on cell content (not row, so border retains full contrast) + line-through
 - `.racer-match.status-upcoming`: blue border + blue tint bg (overrides green)
 - All rules apply identically on desktop and mobile (4px border width matches existing mobile borders)
 
 **Action links**: Always preserved on all rows regardless of racer-match status (FR-014). Button links have `margin: 0 4px 4px 0` for vertical breathing room when stacking.
 
-**Messaging hierarchy** (FR-010): Four states — success ("Found N events"), no-match warning (only when start lists exist to search), missing-start-lists info, and no-data info (all start lists missing — suppresses misleading "no matches"). Success message provides immediate feedback so the racer doesn't have to scan the entire schedule.
+**Messaging hierarchy** (FR-010): Four states with two styling tiers. **Blue info** (`#dce8fc`): success message ("Found N events") with a status line — "Racing now: [event], Heat N" (time omitted — event already underway) when the nearest matched event is active, or "Your next race: [event], Heat N at HH:MM" when it's upcoming (active takes priority; omitted when all matched events are completed). **Amber warning** (`#fff3cd`): no-match warning (only when start lists exist to search), missing-start-lists warning, and no-data warning (all start lists missing — suppresses misleading "no matches"). Success message provides immediate feedback so the racer doesn't have to scan the entire schedule; the "Racing now" / "Your next race" line directly answers the at-track question.
 
 **Session auto-open** (FR-015): When a racer name is active, sessions containing matched events stay open even if complete. `SessionPrediction.has_racer_match` drives this.
 
