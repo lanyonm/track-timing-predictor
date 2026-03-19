@@ -40,6 +40,11 @@ backend. Tests MUST NOT require live API calls or DynamoDB.
 The `conftest.py` isolation pattern (temp DB, forced SQLite mode) is the
 standard for database-dependent tests.
 
+Parsing functions consuming external data MUST be tested against captured
+real-world fixtures (in `tests/fixtures/`), not solely synthetic data.
+Fixtures preserve the exact upstream format and catch regressions when
+parsing logic changes.
+
 ### III. Separation of Concerns & Architectural Consistency
 
 Each module MUST have a single clear responsibility (fetching, parsing,
@@ -134,6 +139,9 @@ trade-off.
 - External data sources (e.g., tracktiming.live) may be unversioned,
   undocumented, and could change without notice.
 - Parsing code MUST be defensive.
+- Format assertions MUST include a captured sample committed to
+  `tests/fixtures/`. Assumptions about external data formats without
+  evidence are treated as NEEDS CLARIFICATION.
 - New data sources SHOULD follow the established fetch → parse → model
   pattern.
 - Data source-specific logic MUST be isolated so it doesn't leak into
@@ -160,6 +168,10 @@ trade-off.
   quality.
 - CLAUDE.md is the authoritative development reference and MUST be kept
   current with architectural changes.
+- When implementation reveals behavior-affecting deviations from the spec
+  or design artifacts, those artifacts MUST be updated before the feature
+  is considered complete. Internal-only changes (refactoring,
+  optimization) are exempt from this requirement.
 - All routes MUST use GET. CloudFront OAC with Lambda Function URLs
   does not support POST request bodies (SigV4 payload signature
   mismatch causes 403s). Form submissions MUST use query parameters
@@ -174,4 +186,4 @@ trade-off.
 - CLAUDE.md is the runtime development guidance file; the constitution
   governs design principles and trade-off evaluation.
 
-**Version**: 1.2.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-15
+**Version**: 1.4.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-18
