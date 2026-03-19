@@ -176,6 +176,19 @@ trade-off.
   does not support POST request bodies (SigV4 payload signature
   mismatch causes 403s). Form submissions MUST use query parameters
   on GET requests, not POST bodies.
+- When analysis or remediation proposes changes that alter plan
+  assumptions (architecture choices, technical constraints, dependency
+  decisions, or data model structure), the research decisions that
+  informed those assumptions MUST be reviewed before the changes are
+  applied. Specifically:
+  - Each affected research.md entry MUST be evaluated for whether its
+    original question, rationale, or alternatives considered still hold
+    under the proposed change.
+  - Research entries whose assumptions are invalidated MUST be re-resolved
+    (new research or explicit re-confirmation) before proceeding.
+  - The remediation plan MUST identify which research entries are affected
+    and recommend review or re-research as a prerequisite to the plan
+    change.
 
 ## Governance
 
@@ -186,4 +199,4 @@ trade-off.
 - CLAUDE.md is the runtime development guidance file; the constitution
   governs design principles and trade-off evaluation.
 
-**Version**: 1.4.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-18
+**Version**: 1.5.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-19
