@@ -132,7 +132,7 @@ hr.divider { border: none; border-top: 1px dashed #ddd; margin: 1.25rem 0; }
   background: #fff3cd;
   color: #856404;
 }
-.racer-message.info {
+.racer-message.racer-message-info {
   background: #dce8fc;
   color: #1a53a0;
 }
@@ -266,7 +266,7 @@ tr.racer-match.status-upcoming { background: #e8f0fe; border-left: 4px solid #1a
       <strong>Success — matches found with upcoming next race</strong>
       <p class="state-desc">Name set, matches &gt; 0, racer has at least one upcoming event.</p>
       <div class="mockup-box">
-        <div class="racer-message info" role="status">
+        <div class="racer-message racer-message-info" role="status">
           Found 3 event(s) for "Sean Hall"
           <span class="next-race">Your next race: Women's Scratch Race, Heat 2 at 19:07</span>
         </div>
@@ -279,7 +279,7 @@ tr.racer-match.status-upcoming { background: #e8f0fe; border-left: 4px solid #1a
       <strong>Success — matches found, next race is single-heat</strong>
       <p class="state-desc">Name set, matches &gt; 0, next event is single-heat (no "Heat N").</p>
       <div class="mockup-box">
-        <div class="racer-message info" role="status">
+        <div class="racer-message racer-message-info" role="status">
           Found 2 event(s) for "Sean Hall"
           <span class="next-race">Your next race: Women's Scratch Race at 19:07</span>
         </div>
@@ -292,7 +292,7 @@ tr.racer-match.status-upcoming { background: #e8f0fe; border-left: 4px solid #1a
       <strong>Success — matches found, all completed</strong>
       <p class="state-desc">Name set, matches &gt; 0, but all matched events are completed. No "Your next race" line.</p>
       <div class="mockup-box">
-        <div class="racer-message info" role="status">
+        <div class="racer-message racer-message-info" role="status">
           Found 3 event(s) for "Sean Hall"
         </div>
       </div>
@@ -307,7 +307,7 @@ tr.racer-match.status-upcoming { background: #e8f0fe; border-left: 4px solid #1a
         Uses "Racing now:" label instead of "Your next race:".
       </p>
       <div class="mockup-box">
-        <div class="racer-message info" role="status">
+        <div class="racer-message racer-message-info" role="status">
           Found 2 event(s) for "Sean Hall"
           <span class="next-race">Racing now: Women's Individual Pursuit, Heat 3 at 18:43</span>
         </div>
@@ -320,7 +320,7 @@ tr.racer-match.status-upcoming { background: #e8f0fe; border-left: 4px solid #1a
       <strong>Success + missing start lists</strong>
       <p class="state-desc">Matches found, but some events don't have start lists yet. Missing start lists uses amber warning styling.</p>
       <div class="mockup-box">
-        <div class="racer-message info" role="status">
+        <div class="racer-message racer-message-info" role="status">
           Found 2 event(s) for "Sean Hall"
           <span class="next-race">Your next race: Women's Scratch Race, Heat 2 at 19:07</span>
         </div>

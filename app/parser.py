@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 from datetime import datetime, time
 
 from bs4 import BeautifulSoup, Tag
@@ -7,7 +8,7 @@ from bs4 import BeautifulSoup, Tag
 logger = logging.getLogger(__name__)
 
 from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
-from app.models import Event, EventStatus, Session
+from app.models import Event, EventStatus, RiderEntry, Session
 
 
 def _extract_section_html(jxn_data: dict, section_id: str) -> str:
@@ -85,6 +86,88 @@ def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None, str | Non
     if start_list_url:
         return EventStatus.UPCOMING, None, start_list_url, audit_url, live_url
     return EventStatus.NOT_READY, None, None, audit_url, live_url
+
+
+def _normalize_rider_name(raw_name: str) -> frozenset[str]:
+    """Normalize a rider name to a frozenset of lowercase ASCII tokens."""
+    normalized = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.replace("'", "").replace("-", "").replace(".", "")
+    return frozenset(t.lower() for t in normalized.split())
+
+
+def parse_start_list_riders(html: str) -> list[RiderEntry]:
+    """
+    Parse start list HTML and extract rider entries with heat assignments.
+
+    Handles two formats:
+    1. HTML table: tracktiming.live uses <table> with Heat headers in colspan rows
+       and rider names in the 3rd <td> of each data row.
+    2. Plain text: Heat N headers followed by lines like '212  PITTARD Charlie'.
+
+    Returns empty list if no heats/riders found (defensive parsing).
+    """
+    entries: list[RiderEntry] = []
+
+    # Try HTML table format first (real tracktiming.live pages)
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table")
+    if table:
+        current_heat = 0
+        for row in table.find_all("tr"):
+            cells = row.find_all("td")
+            if not cells:
+                continue
+
+            # Heat header row: single cell with colspan spanning the table
+            first_cell = cells[0]
+            colspan = first_cell.get("colspan")
+            if colspan:
+                text = first_cell.get_text(strip=True)
+                heat_match = re.search(r"\bHeat\s+(\d+)\b", text)
+                if heat_match:
+                    current_heat = int(heat_match.group(1))
+                continue
+
+            # Rider data row: bib in 1st cell, name in 3rd cell
+            if current_heat > 0 and len(cells) >= 3:
+                bib_text = cells[0].get_text(strip=True)
+                if bib_text.isdigit():
+                    raw_name = cells[2].get_text(strip=True)
+                    if raw_name:
+                        tokens = _normalize_rider_name(raw_name)
+                        entries.append(RiderEntry(
+                            name=raw_name,
+                            heat=current_heat,
+                            normalized_tokens=tokens,
+                        ))
+
+        if entries:
+            return entries
+
+    # Fallback: plain-text format (test fixtures, older pages)
+    current_heat = 0
+    for line in html.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        heat_match = re.match(r"^Heat\s+(\d+)$", stripped)
+        if heat_match:
+            current_heat = int(heat_match.group(1))
+            continue
+
+        if current_heat > 0:
+            rider_match = re.match(r"^\d+\s{2,}(.+)$", stripped)
+            if rider_match:
+                raw_name = rider_match.group(1).strip()
+                tokens = _normalize_rider_name(raw_name)
+                entries.append(RiderEntry(
+                    name=raw_name,
+                    heat=current_heat,
+                    normalized_tokens=tokens,
+                ))
+
+    return entries
 
 
 def parse_heat_count(html: str) -> int | None:

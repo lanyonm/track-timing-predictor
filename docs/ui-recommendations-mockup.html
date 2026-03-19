@@ -320,26 +320,29 @@ hr.mockup-divider { border: none; border-top: 1px dashed #ccc; margin: 0.75rem 0
 
       <p class="mockup-label">State A: Success &mdash; matches found</p>
       <div class="racer-message racer-message-info" role="status">Found 3 event(s) for "Sean Hall"</div>
+      <div class="racer-message racer-message-info" role="status">Your next race: Women's Scratch Race, Heat 2 at 19:07</div>
 
       <p class="mockup-label">State A + C: Success + partial start list coverage</p>
       <div class="racer-message racer-message-info" role="status">Found 2 event(s) for "Sean Hall"</div>
-      <div class="racer-message racer-message-info" role="status">3 event(s) do not yet have start lists</div>
+      <div class="racer-message racer-message-info" role="status">Racing now: Women's Individual Pursuit, Heat 3 at 18:43</div>
+      <div class="racer-message" role="status">3 event(s) do not yet have start lists</div>
 
       <p class="mockup-label">State B: No matches (at least one start list exists to search)</p>
       <div class="racer-message" role="status">No matching events found for "Xyz Nobody"</div>
 
       <p class="mockup-label">State B + C: No matches + partial start list coverage</p>
       <div class="racer-message" role="status">No matching events found for "Xyz Nobody"</div>
-      <div class="racer-message racer-message-info" role="status">4 event(s) do not yet have start lists</div>
+      <div class="racer-message" role="status">4 event(s) do not yet have start lists</div>
 
       <p class="mockup-label">State D: No data (ALL start lists missing &mdash; suppresses "no matches")</p>
-      <div class="racer-message racer-message-info" role="status">Start lists are not yet published &mdash; check back closer to the event</div>
+      <div class="racer-message" role="status">Start lists are not yet published &mdash; check back closer to the event</div>
 
       <hr class="mockup-divider">
 
       <p class="mockup-label">In context: success + missing start lists + schedule</p>
       <div class="racer-message racer-message-info" role="status">Found 1 event(s) for "Sean Hall"</div>
-      <div class="racer-message racer-message-info" role="status">1 event(s) do not yet have start lists</div>
+      <div class="racer-message racer-message-info" role="status">Your next race: Women's Scratch Race, Heat 1 at 19:07</div>
+      <div class="racer-message" role="status">1 event(s) do not yet have start lists</div>
       <details open>
         <summary><span class="session-label">Friday &mdash; Scheduled 18:00</span></summary>
         <table>

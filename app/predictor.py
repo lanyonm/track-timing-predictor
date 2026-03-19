@@ -2,10 +2,13 @@ from datetime import datetime, time
 
 from app.database import get_learned_duration, record_duration
 from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
+from app.parser import _normalize_rider_name
 from app.models import (
     Event,
     EventStatus,
     Prediction,
+    RiderEntry,
+    RiderMatch,
     SchedulePrediction,
     Session,
     SessionPrediction,
@@ -39,6 +42,10 @@ _live_heats: dict[tuple[int, int, int], int] = {}
 # slot duration for any discipline, including those without a Finish Time field.
 # Key: (competition_id, session_id, position), Value: datetime when result was generated
 _generated_times: dict[tuple[int, int, int], datetime] = {}
+
+# Parsed rider entries from start list pages.
+# Key: (competition_id, session_id, position), Value: list of RiderEntry
+_start_list_riders: dict[tuple[int, int, int], list[RiderEntry]] = {}
 
 
 def record_observed_duration(
@@ -109,6 +116,64 @@ def get_generated_time(
     return _generated_times.get((competition_id, session_id, position))
 
 
+def record_start_list_riders(
+    competition_id: int,
+    session_id: int,
+    position: int,
+    riders: list[RiderEntry],
+) -> None:
+    """Store parsed rider entries for an event's start list."""
+    _start_list_riders[(competition_id, session_id, position)] = riders
+
+
+def get_rider_match(
+    competition_id: int,
+    session_id: int,
+    position: int,
+    racer_name: str,
+    event_start: datetime | None,
+    discipline: str,
+) -> RiderMatch | None:
+    """
+    Match a racer name against cached start list riders for an event.
+
+    Uses Unicode NFKD normalization + punctuation stripping, then compares
+    frozenset of lowercased tokens for case-insensitive, order-independent matching.
+    """
+    key = (competition_id, session_id, position)
+    riders = _start_list_riders.get(key)
+    if not riders:
+        return None
+
+    if not racer_name or not racer_name.strip():
+        return None
+
+    user_tokens = _normalize_rider_name(racer_name)
+
+    if not user_tokens:
+        return None
+
+    for rider in riders:
+        if user_tokens == rider.normalized_tokens:
+            hc = get_heat_count(competition_id, session_id, position) or 1
+            heat_predicted_start = None
+            if event_start is not None:
+                phd = get_per_heat_duration(discipline)
+                heat_predicted_start = datetime(
+                    event_start.year, event_start.month, event_start.day,
+                    event_start.hour, event_start.minute, event_start.second,
+                )
+                from datetime import timedelta
+                heat_predicted_start = event_start + timedelta(minutes=(rider.heat - 1) * phd)
+            return RiderMatch(
+                heat=rider.heat,
+                heat_count=hc,
+                heat_predicted_start=heat_predicted_start,
+            )
+
+    return None
+
+
 def get_observed_duration(competition_id: int, session_id: int, position: int) -> float | None:
     """Return the cached observed slot duration in minutes, or None if not yet recorded."""
     return _observed_durations.get((competition_id, session_id, position))
@@ -176,6 +241,7 @@ def predict_session(
     competition_id: int,
     session: Session,
     now: datetime | None = None,
+    racer_name: str | None = None,
     use_learned: bool = True,
 ) -> SessionPrediction:
     """
@@ -189,6 +255,7 @@ def predict_session(
 
     now: server wall-clock time used to estimate real-time delay.
          If None, no delay adjustment is applied (pre-event mode).
+    racer_name: optional racer name for rider matching.
     """
     durations: list[float] = []
     is_observed_list: list[bool] = []
@@ -275,6 +342,9 @@ def predict_session(
 
     cumulative = 0.0
     predictions: list[Prediction] = []
+    has_racer_match = False
+    has_pending_racer_match = False
+    events_without_start_lists = 0
 
     for i, event in enumerate(session.events):
         # Only shift upcoming/active events by the current delay.
@@ -311,6 +381,31 @@ def predict_session(
                 if phd > 0:
                     active_heat = max(1, min(hc, int(elapsed_in_active / phd) + 1))
 
+        # Rider matching
+        rider_match = None
+        if racer_name and not event.is_special:
+            key = (competition_id, session.session_id, event.position)
+            if key not in _start_list_riders:
+                events_without_start_lists += 1
+            else:
+                # Build a datetime from predicted_start for heat time calculation
+                event_start_dt = None
+                if now is not None:
+                    event_start_dt = now.replace(
+                        hour=predicted_start.hour,
+                        minute=predicted_start.minute,
+                        second=predicted_start.second,
+                        microsecond=0,
+                    )
+                rider_match = get_rider_match(
+                    competition_id, session.session_id, event.position,
+                    racer_name, event_start_dt, event.discipline,
+                )
+                if rider_match:
+                    has_racer_match = True
+                    if event.status != EventStatus.COMPLETED:
+                        has_pending_racer_match = True
+
         predictions.append(Prediction(
             event=event,
             predicted_start=predicted_start,
@@ -321,6 +416,7 @@ def predict_session(
             heat_count=heat_count_list[i],
             is_active=is_active,
             active_heat=active_heat,
+            rider_match=rider_match,
         ))
         if event.discipline not in _ZERO_DURATION_DISCIPLINES:
             cumulative += durations[i]
@@ -329,6 +425,9 @@ def predict_session(
         session=session,
         event_predictions=predictions,
         observed_delay_minutes=delay_minutes,
+        has_racer_match=has_racer_match,
+        has_pending_racer_match=has_pending_racer_match,
+        events_without_start_lists=events_without_start_lists,
     )
 
 
@@ -336,10 +435,78 @@ def predict_schedule(
     competition_id: int,
     sessions: list[Session],
     now: datetime | None = None,
+    racer_name: str | None = None,
     use_learned: bool = True,
 ) -> SchedulePrediction:
-    session_predictions = [predict_session(competition_id, s, now=now, use_learned=use_learned) for s in sessions]
-    return SchedulePrediction(competition_id=competition_id, sessions=session_predictions)
+    session_predictions = []
+    total_events_without_start_lists = 0
+    total_events = 0
+    match_count = 0
+
+    for s in sessions:
+        sp = predict_session(
+            competition_id, s, now=now, racer_name=racer_name, use_learned=use_learned,
+        )
+        session_predictions.append(sp)
+        total_events_without_start_lists += sp.events_without_start_lists
+        for e in s.events:
+            if not e.is_special:
+                total_events += 1
+        for pred in sp.event_predictions:
+            if pred.rider_match:
+                match_count += 1
+
+    # Compute next_race_* fields: find the nearest non-completed matched event.
+    # Active events take priority over upcoming.
+    next_race_event_name = None
+    next_race_heat = None
+    next_race_heat_count = None
+    next_race_time = None
+    next_race_is_active = False
+
+    # First pass: look for active matched events
+    for sp in session_predictions:
+        for pred in sp.event_predictions:
+            if pred.rider_match and pred.is_active:
+                next_race_event_name = pred.event.name
+                next_race_heat = pred.rider_match.heat
+                next_race_heat_count = pred.rider_match.heat_count
+                next_race_time = pred.rider_match.heat_predicted_start
+                next_race_is_active = True
+                break
+        if next_race_is_active:
+            break
+
+    # Second pass: if no active match, find first upcoming matched event
+    if not next_race_is_active:
+        for sp in session_predictions:
+            for pred in sp.event_predictions:
+                if (
+                    pred.rider_match
+                    and pred.event.status != EventStatus.COMPLETED
+                ):
+                    next_race_event_name = pred.event.name
+                    next_race_heat = pred.rider_match.heat
+                    next_race_heat_count = pred.rider_match.heat_count
+                    next_race_time = pred.rider_match.heat_predicted_start
+                    next_race_is_active = False
+                    break
+            if next_race_event_name:
+                break
+
+    return SchedulePrediction(
+        competition_id=competition_id,
+        sessions=session_predictions,
+        racer_name=racer_name,
+        match_count=match_count,
+        events_without_start_lists=total_events_without_start_lists,
+        total_events=total_events,
+        next_race_event_name=next_race_event_name,
+        next_race_heat=next_race_heat,
+        next_race_heat_count=next_race_heat_count,
+        next_race_time=next_race_time,
+        next_race_is_active=next_race_is_active,
+    )
 
 
 def update_status_cache(

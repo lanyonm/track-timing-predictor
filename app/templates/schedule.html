@@ -22,11 +22,19 @@
     </span>
   </p>
 
+  <form class="racer-form-bar" action="/settings/racer-name" method="get">
+    <input type="hidden" name="event_id" value="{{ competition_id }}">
+    <input type="text" name="name" placeholder="Your name to highlight your events" value="{{ racer_name or '' }}" aria-label="Racer name" aria-describedby="racer-hint">
+    <button type="submit">Highlight</button>
+    {% if racer_name %}<a href="/settings/racer-name?event_id={{ competition_id }}" class="clear-link">Clear</a>{% endif %}
+    <small id="racer-hint" class="racer-form-hint">Enter your full name as shown on the start list</small>
+  </form>
+
   <div
     id="schedule-container"
-    hx-get="/schedule/{{ competition_id }}/refresh"
+    hx-get="/schedule/{{ competition_id }}/refresh{% if racer_encoded %}?r={{ racer_encoded }}{% endif %}"
     hx-trigger="every {{ refresh_seconds }}s"
-    hx-swap="innerHTML scroll:false"
+    hx-swap="innerHTML show:none"
     hx-indicator="#refresh-indicator"
   >
     {% include "_schedule_body.html" %}
@@ -38,11 +46,18 @@
   (function () {
     var container = document.getElementById('schedule-container');
     var openSessions = new Set();
+    var closedByUser = new Set();
 
     container.addEventListener('htmx:beforeSwap', function () {
       openSessions.clear();
-      container.querySelectorAll('details[open]').forEach(function (el) {
-        openSessions.add(el.querySelector('summary .session-label').textContent.trim());
+      container.querySelectorAll('details').forEach(function (el) {
+        var label = el.querySelector('summary .session-label').textContent.trim();
+        if (el.hasAttribute('open')) {
+          openSessions.add(label);
+        } else if (el.hasAttribute('data-pending-racer')) {
+          // Session has pending racer matches but user closed it — remember
+          closedByUser.add(label);
+        }
       });
     });
 
@@ -53,6 +68,14 @@
           el.setAttribute('open', '');
         } else {
           el.removeAttribute('open');
+        }
+      });
+
+      // FR-015: auto-open sessions with pending racer matches, unless user explicitly closed them
+      container.querySelectorAll('details').forEach(function (el) {
+        var label = el.querySelector('summary .session-label').textContent.trim();
+        if (el.hasAttribute('data-pending-racer') && !closedByUser.has(label)) {
+          el.setAttribute('open', '');
         }
       });
 
