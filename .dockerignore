@@ -5,6 +5,7 @@ __pycache__/
 tests/
 docs/
 plans/
+specs/
 cdk/
 *.db
 .git/
