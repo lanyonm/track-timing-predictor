@@ -1,5 +1,20 @@
+{% if schedule.racer_name and schedule.match_count > 0 %}
+<div class="racer-message racer-message-info" role="status">Found {{ schedule.match_count }} event{{ 's' if schedule.match_count != 1 else '' }} for "{{ schedule.racer_name }}"</div>
+{% if schedule.next_race_event_name %}
+<div class="racer-message racer-message-info" role="status">{% if schedule.next_race_is_active %}Racing now: {{ schedule.next_race_event_name }}{% if schedule.next_race_heat_count and schedule.next_race_heat_count > 1 %}, Heat {{ schedule.next_race_heat }}{% endif %}{% else %}Your next race: {{ schedule.next_race_event_name }}{% if schedule.next_race_heat_count and schedule.next_race_heat_count > 1 %}, Heat {{ schedule.next_race_heat }}{% endif %}{% if schedule.next_race_time %} at {{ schedule.next_race_time.strftime('%H:%M') }}{% endif %}{% endif %}</div>
+{% endif %}
+{% endif %}
+{% if schedule.racer_name and schedule.events_without_start_lists > 0 %}
+<div class="racer-message" role="status">{{ schedule.events_without_start_lists }} event{{ 's' if schedule.events_without_start_lists != 1 else '' }} do not yet have start lists</div>
+{% endif %}
+{% if schedule.racer_name and schedule.match_count == 0 and schedule.events_without_start_lists < schedule.total_events %}
+<div class="racer-message" role="status">No matching events found for "{{ schedule.racer_name }}"</div>
+{% endif %}
+{% if schedule.racer_name and schedule.total_events > 0 and schedule.events_without_start_lists == schedule.total_events %}
+<div class="racer-message" role="status">Start lists are not yet published — check back closer to the event</div>
+{% endif %}
 {% for sp in schedule.sessions %}
-<details {% if not sp.is_complete %}open{% endif %}>
+<details {% if not sp.is_complete or sp.has_pending_racer_match %}open{% endif %}{% if sp.has_pending_racer_match %} data-pending-racer{% endif %}>
   <summary>
     <span class="session-label">{{ sp.session.day }} &mdash; Scheduled {{ sp.session.scheduled_start.strftime('%H:%M') }}</span>
     {% if sp.observed_delay_minutes > 1.0 %}
@@ -19,8 +34,8 @@
     </thead>
     <tbody>
     {% for pred in sp.event_predictions %}
-      <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}{% if pred.is_active %} active{% endif %}">
-        <td>{{ pred.event.name }}</td>
+      <tr class="status-{{ pred.event.status.value }}{% if pred.event.is_special %} special{% endif %}{% if pred.is_active %} active{% endif %}{% if pred.rider_match %} racer-match{% endif %}"{% if pred.rider_match %} aria-label="Your event"{% endif %}>
+        <td>{{ pred.event.name }}{% if pred.rider_match and pred.rider_match.heat_count > 1 %}<span class="badge racer-heat">Heat {{ pred.rider_match.heat }}</span>{% elif pred.rider_match %}<span class="badge racer-heat">Racing</span>{% endif %}</td>
         <td class="time">{{ pred.predicted_start.strftime('%H:%M') }}</td>
         <td class="duration">
           {{ pred.estimated_duration_minutes | round(1) }}m
@@ -31,6 +46,9 @@
             {%- else -%}est.
             {%- endif -%}
           </span>
+          {% if pred.rider_match and pred.rider_match.heat_count > 1 and pred.rider_match.heat_predicted_start %}
+          <span class="heat-time">Your heat: {{ pred.rider_match.heat_predicted_start.strftime('%H:%M') }}</span>
+          {% endif %}
         </td>
         <td class="status-label">
           {% if pred.event.live_url %}

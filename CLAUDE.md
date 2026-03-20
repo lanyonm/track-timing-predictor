@@ -55,6 +55,19 @@ The app predicts per-event start times for track cycling competitions fetched fr
 5. `predictor.py` computes predicted start times and returns a `SchedulePrediction`
 6. Jinja2 renders the schedule; HTMX polls `/schedule/{id}/refresh` every 30s for live updates
 
+**Routes:**
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | Landing page with EventId form |
+| GET | `/schedule/{event_id}` | Schedule view; optional `?r=` Base64-encoded racer name |
+| GET | `/schedule/{event_id}/refresh` | HTMX partial for live polling; optional `?r=` param |
+| GET | `/settings/racer-name` | Set/clear racer name cookie; `?event_id=&name=` |
+| GET | `/settings/use-learned` | Toggle learned-durations cookie; `?event_id=&use_learned=on\|off` |
+| GET | `/defaults` | Display built-in default durations |
+| GET | `/learned` | Display learned duration database |
+| GET | `/health` | Health check |
+
 **In-memory caches in `predictor.py`** (keyed by `(competition_id, session_id, position)`):
 - `_status_cache` — tracks event status transitions for the learning fallback
 - `_observed_durations` — Finish Time + changeover from result pages (most accurate)

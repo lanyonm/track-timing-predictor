@@ -106,7 +106,7 @@ Visual mockup at `docs/ui-recommendations-mockup.html` is the authoritative refe
 
 **Messaging hierarchy** (FR-010): Four states with two styling tiers. **Blue info** (`#dce8fc`): success message ("Found N events") with a status line — "Racing now: [event], Heat N" (time omitted — event already underway) when the nearest matched event is active, or "Your next race: [event], Heat N at HH:MM" when it's upcoming (active takes priority; omitted when all matched events are completed). **Amber warning** (`#fff3cd`): no-match warning (only when start lists exist to search), missing-start-lists warning, and no-data warning (all start lists missing — suppresses misleading "no matches"). Success message provides immediate feedback so the racer doesn't have to scan the entire schedule; the "Racing now" / "Your next race" line directly answers the at-track question.
 
-**Session auto-open** (FR-015): When a racer name is active, sessions containing matched events stay open even if complete. `SessionPrediction.has_racer_match` drives this.
+**Session auto-open** (FR-015): When a racer name is active, sessions containing **pending** (non-completed) matched events stay open. Completed sessions where all racer events are finished collapse normally to reduce noise. `SessionPrediction.has_pending_racer_match` drives the `<details open>` attribute; `has_racer_match` is retained for other uses (e.g. the JS handler distinguishes user-closed from auto-opened sessions via `data-pending-racer`).
 
 **Form UX**: Button label is "Highlight" (not "Find"). A `<small>` hint below the input reads "Enter your full name as shown on the start list" to prevent single-name or partial entries. Redirect includes `#schedule-container` fragment for scroll-to-content (FR-016).
 

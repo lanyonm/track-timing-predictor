@@ -126,7 +126,7 @@ A racer who previously entered their name returns to the site for the same or a 
 - **FR-012**: System MUST allow the racer to clear their name via a "Clear" text link (`font-size: 0.82rem; color: #666`) in the form bar, which removes highlighting and clears the stored cookie. The clear link is hidden when no name is active.
 - **FR-013**: System MUST remain fully functional and readable at browser zoom levels up to 200%, since users at the velodrome may not have their glasses and rely on browser zoom for readability.
 - **FR-014**: System MUST preserve all existing action links (Results, Start List, Audit, Live) on event rows regardless of racer-match status. Racer highlighting MUST NOT remove, hide, or alter the visibility of action links.
-- **FR-015**: When a racer name is active, sessions that contain at least one racer-matched event MUST be auto-opened (via the `open` attribute on `<details>`) even if the session is complete. This ensures a racer's events in completed sessions are visible without manual expansion.
+- **FR-015**: When a racer name is active, sessions that contain at least one **pending** (non-completed) racer-matched event MUST be auto-opened (via the `open` attribute on `<details>`). Completed sessions where all racer events are finished collapse normally to reduce noise — the racer no longer needs quick access to those events.
 - **FR-016**: After form submission, the redirect URL from `/settings/racer-name` MUST include a `#schedule-container` fragment so the browser scrolls past the header and form to the schedule content. This reduces scrolling on long schedules, especially on mobile.
 
 ### Key Entities

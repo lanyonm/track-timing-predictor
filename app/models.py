@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import time
+from datetime import datetime, time
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class EventStatus(str, Enum):
@@ -31,6 +31,30 @@ class Session(BaseModel):
     events: list[Event]
 
 
+class RiderEntry(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    name: str
+    heat: int
+    normalized_tokens: frozenset[str] = frozenset()
+
+    @model_validator(mode="after")
+    def _compute_tokens(self) -> "RiderEntry":
+        if not self.normalized_tokens:
+            import unicodedata
+            normalized = unicodedata.normalize("NFKD", self.name).encode("ascii", "ignore").decode("ascii")
+            normalized = normalized.replace("'", "").replace("-", "").replace(".", "")
+            tokens = frozenset(t.lower() for t in normalized.split())
+            object.__setattr__(self, "normalized_tokens", tokens)
+        return self
+
+
+class RiderMatch(BaseModel):
+    heat: int
+    heat_count: int
+    heat_predicted_start: datetime | None = None
+
+
 class Prediction(BaseModel):
     event: Event
     predicted_start: time
@@ -41,12 +65,16 @@ class Prediction(BaseModel):
     heat_count: int | None = None  # Set when duration is derived from start-list heat count
     is_active: bool = False      # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event
+    rider_match: RiderMatch | None = None
 
 
 class SessionPrediction(BaseModel):
     session: Session
     event_predictions: list[Prediction]
     observed_delay_minutes: float
+    has_racer_match: bool = False
+    has_pending_racer_match: bool = False
+    events_without_start_lists: int = 0
 
     @property
     def is_complete(self) -> bool:
@@ -62,3 +90,12 @@ class SessionPrediction(BaseModel):
 class SchedulePrediction(BaseModel):
     competition_id: int
     sessions: list[SessionPrediction]
+    racer_name: str | None = None
+    match_count: int = 0
+    events_without_start_lists: int = 0
+    total_events: int = 0
+    next_race_event_name: str | None = None
+    next_race_heat: int | None = None
+    next_race_heat_count: int | None = None
+    next_race_time: datetime | None = None
+    next_race_is_active: bool = False
