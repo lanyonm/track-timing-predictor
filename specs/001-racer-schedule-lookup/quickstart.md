@@ -12,11 +12,11 @@
 1. Add `_start_list_riders` cache to `app/predictor.py`
 2. Add `record_start_list_riders()` and `get_rider_match()` functions
 3. Add `RiderMatch` model and `rider_match` field to `Prediction` in `app/models.py`
-4. Implement name normalization (tokenize, lowercase, frozenset comparison)
+4. Implement name normalization (Unicode NFKD decomposition, strip non-ASCII, remove apostrophes/hyphens/periods, tokenize, lowercase, frozenset comparison)
 5. Calculate per-heat predicted start time: `event_start + (heat - 1) × per_heat_duration`
 6. Add `racer_name`, `match_count`, `events_without_start_lists`, `total_events` to `SchedulePrediction`
 7. Add `next_race_*` fields to `SchedulePrediction` (event_name, heat, heat_count, time, is_active)
-8. Compute next-race info in `predict_session()`: find nearest non-completed matched event (active takes priority)
+8. Compute next-race info in `predict_schedule()`: iterate all sessions, find nearest non-completed matched event (active takes priority)
 9. Write tests for matching logic (case-insensitive, order-independent, no-match, next-race selection)
 10. Verify: `pytest tests/test_rider_matching.py`
 
@@ -62,5 +62,6 @@
 
 No new packages required. Uses only:
 - `base64` (stdlib) — URL-safe encoding/decoding
+- `unicodedata` (stdlib) — NFKD normalization for diacritics handling (R7)
 - `re` (stdlib, already imported in parser.py) — rider name extraction
 - Existing: FastAPI, Pydantic, httpx, Jinja2

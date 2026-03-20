@@ -12,7 +12,7 @@ Represents a rider's presence in a specific event's start list.
 |-------|------|-------------|
 | `name` | `str` | Rider name as it appears in the start list (e.g., "HALL Sean") |
 | `heat` | `int` | 1-based heat number the rider is assigned to |
-| `normalized_tokens` | `frozenset[str]` | Lowercase name tokens for matching (e.g., `{"hall", "sean"}`) |
+| `normalized_tokens` | `frozenset[str]` | Unicode-normalized, punctuation-stripped, lowercased name tokens for matching (e.g., `{"hall", "sean"}`; "O'BRIEN Liam" → `{"obrien", "liam"}`). See Name Matching Algorithm below for the full pipeline (R2, R7). |
 
 **Source**: Parsed from start list HTML by `parse_start_list_riders()`.
 

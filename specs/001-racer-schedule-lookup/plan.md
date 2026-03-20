@@ -28,7 +28,7 @@ Allow a racer to enter their name on a competition schedule page and see their e
 | I. Graceful Degradation | PASS | Feature is additive — schedule works without name input. Missing start lists shown as "unavailable" (FR-010). No JS required for core flow (GET form). |
 | II. Testable Without External Dependencies | PASS | Rider parsing testable with plain-text fixtures. Name matching is pure logic. Route tests use TestClient. |
 | III. Separation of Concerns | PASS | Parser extracts riders, predictor matches and computes timing, routes handle cookie/URL, templates render. No cross-boundary leakage. |
-| IV. Minimal Dependencies | PASS | No new dependencies. Uses only `base64` from stdlib plus existing packages. |
+| IV. Minimal Dependencies | PASS | No new dependencies. Uses only `base64` and `unicodedata` from stdlib plus existing packages. |
 | V. Operability | PASS | No new infrastructure. Logging can include matched rider count per request. |
 | VI. Cost-Aware Growth | PASS | No new AWS services. Start list pages already fetched; parsing extends existing work. In-memory cache, no additional storage. |
 | VII. Prediction Integrity | PASS | Per-heat timing derived from existing per_heat_duration — no new prediction source. SC-003 ensures no additional error. |
