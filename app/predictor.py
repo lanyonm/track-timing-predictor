@@ -130,25 +130,20 @@ def get_rider_match(
     competition_id: int,
     session_id: int,
     position: int,
-    racer_name: str,
+    user_tokens: frozenset[str],
     event_start: datetime | None,
     discipline: str,
 ) -> RiderMatch | None:
     """
-    Match a racer name against cached start list riders for an event.
+    Match pre-tokenized racer name tokens against cached start list riders.
 
-    Uses Unicode NFKD normalization + punctuation stripping, then compares
-    frozenset of lowercased tokens for case-insensitive, order-independent matching.
+    Expects a frozenset of lowercased, normalized tokens (computed once via
+    _normalize_rider_name) for case-insensitive, order-independent matching.
     """
     key = (competition_id, session_id, position)
     riders = _start_list_riders.get(key)
     if not riders:
         return None
-
-    if not racer_name or not racer_name.strip():
-        return None
-
-    user_tokens = _normalize_rider_name(racer_name)
 
     if not user_tokens:
         return None
@@ -257,6 +252,9 @@ def predict_session(
          If None, no delay adjustment is applied (pre-event mode).
     racer_name: optional racer name for rider matching.
     """
+    # Pre-tokenize racer name once for the entire session (avoids re-normalizing per event)
+    user_tokens = _normalize_rider_name(racer_name) if racer_name and racer_name.strip() else None
+
     durations: list[float] = []
     is_observed_list: list[bool] = []
     heat_count_list: list[int | None] = []
@@ -383,7 +381,7 @@ def predict_session(
 
         # Rider matching
         rider_match = None
-        if racer_name and not event.is_special:
+        if user_tokens and not event.is_special:
             key = (competition_id, session.session_id, event.position)
             if key not in _start_list_riders:
                 events_without_start_lists += 1
@@ -399,7 +397,7 @@ def predict_session(
                     )
                 rider_match = get_rider_match(
                     competition_id, session.session_id, event.position,
-                    racer_name, event_start_dt, event.discipline,
+                    user_tokens, event_start_dt, event.discipline,
                 )
                 if rider_match:
                     has_racer_match = True

@@ -14,6 +14,7 @@ from app.models import (
     Session,
     SessionPrediction,
 )
+from app.parser import _normalize_rider_name
 from app.predictor import (
     get_rider_match,
     predict_schedule,
@@ -106,7 +107,7 @@ class TestRiderMatching:
     def test_case_insensitive_matching(self):
         """'Sean Hall' matches entry 'HALL Sean' (case-insensitive)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, "Sean Hall", None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean Hall"), None, DISCIPLINE)
         assert match is not None
         assert isinstance(match, RiderMatch)
         assert match.heat == 1
@@ -114,28 +115,27 @@ class TestRiderMatching:
     def test_order_independent_matching(self):
         """'Hall Sean' matches entry 'HALL Sean' (order-independent)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, "Hall Sean", None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Hall Sean"), None, DISCIPLINE)
         assert match is not None
         assert match.heat == 1
 
     def test_no_match_partial_name(self):
         """Partial name 'Sean' does NOT match 'HALL Sean' (requires full name)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, "Sean", None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean"), None, DISCIPLINE)
         assert match is None
 
     def test_no_match_empty_input(self):
-        """Empty string and whitespace-only return None."""
+        """Empty frozenset returns None."""
         seed_riders(0, [("HALL Sean", 1)])
-        assert get_rider_match(COMP_ID, SESSION_ID, 0, "", None, DISCIPLINE) is None
-        assert get_rider_match(COMP_ID, SESSION_ID, 0, "   ", None, DISCIPLINE) is None
+        assert get_rider_match(COMP_ID, SESSION_ID, 0, frozenset(), None, DISCIPLINE) is None
 
     def test_per_heat_predicted_start(self):
         """heat_predicted_start = event_start + (heat - 1) * per_heat_duration."""
         seed_riders(0, [("HALL Sean", 3)])
         record_heat_count(COMP_ID, SESSION_ID, 0, 4)
         event_start = datetime(2024, 6, 1, 18, 30, 0)
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, "Sean Hall", event_start, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
         assert match is not None
         phd = get_per_heat_duration(DISCIPLINE)
         expected = event_start + timedelta(minutes=(3 - 1) * phd)
@@ -146,21 +146,21 @@ class TestRiderMatching:
         seed_riders(0, [("HALL Sean", 1)])
         record_heat_count(COMP_ID, SESSION_ID, 0, 1)
         event_start = datetime(2024, 6, 1, 18, 30, 0)
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, "Sean Hall", event_start, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
         assert match is not None
         assert match.heat_predicted_start == event_start
 
     def test_apostrophe_name_matches(self):
         """'OBrien' matches 'O'BRIEN Liam' (apostrophe stripping)."""
         seed_riders(0, [("O'BRIEN Liam", 2)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, "OBrien Liam", None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("OBrien Liam"), None, DISCIPLINE)
         assert match is not None
         assert match.heat == 2
 
     def test_diacritics_name_matches(self):
         """'Muller' matches 'MÜLLER Hans' (Unicode NFKD normalization)."""
         seed_riders(0, [("MÜLLER Hans", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, "Muller Hans", None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Muller Hans"), None, DISCIPLINE)
         assert match is not None
         assert match.heat == 1
 

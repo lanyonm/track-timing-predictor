@@ -95,79 +95,92 @@ def _normalize_rider_name(raw_name: str) -> frozenset[str]:
     return frozenset(t.lower() for t in normalized.split())
 
 
+def _is_rider_name(text: str) -> bool:
+    """Check if text looks like a rider name (e.g. 'LASTNAME Firstname').
+
+    The first whitespace-separated token must contain at least 2 uppercase letters
+    (to distinguish real names from incidental text like 'No riders').
+    The full text must have at least two tokens.
+    """
+    parts = text.split()
+    if len(parts) < 2:
+        return False
+    first_token = parts[0]
+    uppercase_count = sum(1 for c in first_token if c.isupper())
+    return uppercase_count >= 2
+
+
 def parse_start_list_riders(html: str) -> list[RiderEntry]:
     """
-    Parse start list HTML and extract rider entries with heat assignments.
+    Parse rider names and heat assignments from a start list page.
 
-    Handles two formats:
-    1. HTML table: tracktiming.live uses <table> with Heat headers in colspan rows
-       and rider names in the 3rd <td> of each data row.
-    2. Plain text: Heat N headers followed by lines like '212  PITTARD Charlie'.
+    Start list pages are HTML tables with three layout patterns:
 
-    Returns empty list if no heats/riders found (defensive parsing).
+    Sprint qualifying (1 rider per heat):
+      <td><h4>Heat 1</h4></td><td><h4><Strong>212</Strong></h4></td><td><h4>NAME</h4></td>
+
+    Multi-rider heats (keirin, etc.):
+      Heat header row: <td colspan="6"><h4><Strong>Heat 1</Strong></h4></td>
+      Rider rows:      <td><h4><Strong>14</Strong></h4></td><td>...</td><td><h4>NAME</h4></td>
+
+    Bunch races (scratch, points, elimination, tempo, madison):
+      No "Heat N" labels — all riders listed together.
+      Rider rows:      <td><h4><Strong>101</Strong></h4></td><td>...</td><td><h4>NAME</h4></td>
+      These riders are assigned heat=1.
+
+    Returns an empty list if no riders are found.
     """
-    entries: list[RiderEntry] = []
-
-    # Try HTML table format first (real tracktiming.live pages)
     soup = BeautifulSoup(html, "html.parser")
-    table = soup.find("table")
-    if table:
-        current_heat = 0
-        for row in table.find_all("tr"):
-            cells = row.find_all("td")
-            if not cells:
-                continue
-
-            # Heat header row: single cell with colspan spanning the table
-            first_cell = cells[0]
-            colspan = first_cell.get("colspan")
-            if colspan:
-                text = first_cell.get_text(strip=True)
-                heat_match = re.search(r"\bHeat\s+(\d+)\b", text)
-                if heat_match:
-                    current_heat = int(heat_match.group(1))
-                continue
-
-            # Rider data row: bib in 1st cell, name in 3rd cell
-            if current_heat > 0 and len(cells) >= 3:
-                bib_text = cells[0].get_text(strip=True)
-                if bib_text.isdigit():
-                    raw_name = cells[2].get_text(strip=True)
-                    if raw_name:
-                        tokens = _normalize_rider_name(raw_name)
-                        entries.append(RiderEntry(
-                            name=raw_name,
-                            heat=current_heat,
-                            normalized_tokens=tokens,
-                        ))
-
-        if entries:
-            return entries
-
-    # Fallback: plain-text format (test fixtures, older pages)
+    riders: list[RiderEntry] = []
     current_heat = 0
-    for line in html.splitlines():
-        stripped = line.strip()
-        if not stripped:
+
+    for row in soup.find_all("tr"):
+        cells = row.find_all("td")
+        if not cells:
             continue
 
-        heat_match = re.match(r"^Heat\s+(\d+)$", stripped)
+        # Check if this row contains a "Heat N" label
+        row_text = row.get_text(" ", strip=True)
+        heat_match = re.search(r"\bHeat\s+(\d+)\b", row_text)
+
         if heat_match:
             current_heat = int(heat_match.group(1))
-            continue
 
-        if current_heat > 0:
-            rider_match = re.match(r"^\d+\s{2,}(.+)$", stripped)
-            if rider_match:
-                raw_name = rider_match.group(1).strip()
-                tokens = _normalize_rider_name(raw_name)
-                entries.append(RiderEntry(
-                    name=raw_name,
-                    heat=current_heat,
-                    normalized_tokens=tokens,
-                ))
+            # Sprint qualifying format: Heat label + bib + name in the same row
+            # Look for a rider name among the h4 tags in this row
+            h4_tags = row.find_all("h4")
+            for h4 in h4_tags:
+                text = h4.get_text(strip=True)
+                # Skip "Heat N" labels, bib numbers, and empty text
+                if re.match(r"^Heat\s+\d+$", text):
+                    continue
+                if re.match(r"^\d+$", text):
+                    continue
+                if not text:
+                    continue
+                if _is_rider_name(text):
+                    tokens = _normalize_rider_name(text)
+                    riders.append(RiderEntry(name=text, heat=current_heat, normalized_tokens=tokens))
+                    break
+        else:
+            # Rider row: either within a multi-rider heat (current_heat > 0)
+            # or a bunch race with no heat labels (current_heat == 0 → heat 1)
+            heat = current_heat or 1
+            h4_tags = row.find_all("h4")
+            for h4 in h4_tags:
+                text = h4.get_text(strip=True)
+                if re.match(r"^\d+$", text):
+                    continue
+                if not text or text == "\xa0":
+                    continue
+                if re.match(r"^Number of Riders", text):
+                    continue
+                if _is_rider_name(text):
+                    tokens = _normalize_rider_name(text)
+                    riders.append(RiderEntry(name=text, heat=heat, normalized_tokens=tokens))
+                    break
 
-    return entries
+    return riders
 
 
 def parse_heat_count(html: str) -> int | None:

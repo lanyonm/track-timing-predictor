@@ -449,11 +449,11 @@ class TestParseStartListRiders:
 
     def test_single_heat_event(self):
         """When only Heat 1 is present, all riders get heat=1."""
-        html = (
-            "Heat 1\n"
-            "101  RIDER Alice\n"
-            "102  RIDER Bob\n"
-        )
+        html = """<table><tbody>
+        <tr><td colspan="6"><h4><Strong>Heat 1</Strong></h4></td></tr>
+        <tr><td><h4><Strong>101</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>RIDER Alice</h4></td></tr>
+        <tr><td><h4><Strong>102</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>RIDER Bob</h4></td></tr>
+        </tbody></table>"""
         riders = parse_start_list_riders(html)
         assert len(riders) == 2
         assert all(r.heat == 1 for r in riders)
@@ -466,21 +466,30 @@ class TestParseStartListRiders:
 
     def test_normalized_tokens_are_lowercased_and_order_independent(self):
         """Tokens for 'HALL Sean' should be frozenset({'hall', 'sean'})."""
-        html = "Heat 1\n101  HALL Sean\n"
+        html = """<table><tbody>
+        <tr><td colspan="6"><h4><Strong>Heat 1</Strong></h4></td></tr>
+        <tr><td><h4><Strong>101</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>HALL Sean</h4></td></tr>
+        </tbody></table>"""
         riders = parse_start_list_riders(html)
         assert len(riders) == 1
         assert riders[0].normalized_tokens == frozenset({"hall", "sean"})
 
     def test_apostrophe_name_normalizes(self):
         """O'BRIEN Liam should produce tokens frozenset({'obrien', 'liam'})."""
-        html = "Heat 1\n101  O'BRIEN Liam\n"
+        html = """<table><tbody>
+        <tr><td colspan="6"><h4><Strong>Heat 1</Strong></h4></td></tr>
+        <tr><td><h4><Strong>101</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>O'BRIEN Liam</h4></td></tr>
+        </tbody></table>"""
         riders = parse_start_list_riders(html)
         assert len(riders) == 1
         assert riders[0].normalized_tokens == frozenset({"obrien", "liam"})
 
     def test_diacritics_name_normalizes(self):
         """MULLER Hans from MUELLER should produce tokens frozenset({'muller', 'hans'})."""
-        html = "Heat 1\n101  M\u00dcLLER Hans\n"
+        html = """<table><tbody>
+        <tr><td colspan="6"><h4><Strong>Heat 1</Strong></h4></td></tr>
+        <tr><td><h4><Strong>101</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>M\u00dcLLER Hans</h4></td></tr>
+        </tbody></table>"""
         riders = parse_start_list_riders(html)
         assert len(riders) == 1
         assert riders[0].normalized_tokens == frozenset({"muller", "hans"})
