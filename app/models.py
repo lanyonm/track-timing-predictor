@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime, time
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 class EventStatus(str, Enum):
@@ -31,27 +32,33 @@ class Session(BaseModel):
     events: list[Event]
 
 
-class RiderEntry(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+def normalize_rider_name(raw_name: str) -> frozenset[str]:
+    """Normalize a rider name to a frozenset of lowercase ASCII tokens.
 
+    Applies Unicode NFKD decomposition, strips non-ASCII characters,
+    removes apostrophes/hyphens/periods, then splits on whitespace.
+    """
+    normalized = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.replace("'", "").replace("-", "").replace(".", "")
+    return frozenset(t.lower() for t in normalized.split())
+
+
+class RiderEntry(BaseModel):
     name: str
-    heat: int
+    heat: int = Field(ge=1)
     normalized_tokens: frozenset[str] = frozenset()
 
     @model_validator(mode="after")
     def _compute_tokens(self) -> "RiderEntry":
         if not self.normalized_tokens:
-            import unicodedata
-            normalized = unicodedata.normalize("NFKD", self.name).encode("ascii", "ignore").decode("ascii")
-            normalized = normalized.replace("'", "").replace("-", "").replace(".", "")
-            tokens = frozenset(t.lower() for t in normalized.split())
+            tokens = normalize_rider_name(self.name)
             object.__setattr__(self, "normalized_tokens", tokens)
         return self
 
 
 class RiderMatch(BaseModel):
-    heat: int
-    heat_count: int
+    heat: int = Field(ge=1)
+    heat_count: int = Field(ge=1)
     heat_predicted_start: datetime | None = None
 
 
@@ -87,6 +94,14 @@ class SessionPrediction(BaseModel):
         return bool(races) and all(e.status == EventStatus.COMPLETED for e in races)
 
 
+class NextRace(BaseModel):
+    event_name: str
+    heat: int = Field(ge=1)
+    heat_count: int = Field(ge=1)
+    predicted_start: datetime | None = None
+    is_active: bool = False
+
+
 class SchedulePrediction(BaseModel):
     competition_id: int
     sessions: list[SessionPrediction]
@@ -94,8 +109,4 @@ class SchedulePrediction(BaseModel):
     match_count: int = 0
     events_without_start_lists: int = 0
     total_events: int = 0
-    next_race_event_name: str | None = None
-    next_race_heat: int | None = None
-    next_race_heat_count: int | None = None
-    next_race_time: datetime | None = None
-    next_race_is_active: bool = False
+    next_race: NextRace | None = None

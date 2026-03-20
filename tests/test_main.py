@@ -16,6 +16,7 @@ from app.predictor import (
     _start_list_riders,
     _status_cache,
 )
+from app.models import normalize_rider_name
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 SAMPLE_EVENT_PATH = FIXTURE_DIR / "sample-event-output.json"
@@ -120,9 +121,10 @@ class TestRacerNameRoutes:
         assert response.status_code == 303
         location = response.headers["location"]
         assert location == "/schedule/26008"
-        # Should delete the cookie (max-age=0 or expires in the past)
+        # Should delete the cookie (max-age=0 signals deletion)
         set_cookie = response.headers.get("set-cookie", "")
         assert "racer_name" in set_cookie
+        assert 'Max-Age=0' in set_cookie or 'max-age=0' in set_cookie
 
     def test_empty_name_clears(self, client):
         """GET /settings/racer-name?event_id=26008&name= behaves like clear."""
@@ -140,8 +142,13 @@ class TestRacerNameRoutes:
         """Malformed base64 in ?r= should not cause a 500; schedule loads normally."""
         response = client.get("/schedule/26008?r=!!!invalid")
         assert response.status_code == 200
-        # The racer name input should be empty (no crash, no highlight)
-        assert 'value=""' in response.text or "value=\"\"" in response.text
+
+    def test_malformed_base64_falls_back_to_cookie(self, client):
+        """Malformed ?r= falls back to cookie rather than dropping the name entirely."""
+        client.cookies.set("racer_name", "Sean Hall")
+        response = client.get("/schedule/26008?r=!!!invalid")
+        assert response.status_code == 200
+        assert 'value="Sean Hall"' in response.text
 
     def test_secure_cookie_flag(self, client):
         """Set-Cookie for racer_name should include the Secure flag."""
@@ -151,3 +158,11 @@ class TestRacerNameRoutes:
         )
         set_cookie = response.headers.get("set-cookie", "")
         assert "Secure" in set_cookie
+
+    def test_refresh_endpoint_with_racer_name(self, client):
+        """GET /schedule/26008/refresh?r=<base64> returns partial with racer context."""
+        encoded = base64.urlsafe_b64encode(b"Sean Hall").decode("ascii")
+        response = client.get(f"/schedule/26008/refresh?r={encoded}")
+        assert response.status_code == 200
+        # The partial should contain schedule HTML (details/table structure)
+        assert "<details" in response.text

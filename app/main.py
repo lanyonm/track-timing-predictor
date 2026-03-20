@@ -22,9 +22,9 @@ from app.parser import parse_finish_time, parse_generated_time, parse_heat_count
 from mangum import Mangum
 
 from app.predictor import (
-    _start_list_riders,
     get_generated_time,
     get_heat_count,
+    has_start_list_riders,
     predict_schedule,
     record_generated_time,
     record_heat_count,
@@ -84,11 +84,15 @@ async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> Non
         async with sem:
             try:
                 html = await fetch_live_html(url)
+            except Exception:
+                logger.warning("Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                return
+            try:
                 heat = parse_live_heat(html)
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:
-                logger.warning("Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning("Failed to parse live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -105,7 +109,7 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
         for e in s.events
         if e.start_list_url and (
             get_heat_count(competition_id, s.session_id, e.position) is None
-            or (competition_id, s.session_id, e.position) not in _start_list_riders
+            or not has_start_list_riders(competition_id, s.session_id, e.position)
         )
     ]
     if not to_fetch:
@@ -117,13 +121,17 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
         async with sem:
             try:
                 html = await fetch_start_list_html(url)
+            except Exception:
+                logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                return
+            try:
                 count = parse_heat_count(html)
                 if count:
                     record_heat_count(ev_id, sess_id, pos, count)
                 riders = parse_start_list_riders(html)
                 record_start_list_riders(ev_id, sess_id, pos, riders)
             except Exception:
-                logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning("Failed to parse start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -153,6 +161,10 @@ async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> N
         async with sem:
             try:
                 html = await fetch_result_html(url)
+            except Exception:
+                logger.warning("Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                return
+            try:
                 gen_time = parse_generated_time(html)
                 if gen_time is not None:
                     record_generated_time(ev_id, sess_id, pos, gen_time)
@@ -160,7 +172,7 @@ async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> N
                 if finish_time is not None:
                     record_observed_duration(ev_id, sess_id, pos, finish_time, discipline)
             except Exception:
-                logger.warning("Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning("Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -175,7 +187,8 @@ def _resolve_racer_name(request: Request, r: str | None) -> str | None:
         try:
             return base64.urlsafe_b64decode(r).decode("utf-8")
         except (binascii.Error, UnicodeDecodeError):
-            return None
+            logger.warning("Malformed base64 racer name param: %r, falling back to cookie", r)
+            # Fall through to cookie rather than returning None
     return request.cookies.get("racer_name") or None
 
 

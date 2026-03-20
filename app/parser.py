@@ -1,6 +1,5 @@
 import logging
 import re
-import unicodedata
 from datetime import datetime, time
 
 from bs4 import BeautifulSoup, Tag
@@ -8,7 +7,7 @@ from bs4 import BeautifulSoup, Tag
 logger = logging.getLogger(__name__)
 
 from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
-from app.models import Event, EventStatus, RiderEntry, Session
+from app.models import Event, EventStatus, RiderEntry, Session, normalize_rider_name
 
 
 def _extract_section_html(jxn_data: dict, section_id: str) -> str:
@@ -89,10 +88,15 @@ def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None, str | Non
 
 
 def _normalize_rider_name(raw_name: str) -> frozenset[str]:
-    """Normalize a rider name to a frozenset of lowercase ASCII tokens."""
-    normalized = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
-    normalized = normalized.replace("'", "").replace("-", "").replace(".", "")
-    return frozenset(t.lower() for t in normalized.split())
+    """Normalize a rider name to a frozenset of lowercase ASCII tokens.
+
+    Thin wrapper kept for backwards compatibility; delegates to
+    normalize_rider_name() in models.py (the single source of truth).
+    """
+    tokens = normalize_rider_name(raw_name)
+    if raw_name.strip() and not tokens:
+        logger.warning("Normalization produced empty tokens for non-empty name: %r", raw_name)
+    return tokens
 
 
 def _is_rider_name(text: str) -> bool:
@@ -179,6 +183,9 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
                     tokens = _normalize_rider_name(text)
                     riders.append(RiderEntry(name=text, heat=heat, normalized_tokens=tokens))
                     break
+
+    if not riders and soup.find("tr"):
+        logger.warning("parse_start_list_riders found 0 riders in HTML with %d rows", len(soup.find_all("tr")))
 
     return riders
 

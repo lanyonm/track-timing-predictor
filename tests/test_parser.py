@@ -516,3 +516,32 @@ class TestParseStartListRiders:
         assert heat1[0].normalized_tokens == frozenset({"bayzaee", "aram"})
         # Diacritics in HTML table format
         assert heat2[1].normalized_tokens == frozenset({"fortin", "dionne", "leo"})
+
+    def test_sprint_qualifying_format(self):
+        """Sprint qualifying: heat label + bib + rider name in the same row."""
+        html = """<table><tbody>
+        <tr><td><h4>Heat 1</h4></td><td><h4><Strong>212</Strong></h4></td><td><h4>PITTARD Charlie</h4></td></tr>
+        <tr><td><h4>Heat 2</h4></td><td><h4><Strong>211</Strong></h4></td><td><h4>RANKL Avery</h4></td></tr>
+        <tr><td><h4>Heat 3</h4></td><td><h4><Strong>215</Strong></h4></td><td><h4>ALDEN Calla</h4></td></tr>
+        </tbody></table>"""
+        riders = parse_start_list_riders(html)
+        assert len(riders) == 3
+        assert riders[0].name == "PITTARD Charlie"
+        assert riders[0].heat == 1
+        assert riders[1].name == "RANKL Avery"
+        assert riders[1].heat == 2
+        assert riders[2].name == "ALDEN Calla"
+        assert riders[2].heat == 3
+
+    def test_bunch_race_format_no_heat_labels(self):
+        """Bunch races have no Heat labels — all riders get heat=1."""
+        html = """<table><tbody>
+        <tr><td><h4><Strong>101</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>SMITH James</h4></td></tr>
+        <tr><td><h4><Strong>102</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>JONES Alice</h4></td></tr>
+        <tr><td><h4><Strong>103</Strong></h4></td><td><h4>&nbsp;</h4></td><td><h4>BROWN Michael</h4></td></tr>
+        </tbody></table>"""
+        riders = parse_start_list_riders(html)
+        assert len(riders) == 3
+        assert all(r.heat == 1 for r in riders)
+        assert riders[0].name == "SMITH James"
+        assert riders[2].name == "BROWN Michael"

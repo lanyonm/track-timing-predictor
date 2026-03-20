@@ -1,7 +1,7 @@
 {% if schedule.racer_name and schedule.match_count > 0 %}
 <div class="racer-message racer-message-info" role="status">Found {{ schedule.match_count }} event{{ 's' if schedule.match_count != 1 else '' }} for "{{ schedule.racer_name }}"</div>
-{% if schedule.next_race_event_name %}
-<div class="racer-message racer-message-info" role="status">{% if schedule.next_race_is_active %}Racing now: {{ schedule.next_race_event_name }}{% if schedule.next_race_heat_count and schedule.next_race_heat_count > 1 %}, Heat {{ schedule.next_race_heat }}{% endif %}{% else %}Your next race: {{ schedule.next_race_event_name }}{% if schedule.next_race_heat_count and schedule.next_race_heat_count > 1 %}, Heat {{ schedule.next_race_heat }}{% endif %}{% if schedule.next_race_time %} at {{ schedule.next_race_time.strftime('%H:%M') }}{% endif %}{% endif %}</div>
+{% if schedule.next_race %}
+<div class="racer-message racer-message-info" role="status">{% if schedule.next_race.is_active %}Racing now: {{ schedule.next_race.event_name }}{% if schedule.next_race.heat_count and schedule.next_race.heat_count > 1 %}, Heat {{ schedule.next_race.heat }}{% endif %}{% else %}Your next race: {{ schedule.next_race.event_name }}{% if schedule.next_race.heat_count and schedule.next_race.heat_count > 1 %}, Heat {{ schedule.next_race.heat }}{% endif %}{% if schedule.next_race.predicted_start %} at {{ schedule.next_race.predicted_start.strftime('%H:%M') }}{% endif %}{% endif %}</div>
 {% endif %}
 {% endif %}
 {% if schedule.racer_name and schedule.events_without_start_lists > 0 %}

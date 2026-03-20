@@ -14,7 +14,7 @@ from app.models import (
     Session,
     SessionPrediction,
 )
-from app.parser import _normalize_rider_name
+from app.models import normalize_rider_name
 from app.predictor import (
     get_rider_match,
     predict_schedule,
@@ -107,7 +107,7 @@ class TestRiderMatching:
     def test_case_insensitive_matching(self):
         """'Sean Hall' matches entry 'HALL Sean' (case-insensitive)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean Hall"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), None, DISCIPLINE)
         assert match is not None
         assert isinstance(match, RiderMatch)
         assert match.heat == 1
@@ -115,14 +115,14 @@ class TestRiderMatching:
     def test_order_independent_matching(self):
         """'Hall Sean' matches entry 'HALL Sean' (order-independent)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Hall Sean"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Hall Sean"), None, DISCIPLINE)
         assert match is not None
         assert match.heat == 1
 
     def test_no_match_partial_name(self):
         """Partial name 'Sean' does NOT match 'HALL Sean' (requires full name)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean"), None, DISCIPLINE)
         assert match is None
 
     def test_no_match_empty_input(self):
@@ -135,7 +135,7 @@ class TestRiderMatching:
         seed_riders(0, [("HALL Sean", 3)])
         record_heat_count(COMP_ID, SESSION_ID, 0, 4)
         event_start = datetime(2024, 6, 1, 18, 30, 0)
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
         assert match is not None
         phd = get_per_heat_duration(DISCIPLINE)
         expected = event_start + timedelta(minutes=(3 - 1) * phd)
@@ -146,21 +146,21 @@ class TestRiderMatching:
         seed_riders(0, [("HALL Sean", 1)])
         record_heat_count(COMP_ID, SESSION_ID, 0, 1)
         event_start = datetime(2024, 6, 1, 18, 30, 0)
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
         assert match is not None
         assert match.heat_predicted_start == event_start
 
     def test_apostrophe_name_matches(self):
         """'OBrien' matches 'O'BRIEN Liam' (apostrophe stripping)."""
         seed_riders(0, [("O'BRIEN Liam", 2)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("OBrien Liam"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("OBrien Liam"), None, DISCIPLINE)
         assert match is not None
         assert match.heat == 2
 
     def test_diacritics_name_matches(self):
         """'Muller' matches 'MÜLLER Hans' (Unicode NFKD normalization)."""
         seed_riders(0, [("MÜLLER Hans", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, _normalize_rider_name("Muller Hans"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Muller Hans"), None, DISCIPLINE)
         assert match is not None
         assert match.heat == 1
 
@@ -192,9 +192,10 @@ class TestNextRace:
         result = predict_schedule(COMP_ID, [session], now=now, racer_name="Sean Hall",
                                   use_learned=False)
 
-        assert result.next_race_event_name == "Elite Men Keirin"
-        assert result.next_race_is_active is True
-        assert result.next_race_heat == 1
+        assert result.next_race is not None
+        assert result.next_race.event_name == "Elite Men Keirin"
+        assert result.next_race.is_active is True
+        assert result.next_race.heat == 1
 
     def test_next_race_upcoming_event(self):
         """Upcoming event with rider match sets next_race_is_active=False."""
@@ -213,8 +214,9 @@ class TestNextRace:
         result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall",
                                   use_learned=False)
 
-        assert result.next_race_event_name == "Elite Men Keirin"
-        assert result.next_race_is_active is False
+        assert result.next_race is not None
+        assert result.next_race.event_name == "Elite Men Keirin"
+        assert result.next_race.is_active is False
 
     def test_next_race_all_completed(self):
         """When all events are completed, next_race_event_name is None."""
@@ -232,7 +234,7 @@ class TestNextRace:
         result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall",
                                   use_learned=False)
 
-        assert result.next_race_event_name is None
+        assert result.next_race is None
 
     def test_events_without_start_lists_excludes_special(self):
         """Special events (break, ceremony) are excluded from events_without_start_lists."""
@@ -269,6 +271,35 @@ class TestNextRace:
 
         assert sp.has_racer_match is True
 
+    def test_has_pending_racer_match_true_when_upcoming(self):
+        """has_pending_racer_match is True when a matched event is still upcoming."""
+        events = [
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
+                       status=EventStatus.UPCOMING),
+        ]
+        session = make_session(events=events, scheduled_start=time(18, 0))
+        seed_riders(0, [("HALL Sean", 1)])
+
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall",
+                             use_learned=False)
+
+        assert sp.has_pending_racer_match is True
+
+    def test_has_pending_racer_match_false_when_all_completed(self):
+        """has_pending_racer_match is False when all matched events are completed."""
+        events = [
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
+                       status=EventStatus.COMPLETED),
+        ]
+        session = make_session(events=events, scheduled_start=time(18, 0))
+        seed_riders(0, [("HALL Sean", 1)])
+
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall",
+                             use_learned=False)
+
+        assert sp.has_racer_match is True
+        assert sp.has_pending_racer_match is False
+
     def test_total_events_excludes_special(self):
         """total_events only counts non-is_special events."""
         events = [
@@ -286,6 +317,33 @@ class TestNextRace:
         result = predict_schedule(COMP_ID, [session], now=None, use_learned=False)
 
         assert result.total_events == 2
+
+    def test_next_race_active_prioritized_over_upcoming_across_sessions(self):
+        """Active match in session 2 takes priority over upcoming match in session 1."""
+        session1_events = [
+            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match",
+                       status=EventStatus.UPCOMING),
+        ]
+        session1 = make_session(session_id=1, events=session1_events, scheduled_start=time(10, 0))
+        seed_riders(0, [("HALL Sean", 1)], session_id=1)
+
+        session2_events = [
+            make_event(position=0, name="Elite Women Sprint", discipline="sprint_match",
+                       status=EventStatus.COMPLETED),
+            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE,
+                       status=EventStatus.UPCOMING),
+        ]
+        session2 = make_session(session_id=2, events=session2_events, scheduled_start=time(18, 0))
+        seed_riders(1, [("HALL Sean", 2)], session_id=2)
+
+        now = datetime(2024, 6, 1, 18, 15, 0)
+        result = predict_schedule(COMP_ID, [session1, session2], now=now,
+                                  racer_name="Sean Hall", use_learned=False)
+
+        assert result.next_race is not None
+        assert result.next_race.event_name == "Elite Men Keirin"
+        assert result.next_race.is_active is True
+        assert result.next_race.heat == 2
 
     def test_pre_event_no_active(self):
         """When now is None, all matched events are upcoming (not active)."""
