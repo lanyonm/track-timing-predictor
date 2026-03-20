@@ -48,12 +48,12 @@ The app predicts per-event start times for track cycling competitions fetched fr
 **Deployment:** Lambda + Function URL (Docker image from ECR). Mangum adapts FastAPI to the Lambda handler. Local dev uses uvicorn. See `plans/hosting-plan.md` for full infrastructure details. **All routes must be GET** — CloudFront OAC with Lambda Function URLs doesn't support POST request bodies (SigV4 payload signature mismatch causes 403s).
 
 **Request flow:**
-1. `main.py` receives a tracktiming.live EventId via form or URL
+1. `main.py` receives a tracktiming.live EventId via form or URL; optional `?r=` param carries Base64-encoded racer name
 2. `fetcher.py` POSTs to the Jaxon API to get schedule HTML
-3. `parser.py` parses the HTML into `Session`/`Event` models
-4. `main.py` concurrently fetches start lists, result pages, and live heat pages
-5. `predictor.py` computes predicted start times and returns a `SchedulePrediction`
-6. Jinja2 renders the schedule; HTMX polls `/schedule/{id}/refresh` every 30s for live updates
+3. `parser.py` parses the HTML into `Session`/`Event` models; `parse_start_list_riders()` extracts rider entries
+4. `main.py` concurrently fetches start lists (parsing both heat counts and rider entries), result pages, and live heat pages
+5. `predictor.py` computes predicted start times, matches racer name against start lists, and returns a `SchedulePrediction`
+6. Jinja2 renders the schedule with racer-matched events highlighted; HTMX polls `/schedule/{id}/refresh` every 30s for live updates
 
 **In-memory caches in `predictor.py`** (keyed by `(competition_id, session_id, position)`):
 - `_status_cache` — tracks event status transitions for the learning fallback
@@ -61,6 +61,7 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - `_heat_counts` — heat counts parsed from start-list pages
 - `_live_heats` — current heat number from live results pages
 - `_generated_times` — Generated timestamps from result pages
+- `_start_list_riders` — parsed rider entries from start-list pages (for racer name matching)
 
 **Note:** On Lambda, these caches persist within a warm execution environment but reset on cold starts and are not shared across concurrent invocations. This may cause more frequent re-fetching and slightly less accurate predictions during cold starts.
 

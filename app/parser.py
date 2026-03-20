@@ -1,5 +1,6 @@
 import logging
 import re
+import unicodedata
 from datetime import datetime, time
 
 from bs4 import BeautifulSoup, Tag
@@ -7,7 +8,7 @@ from bs4 import BeautifulSoup, Tag
 logger = logging.getLogger(__name__)
 
 from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
-from app.models import Event, EventStatus, Session
+from app.models import Event, EventStatus, RiderEntry, Session
 
 
 def _extract_section_html(jxn_data: dict, section_id: str) -> str:
@@ -96,6 +97,66 @@ def parse_heat_count(html: str) -> int | None:
     """
     heats = re.findall(r"\bHeat\s+\d+\b", html)
     return len(heats) if heats else None
+
+
+def _normalize_name(name: str) -> frozenset[str]:
+    """Normalize a rider name to a frozenset of lowercase ASCII tokens."""
+    # Unicode NFKD decomposition, strip non-ASCII
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    # Remove apostrophes, hyphens, periods
+    name = name.replace("'", "").replace("-", "").replace(".", "")
+    return frozenset(token.lower() for token in name.split() if token)
+
+
+def parse_start_list_riders(html: str) -> list[RiderEntry]:
+    """
+    Parse start list HTML and extract rider entries with heat assignments.
+
+    Each heat section begins with a 'Heat N' header, followed by rider entries.
+    The HTML may contain structured tags (tables, h4 elements) or plain text.
+    We strip HTML tags first to get clean text, then split on Heat headers.
+    Returns empty list if no heats/riders found.
+    """
+    # Strip HTML tags to get plain text, preserving whitespace between elements
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(separator="\n")
+
+    # Split on Heat N headers, keeping the heat number
+    parts = re.split(r"\bHeat\s+(\d+)\b", text)
+    # parts[0] is before first Heat header; then alternating: heat_num, section_text
+    riders: list[RiderEntry] = []
+    for i in range(1, len(parts), 2):
+        heat = int(parts[i])
+        section = parts[i + 1] if i + 1 < len(parts) else ""
+        for line in section.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # Match rider lines: optional bib number (digits) followed by
+            # LASTNAME Firstname (at least one uppercase letter)
+            m = re.match(r"(?:\d+\s{2,})?(.*)", line)
+            if m:
+                name_part = m.group(1).strip()
+                if not name_part:
+                    continue
+                # Skip lines that look like non-rider text (no uppercase letter)
+                if not any(c.isupper() for c in name_part):
+                    continue
+                # Extract rider name: "LASTNAME Firstname" pattern.
+                # Rider names have at least one mixed-case word (the first name);
+                # team/club names are typically ALL CAPS.
+                name_match = re.match(r"([A-ZÀ-Ý][A-Za-zÀ-ÿ'-]+(?:\s+[A-Za-zÀ-ÿ'-]+){1,3})", name_part)
+                if name_match:
+                    rider_name = name_match.group(1).strip()
+                    words = rider_name.split()
+                    # Require at least 2 words and at least one non-all-caps word
+                    if len(words) >= 2 and any(not w.isupper() for w in words):
+                        riders.append(RiderEntry(
+                            name=rider_name,
+                            heat=heat,
+                            normalized_tokens=_normalize_name(rider_name),
+                        ))
+    return riders
 
 
 def parse_live_heat(html: str) -> int | None:
