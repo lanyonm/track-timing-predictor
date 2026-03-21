@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Racer Name Input — All States</title>
+  <style>
+/* ===== BASE STYLES ===== */
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 15px; line-height: 1.5; color: #222;
+  background: #f5f5f5; margin: 0; padding: 0 0 2rem;
+}
+header { background: #1a1a2e; color: #fff; padding: 0.75rem 1.5rem; margin-bottom: 1.5rem; }
+.site-title { color: #fff; text-decoration: none; font-size: 1.15rem; font-weight: 600; }
+main { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
+a { color: #1a1a2e; }
+
+.section {
+  background: #fff;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin: 1.5rem 0;
+}
+.section h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  color: #1a1a2e;
+  border-bottom: 2px solid #e8eaf0;
+  padding-bottom: 0.4rem;
+}
+.state-label {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #fff;
+  background: #1a73e8;
+  padding: 2px 10px;
+  border-radius: 10px;
+  margin-bottom: 0.35rem;
+}
+.state-label.gap {
+  background: #d63031;
+}
+.state-desc {
+  font-size: 0.82rem;
+  color: #555;
+  margin: 0.15rem 0 0.75rem;
+  line-height: 1.4;
+}
+.state-refs {
+  font-size: 0.75rem;
+  color: #999;
+  margin-top: 0.5rem;
+}
+.mockup-box {
+  max-width: 500px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 1rem;
+  background: #fafafa;
+}
+hr.divider { border: none; border-top: 1px dashed #ddd; margin: 1.25rem 0; }
+.intro {
+  font-size: 0.88rem;
+  color: #555;
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
+.toc {
+  background: #f7f8fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.toc h3 { margin: 0 0 0.4rem; font-size: 0.9rem; }
+.toc ul { margin: 0; padding-left: 1.25rem; font-size: 0.85rem; }
+.toc li { margin-bottom: 0.15rem; }
+.toc a { text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+
+/* ===== FORM BAR STYLES ===== */
+.racer-form-bar {
+  margin: 0.5rem 0 0.25rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.racer-form-hint {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: #888;
+  margin-top: -0.25rem;
+}
+.racer-form-bar input[type="text"] {
+  flex: 1;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.95rem;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  min-width: 0;
+}
+.racer-form-bar button {
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+  background: #1a1a2e;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.racer-form-bar .clear-link {
+  font-size: 0.82rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+/* ===== MESSAGING STYLES ===== */
+.racer-message {
+  font-size: 0.88rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 4px;
+  background: #fff3cd;
+  color: #856404;
+}
+.racer-message.racer-message-info {
+  background: #dce8fc;
+  color: #1a53a0;
+}
+.racer-message .next-race {
+  display: block;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+
+/* ===== TABLE & ROW STYLES ===== */
+.badge { font-size: 0.75rem; font-weight: 600; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.badge.delay { background: #fde8e8; color: #900; }
+
+details { background: #fff; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 0.75rem; overflow: hidden; }
+details summary { cursor: pointer; background: #e8eaf0; padding: 0.5rem 0.75rem; font-weight: 600; font-size: 0.9rem; list-style: none; display: flex; align-items: center; gap: 0.5rem; }
+details summary::-webkit-details-marker { display: none; }
+details[open] summary { border-bottom: 1px solid #ccc; }
+.session-label { flex: 1; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 0.35rem 0.6rem; text-align: left; border-bottom: 1px solid #eee; font-size: 0.88rem; }
+th { background: #f7f7f7; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
+td.time { font-variant-numeric: tabular-nums; font-weight: 600; }
+td.duration { color: #666; font-size: 0.82rem; }
+td.duration .duration-label { font-size: 0.7rem; color: #999; margin-left: 2px; }
+td.status-label { font-size: 0.82rem; }
+
+tr.status-completed { opacity: 0.45; }
+tr.status-completed:not(.special) { text-decoration: line-through; text-decoration-color: #aaa; }
+tr.status-upcoming { background: #eaf5ea; }
+tr.status-upcoming td { font-weight: 500; }
+tr.status-not_ready { color: #888; }
+tr.active { background: #fff3cd; border-left: 3px solid #f0a500; }
+tr.active td { font-weight: 600; }
+
+.evt-btn { display: inline-block; padding: 2px 8px; font-size: 0.72rem; font-weight: 500; border-radius: 4px; text-decoration: none; margin: 0 4px 4px 0; white-space: nowrap; }
+.evt-btn-live { background: #f8d7da; color: #842029; border: 1px solid #f1aeb5; font-weight: 700; }
+.evt-btn-r { background: #d4edda; color: #155724; border: 1px solid #b8ddc8; }
+.evt-btn-sl { background: #cce5ff; color: #004085; border: 1px solid #b8d4f0; }
+
+/* Racer-match row styles */
+tr.racer-match { background: #e8f0fe; border-left: 4px solid #1a73e8; }
+tr.racer-match.active { background: #fff3cd; border-left: 4px solid #1a73e8; }
+tr.racer-match.active td { font-weight: 600; }
+tr.racer-match.status-completed { background: #e8f0fe; opacity: 0.45; }
+tr.racer-match.status-completed:not(.special) { text-decoration: line-through; text-decoration-color: #aaa; }
+tr.racer-match.status-upcoming { background: #e8f0fe; border-left: 4px solid #1a73e8; }
+
+.badge.racer-heat {
+  background: #1a73e8; color: #fff;
+  font-size: 0.74rem; font-weight: 700;
+  padding: 2px 9px; margin-left: 6px;
+  vertical-align: middle;
+}
+.heat-time {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1a53a0;
+  margin-top: 2px;
+}
+  </style>
+</head>
+<body>
+  <header>
+    <a href="#" class="site-title">Track Timing Predictor — Racer Input States</a>
+  </header>
+  <main>
+
+    <p class="intro">
+      All states for the racer name input system: form bar, contextual messages, and schedule row highlights.
+    </p>
+
+    <div class="toc">
+      <h3>Contents</h3>
+      <ul>
+        <li><a href="#form-states">1. Form Bar States (2)</a></li>
+        <li><a href="#message-states">2. Message States (9)</a></li>
+        <li><a href="#row-states">3. Schedule Row States (7)</a></li>
+      </ul>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <div class="section" id="form-states">
+      <h2>1. Form Bar States</h2>
+
+      <span class="state-label">S1</span>
+      <strong>No name active</strong>
+      <p class="state-desc">First visit, or after clearing. Empty input with placeholder. No Clear link.</p>
+      <div class="mockup-box">
+        <div class="racer-form-bar">
+          <input type="text" placeholder="Your name to highlight your events">
+          <button type="button">Highlight</button>
+          <small class="racer-form-hint">Enter your full name as shown on the start list</small>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <span class="state-label">S2</span>
+      <strong>Name active</strong>
+      <p class="state-desc">After submission, returning user (cookie), or shared link (URL param). Input pre-filled. Clear link visible.</p>
+      <div class="mockup-box">
+        <div class="racer-form-bar">
+          <input type="text" placeholder="Your name to highlight your events" value="Sean Hall">
+          <button type="button">Highlight</button>
+          <a href="#" class="clear-link">Clear</a>
+          <small class="racer-form-hint">Enter your full name as shown on the start list</small>
+        </div>
+      </div>
+      <p class="state-refs">Refs: FR-002, FR-009, FR-012</p>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <div class="section" id="message-states">
+      <h2>2. Message States</h2>
+      <p class="state-desc">All messages appear once above the session list. Combined states shown where applicable.</p>
+
+      <!-- M1 -->
+      <span class="state-label">M1</span>
+      <strong>No name active — no message</strong>
+      <p class="state-desc">No messages displayed when no racer name is set.</p>
+      <div class="mockup-box">
+        <p style="color:#bbb; font-style:italic; margin:0.25rem 0; font-size:0.85rem;">(no message — schedule renders directly)</p>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M2 -->
+      <span class="state-label">M2</span>
+      <strong>Success — matches found with upcoming next race</strong>
+      <p class="state-desc">Name set, matches &gt; 0, racer has at least one upcoming event.</p>
+      <div class="mockup-box">
+        <div class="racer-message racer-message-info" role="status">
+          Found 3 event(s) for "Sean Hall"
+          <span class="next-race">Your next race: Women's Scratch Race, Heat 2 at 19:07</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M3 -->
+      <span class="state-label">M3</span>
+      <strong>Success — matches found, next race is single-heat</strong>
+      <p class="state-desc">Name set, matches &gt; 0, next event is single-heat (no "Heat N").</p>
+      <div class="mockup-box">
+        <div class="racer-message racer-message-info" role="status">
+          Found 2 event(s) for "Sean Hall"
+          <span class="next-race">Your next race: Women's Scratch Race at 19:07</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M4 -->
+      <span class="state-label">M4</span>
+      <strong>Success — matches found, all completed</strong>
+      <p class="state-desc">Name set, matches &gt; 0, but all matched events are completed. No "Your next race" line.</p>
+      <div class="mockup-box">
+        <div class="racer-message racer-message-info" role="status">
+          Found 3 event(s) for "Sean Hall"
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M5 -->
+      <span class="state-label">M5</span>
+      <strong>Success — matches found, next race is currently ACTIVE</strong>
+      <p class="state-desc">
+        Name set, matches &gt; 0, the racer's nearest non-completed event is active (in progress).
+        Uses "Racing now:" label instead of "Your next race:".
+      </p>
+      <div class="mockup-box">
+        <div class="racer-message racer-message-info" role="status">
+          Found 2 event(s) for "Sean Hall"
+          <span class="next-race">Racing now: Women's Individual Pursuit, Heat 3 at 18:43</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M6 -->
+      <span class="state-label">M6</span>
+      <strong>Success + missing start lists</strong>
+      <p class="state-desc">Matches found, but some events don't have start lists yet. Missing start lists uses amber warning styling.</p>
+      <div class="mockup-box">
+        <div class="racer-message racer-message-info" role="status">
+          Found 2 event(s) for "Sean Hall"
+          <span class="next-race">Your next race: Women's Scratch Race, Heat 2 at 19:07</span>
+        </div>
+        <div class="racer-message" role="status">3 event(s) do not yet have start lists</div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M7 -->
+      <span class="state-label">M7</span>
+      <strong>No matches — start lists exist</strong>
+      <p class="state-desc">Name set, matches == 0, at least one event has a start list.</p>
+      <div class="mockup-box">
+        <div class="racer-message" role="status">No matching events found for "Xyz Nobody"</div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M8 -->
+      <span class="state-label">M8</span>
+      <strong>No matches + missing start lists</strong>
+      <p class="state-desc">Name set, matches == 0, some events have start lists + some don't. Both messages use amber warning styling.</p>
+      <div class="mockup-box">
+        <div class="racer-message" role="status">No matching events found for "Xyz Nobody"</div>
+        <div class="racer-message" role="status">4 event(s) do not yet have start lists</div>
+      </div>
+
+      <hr class="divider">
+
+      <!-- M9 -->
+      <span class="state-label">M9</span>
+      <strong>No data — ALL start lists missing</strong>
+      <p class="state-desc">Name set, ALL events lack start lists. "No matches" suppressed. Amber warning styling.</p>
+      <div class="mockup-box">
+        <div class="racer-message" role="status">Start lists are not yet published — check back closer to the event</div>
+      </div>
+      <p class="state-refs">Refs: FR-010 (a–d)</p>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════ -->
+    <div class="section" id="row-states">
+      <h2>3. Schedule Row States</h2>
+      <p class="state-desc">All row highlight combinations for racer-matched events. Shown in a single schedule for comparison.</p>
+
+      <details open>
+        <summary><span class="session-label">Friday — Scheduled 18:00</span><span class="badge delay">+8m behind</span></summary>
+        <table>
+          <thead><tr><th>Event</th><th>Predicted Start</th><th>Est. Duration</th><th>Status</th></tr></thead>
+          <tbody>
+            <!-- R1: Completed + racer-match + multi-heat -->
+            <tr class="status-completed racer-match" aria-label="Your event">
+              <td>Women's Team Sprint <span class="badge racer-heat">Heat 2</span>
+                <br><small style="font-weight:400; font-size:0.72rem; color:#1a73e8;">R1: completed + racer-match + multi-heat</small>
+              </td>
+              <td class="time">18:00</td>
+              <td class="duration">12.0m <span class="duration-label">obs.</span><span class="heat-time">Your heat: 18:04</span></td>
+              <td class="status-label"><a href="#" class="evt-btn evt-btn-r">Results</a> <a href="#" class="evt-btn evt-btn-sl">Start List</a></td>
+            </tr>
+            <!-- R2: Completed + NOT matched -->
+            <tr class="status-completed">
+              <td>Men's Team Sprint
+                <br><small style="font-weight:400; font-size:0.72rem; color:#888;">R2: completed + not matched</small>
+              </td>
+              <td class="time">18:12</td>
+              <td class="duration">14.0m <span class="duration-label">obs.</span></td>
+              <td class="status-label"><a href="#" class="evt-btn evt-btn-r">Results</a></td>
+            </tr>
+            <!-- R3: Active + racer-match + multi-heat -->
+            <tr class="active racer-match" aria-label="Your event">
+              <td>Women's Individual Pursuit <span class="badge racer-heat">Heat 3</span>
+                <br><small style="font-weight:400; font-size:0.72rem; color:#1a73e8;">R3: active + racer-match + multi-heat</small>
+              </td>
+              <td class="time">18:34</td>
+              <td class="duration">18.0m <span class="duration-label">heat 2/4</span><span class="heat-time">Your heat: 18:43</span></td>
+              <td class="status-label"><a href="#" class="evt-btn evt-btn-live">Live</a> <a href="#" class="evt-btn evt-btn-sl">Start List</a></td>
+            </tr>
+            <!-- R4: Upcoming + NOT matched -->
+            <tr class="status-upcoming">
+              <td>Men's Keirin - Round 1
+                <br><small style="font-weight:400; font-size:0.72rem; color:#888;">R4: upcoming + not matched</small>
+              </td>
+              <td class="time">18:52</td>
+              <td class="duration">15.0m <span class="duration-label">3 heats</span></td>
+              <td class="status-label"><a href="#" class="evt-btn evt-btn-sl">Start List</a></td>
+            </tr>
+            <!-- R5: Upcoming + racer-match + multi-heat -->
+            <tr class="racer-match status-upcoming" aria-label="Your event">
+              <td>Women's Scratch Race <span class="badge racer-heat">Heat 2</span>
+                <br><small style="font-weight:400; font-size:0.72rem; color:#1a73e8;">R5: upcoming + racer-match + multi-heat</small>
+              </td>
+              <td class="time">19:07</td>
+              <td class="duration">10.0m <span class="duration-label">est.</span><span class="heat-time">Your heat: 19:12</span></td>
+              <td class="status-label"><a href="#" class="evt-btn evt-btn-sl">Start List</a></td>
+            </tr>
+            <!-- R6: Upcoming + racer-match + single-heat -->
+            <tr class="racer-match status-upcoming" aria-label="Your event">
+              <td>Women's Points Race <span class="badge racer-heat">Racing</span>
+                <br><small style="font-weight:400; font-size:0.72rem; color:#1a73e8;">R6: upcoming + racer-match + single-heat (no heat time)</small>
+              </td>
+              <td class="time">19:17</td>
+              <td class="duration">25.0m <span class="duration-label">est.</span></td>
+              <td class="status-label"><a href="#" class="evt-btn evt-btn-sl">Start List</a></td>
+            </tr>
+            <!-- R7: Not ready + NOT matched -->
+            <tr class="status-not_ready">
+              <td>Men's Madison
+                <br><small style="font-weight:400; font-size:0.72rem; color:#888;">R7: not_ready + not matched</small>
+              </td>
+              <td class="time">19:42</td>
+              <td class="duration">30.0m <span class="duration-label">est.</span></td>
+              <td class="status-label">&mdash;</td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+      <p class="state-refs">Refs: FR-004, FR-005, FR-006, FR-014</p>
+    </div>
+
+
+  </main>
+</body>
+</html>

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import time
+import unicodedata
+from datetime import datetime, time
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 class EventStatus(str, Enum):
@@ -31,6 +32,36 @@ class Session(BaseModel):
     events: list[Event]
 
 
+def normalize_rider_name(raw_name: str) -> frozenset[str]:
+    """Normalize a rider name to a frozenset of lowercase ASCII tokens.
+
+    Applies Unicode NFKD decomposition, strips non-ASCII characters,
+    removes apostrophes/hyphens/periods, then splits on whitespace.
+    """
+    normalized = unicodedata.normalize("NFKD", raw_name).encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.replace("'", "").replace("-", "").replace(".", "")
+    return frozenset(t.lower() for t in normalized.split())
+
+
+class RiderEntry(BaseModel):
+    name: str
+    heat: int = Field(ge=1)
+    normalized_tokens: frozenset[str] = frozenset()
+
+    @model_validator(mode="after")
+    def _compute_tokens(self) -> "RiderEntry":
+        if not self.normalized_tokens:
+            tokens = normalize_rider_name(self.name)
+            object.__setattr__(self, "normalized_tokens", tokens)
+        return self
+
+
+class RiderMatch(BaseModel):
+    heat: int = Field(ge=1)
+    heat_count: int = Field(ge=1)
+    heat_predicted_start: datetime | None = None
+
+
 class Prediction(BaseModel):
     event: Event
     predicted_start: time
@@ -41,12 +72,16 @@ class Prediction(BaseModel):
     heat_count: int | None = None  # Set when duration is derived from start-list heat count
     is_active: bool = False      # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event
+    rider_match: RiderMatch | None = None
 
 
 class SessionPrediction(BaseModel):
     session: Session
     event_predictions: list[Prediction]
     observed_delay_minutes: float
+    has_racer_match: bool = False
+    has_pending_racer_match: bool = False
+    events_without_start_lists: int = 0
 
     @property
     def is_complete(self) -> bool:
@@ -59,6 +94,19 @@ class SessionPrediction(BaseModel):
         return bool(races) and all(e.status == EventStatus.COMPLETED for e in races)
 
 
+class NextRace(BaseModel):
+    event_name: str
+    heat: int = Field(ge=1)
+    heat_count: int = Field(ge=1)
+    predicted_start: datetime | None = None
+    is_active: bool = False
+
+
 class SchedulePrediction(BaseModel):
     competition_id: int
     sessions: list[SessionPrediction]
+    racer_name: str | None = None
+    match_count: int = 0
+    events_without_start_lists: int = 0
+    total_events: int = 0
+    next_race: NextRace | None = None

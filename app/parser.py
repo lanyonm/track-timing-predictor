@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup, Tag
 logger = logging.getLogger(__name__)
 
 from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
-from app.models import Event, EventStatus, Session
+from app.models import Event, EventStatus, RiderEntry, Session, normalize_rider_name
 
 
 def _extract_section_html(jxn_data: dict, section_id: str) -> str:
@@ -85,6 +85,97 @@ def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None, str | Non
     if start_list_url:
         return EventStatus.UPCOMING, None, start_list_url, audit_url, live_url
     return EventStatus.NOT_READY, None, None, audit_url, live_url
+
+
+def _is_rider_name(text: str) -> bool:
+    """Check if text looks like a rider name (e.g. 'LASTNAME Firstname').
+
+    The first whitespace-separated token must contain at least 2 uppercase letters
+    (to distinguish real names from incidental text like 'No riders').
+    The full text must have at least two tokens.
+    """
+    parts = text.split()
+    if len(parts) < 2:
+        return False
+    first_token = parts[0]
+    uppercase_count = sum(1 for c in first_token if c.isupper())
+    return uppercase_count >= 2
+
+
+def parse_start_list_riders(html: str) -> list[RiderEntry]:
+    """
+    Parse rider names and heat assignments from a start list page.
+
+    Start list pages are HTML tables with three layout patterns:
+
+    Sprint qualifying (1 rider per heat):
+      <td><h4>Heat 1</h4></td><td><h4><Strong>212</Strong></h4></td><td><h4>NAME</h4></td>
+
+    Multi-rider heats (keirin, etc.):
+      Heat header row: <td colspan="6"><h4><Strong>Heat 1</Strong></h4></td>
+      Rider rows:      <td><h4><Strong>14</Strong></h4></td><td>...</td><td><h4>NAME</h4></td>
+
+    Bunch races (scratch, points, elimination, tempo, madison):
+      No "Heat N" labels — all riders listed together.
+      Rider rows:      <td><h4><Strong>101</Strong></h4></td><td>...</td><td><h4>NAME</h4></td>
+      These riders are assigned heat=1.
+
+    Returns an empty list if no riders are found.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    riders: list[RiderEntry] = []
+    current_heat = 0
+
+    for row in soup.find_all("tr"):
+        cells = row.find_all("td")
+        if not cells:
+            continue
+
+        # Check if this row contains a "Heat N" label
+        row_text = row.get_text(" ", strip=True)
+        heat_match = re.search(r"\bHeat\s+(\d+)\b", row_text)
+
+        if heat_match:
+            current_heat = int(heat_match.group(1))
+
+            # Sprint qualifying format: Heat label + bib + name in the same row
+            # Look for a rider name among the h4 tags in this row
+            h4_tags = row.find_all("h4")
+            for h4 in h4_tags:
+                text = h4.get_text(strip=True)
+                # Skip "Heat N" labels, bib numbers, and empty text
+                if re.match(r"^Heat\s+\d+$", text):
+                    continue
+                if re.match(r"^\d+$", text):
+                    continue
+                if not text:
+                    continue
+                if _is_rider_name(text):
+                    tokens = normalize_rider_name(text)
+                    riders.append(RiderEntry(name=text, heat=current_heat, normalized_tokens=tokens))
+                    break
+        else:
+            # Rider row: either within a multi-rider heat (current_heat > 0)
+            # or a bunch race with no heat labels (current_heat == 0 → heat 1)
+            heat = current_heat or 1
+            h4_tags = row.find_all("h4")
+            for h4 in h4_tags:
+                text = h4.get_text(strip=True)
+                if re.match(r"^\d+$", text):
+                    continue
+                if not text or text == "\xa0":
+                    continue
+                if re.match(r"^Number of Riders", text):
+                    continue
+                if _is_rider_name(text):
+                    tokens = normalize_rider_name(text)
+                    riders.append(RiderEntry(name=text, heat=heat, normalized_tokens=tokens))
+                    break
+
+    if not riders and soup.find("tr"):
+        logger.warning("parse_start_list_riders found 0 riders in HTML with %d rows", len(soup.find_all("tr")))
+
+    return riders
 
 
 def parse_heat_count(html: str) -> int | None:
