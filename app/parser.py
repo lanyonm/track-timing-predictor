@@ -87,18 +87,6 @@ def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None, str | Non
     return EventStatus.NOT_READY, None, None, audit_url, live_url
 
 
-def _normalize_rider_name(raw_name: str) -> frozenset[str]:
-    """Normalize a rider name to a frozenset of lowercase ASCII tokens.
-
-    Thin wrapper kept for backwards compatibility; delegates to
-    normalize_rider_name() in models.py (the single source of truth).
-    """
-    tokens = normalize_rider_name(raw_name)
-    if raw_name.strip() and not tokens:
-        logger.warning("Normalization produced empty tokens for non-empty name: %r", raw_name)
-    return tokens
-
-
 def _is_rider_name(text: str) -> bool:
     """Check if text looks like a rider name (e.g. 'LASTNAME Firstname').
 
@@ -163,7 +151,7 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
                 if not text:
                     continue
                 if _is_rider_name(text):
-                    tokens = _normalize_rider_name(text)
+                    tokens = normalize_rider_name(text)
                     riders.append(RiderEntry(name=text, heat=current_heat, normalized_tokens=tokens))
                     break
         else:
@@ -180,7 +168,7 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
                 if re.match(r"^Number of Riders", text):
                     continue
                 if _is_rider_name(text):
-                    tokens = _normalize_rider_name(text)
+                    tokens = normalize_rider_name(text)
                     riders.append(RiderEntry(name=text, heat=heat, normalized_tokens=tokens))
                     break
 

@@ -431,6 +431,17 @@ def predict_session(
     )
 
 
+def _build_next_race(pred: Prediction) -> NextRace:
+    """Build a NextRace from a matched Prediction."""
+    return NextRace(
+        event_name=pred.event.name,
+        heat=pred.rider_match.heat,
+        heat_count=pred.rider_match.heat_count,
+        predicted_start=pred.rider_match.heat_predicted_start,
+        is_active=pred.is_active,
+    )
+
+
 def predict_schedule(
     competition_id: int,
     sessions: list[Session],
@@ -442,6 +453,8 @@ def predict_schedule(
     total_events_without_start_lists = 0
     total_events = 0
     match_count = 0
+    active_candidate: Prediction | None = None
+    upcoming_candidate: Prediction | None = None
 
     for s in sessions:
         sp = predict_session(
@@ -455,43 +468,15 @@ def predict_schedule(
         for pred in sp.event_predictions:
             if pred.rider_match:
                 match_count += 1
+                # Track next-race candidates: active takes priority over upcoming
+                if pred.is_active and active_candidate is None:
+                    active_candidate = pred
+                elif pred.event.status != EventStatus.COMPLETED and upcoming_candidate is None:
+                    upcoming_candidate = pred
 
-    # Compute next_race: find the nearest non-completed matched event.
-    # Active events take priority over upcoming.
-    next_race: NextRace | None = None
-
-    # First pass: look for active matched events
-    for sp in session_predictions:
-        for pred in sp.event_predictions:
-            if pred.rider_match and pred.is_active:
-                next_race = NextRace(
-                    event_name=pred.event.name,
-                    heat=pred.rider_match.heat,
-                    heat_count=pred.rider_match.heat_count,
-                    predicted_start=pred.rider_match.heat_predicted_start,
-                    is_active=True,
-                )
-                break
-        if next_race:
-            break
-
-    # Second pass: if no active match, find first upcoming matched event
-    if not next_race:
-        for sp in session_predictions:
-            for pred in sp.event_predictions:
-                if (
-                    pred.rider_match
-                    and pred.event.status != EventStatus.COMPLETED
-                ):
-                    next_race = NextRace(
-                        event_name=pred.event.name,
-                        heat=pred.rider_match.heat,
-                        heat_count=pred.rider_match.heat_count,
-                        predicted_start=pred.rider_match.heat_predicted_start,
-                    )
-                    break
-            if next_race:
-                break
+    # Active match takes priority; fall back to first upcoming match.
+    best = active_candidate or upcoming_candidate
+    next_race = _build_next_race(best) if best else None
 
     return SchedulePrediction(
         competition_id=competition_id,

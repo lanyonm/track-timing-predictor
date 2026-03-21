@@ -181,6 +181,11 @@ def _use_learned(request: Request) -> bool:
     return request.cookies.get("use_learned") == "true"
 
 
+def _encode_racer_name(name: str) -> str:
+    """URL-safe Base64 encode a racer name for use in query parameters."""
+    return base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
+
+
 def _resolve_racer_name(request: Request, r: str | None) -> str | None:
     """Resolve racer name from URL-safe Base64 param or cookie."""
     if r:
@@ -242,7 +247,7 @@ async def get_schedule(request: Request, event_id: int, r: str | None = Query(No
 
     racer_encoded = None
     if racer_name:
-        racer_encoded = base64.urlsafe_b64encode(racer_name.encode("utf-8")).decode("ascii")
+        racer_encoded = _encode_racer_name(racer_name)
 
     response = templates.TemplateResponse("schedule.html", {
         "request": request,
@@ -322,7 +327,7 @@ async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Quer
 async def set_racer_name(event_id: int = Query(...), name: str = Query("")):
     """Set or clear the racer name cookie, then redirect back to the schedule."""
     if name.strip():
-        encoded = base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
+        encoded = _encode_racer_name(name)
         response = RedirectResponse(
             url=f"/schedule/{event_id}?r={encoded}#schedule-container",
             status_code=303,
