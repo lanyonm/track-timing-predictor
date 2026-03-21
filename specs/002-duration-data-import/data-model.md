@@ -25,7 +25,7 @@ Structured decomposition of an event name into component dimensions. Produced by
 
 ### DurationRecord
 
-A single observation of how long an event took. Stored in the JSON output file and consumed by the loader.
+A single observation of how long an event took. Stored in the JSON output file and consumed by the loader. Note: `ride_number` from EventCategory is intentionally excluded — it does not affect duration learning (rides within the same round have identical structure).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -37,19 +37,19 @@ A single observation of how long an event took. Stored in the JSON output file a
 | `event_name` | `str` | Yes | Original event name as displayed on tracktiming.live |
 | `heat_count` | `int \| None` | No | Number of heats when determinable from start-list or result pages |
 | `duration_minutes` | `float` | Yes | Total event duration in minutes |
-| `per_heat_duration_minutes` | `float \| None` | No | Per-heat duration derived as `(duration_minutes ÷ heat_count) − changeover`. Present only when both `duration_minutes` and `heat_count` are known. |
+| `per_heat_duration_minutes` | `float \| None` | No | Per-heat duration derived as `(duration_minutes ÷ heat_count) − changeover`. Computed by the **loader** at load time (not by the extraction script) — this field is `null` in JSON output and populated when writing to the learning database. |
 | `duration_source` | `str` | Yes | `finish_time`, `generated_diff`, or `heat_count` |
 | `competition_id` | `int` | Yes | tracktiming.live EventId |
 | `session_id` | `int` | Yes | 1-based session index within competition |
-| `position` | `int` | Yes | 0-based event position within session |
+| `event_position` | `int` | Yes | 0-based event position within session (matches existing `event_position` column in `event_durations` table) |
 
 **Validation rules**:
 - `duration_minutes` must be > 0
 - `duration_source` must be one of `finish_time`, `generated_diff`, `heat_count`
 - `competition_id` must be > 0
 - `session_id` must be ≥ 1
-- `position` must be ≥ 0
-- Natural key for idempotency: `(competition_id, session_id, position)`
+- `event_position` must be ≥ 0
+- Natural key for idempotency: `(competition_id, session_id, event_position)`
 
 ### UncategorizedEntry
 
@@ -82,7 +82,7 @@ Top-level JSON output file structure. One file per competition.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `competition_id` | `int` | Yes | tracktiming.live EventId |
-| `name` | `str` | Yes | Competition name scraped from tracktiming.live |
+| `name` | `str \| None` | No | Competition name if scrapeable; defaults to `"Competition {competition_id}"` when the API does not provide one (see spec edge case) |
 | `url` | `str` | Yes | Full URL to the competition page |
 
 ### SessionReport

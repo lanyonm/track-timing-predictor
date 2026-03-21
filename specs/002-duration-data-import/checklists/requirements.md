@@ -33,3 +33,4 @@
 
 - All items pass. Spec is ready for `/speckit.clarify` or `/speckit.plan`.
 - The Assumptions section documents the JSONL format choice and script invocation model as reasonable defaults rather than clarification items.
+- **Post-001 review (2026-03-20)**: Technical architect review confirmed spec remains valid after 001-racer-schedule-lookup merge. No conflicts found. Additions: competition name scraping edge case, 001 coexistence assumption, cascading fallback scope clarification, and `record_duration_structured()` guidance for loader writes.

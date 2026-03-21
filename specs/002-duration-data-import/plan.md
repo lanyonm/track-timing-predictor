@@ -31,7 +31,7 @@ Create CLI scripts that extract historical competition data from tracktiming.liv
 | IV. Minimal Dependencies | PASS | No new dependencies. Uses httpx, beautifulsoup4, boto3, argparse (stdlib). |
 | V. Operability | PASS | Scripts produce clear error messages (FR-008). Uncategorized event summary enables systematic improvement (FR-011). |
 | VI. Cost-Aware Growth | PASS | No infrastructure changes. DynamoDB items increase but use on-demand billing. |
-| VII. Prediction Integrity | PASS | Loader applies validation bounds (0.5×–3× static default, per edge case spec). Outliers flagged in import output. |
+| VII. Prediction Integrity | PASS | Loader applies validation bounds (0.5×–2.0× static default, per Constitution VII and spec edge case). Outliers flagged in import output. |
 | VIII. Security & Data Minimization | PASS | Processes only public competition data. No PII. |
 | GET-only constraint | N/A | Scripts are CLI tools, not FastAPI routes. Loader accesses DB directly (FR-006). |
 
