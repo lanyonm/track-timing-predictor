@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Discipline detection and default duration estimates for track cycling events.
 # Durations are in minutes and include the event itself plus changeover time.
 
@@ -45,6 +49,7 @@ DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
     ("kilo time trial", "time_trial_kilo"),
     ("1000m time trial", "time_trial_kilo"),
     ("time trial", "time_trial_generic"),
+    ("flying 200m", "sprint_qualifying"),
     ("sprint qualifying", "sprint_qualifying"),
     ("sprint", "sprint_match"),
     ("medal ceremonies", "ceremony"),
@@ -161,6 +166,7 @@ def detect_discipline(event_name: str) -> str:
     for keyword, key in DISCIPLINE_KEYWORDS:
         if keyword in lower:
             return key
+    logger.warning("Unrecognized discipline, falling back to default duration", extra={"event_name": event_name})
     return "unknown"
 
 
