@@ -1,14 +1,26 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Discipline detection and default duration estimates for track cycling events.
 # Durations are in minutes and include the event itself plus changeover time.
 
 # Keyword matching: most specific phrases must come before less specific ones.
 DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
+    ("poursuite par équipe", "team_pursuit"),     # French: team pursuit
     ("team pursuit", "team_pursuit"),
     ("team sprint", "team_sprint"),
     ("madison", "madison"),
+    ("flying mile", "scratch_race"),
     ("scratch race", "scratch_race"),
+    ("omnium qualifier", "points_race"),
+    ("course aux points", "points_race"),         # French: points race
     ("points race", "points_race"),
+    ("miss and out", "elimination_race"),
     ("elimination race", "elimination_race"),
+    ("american tempo", "tempo_race"),
+    ("point a lap", "tempo_race"),
+    ("course tempo", "tempo_race"),               # French: tempo race
     ("tempo race", "tempo_race"),
     ("keirin", "keirin"),
     # Pursuit: distance varies by category; detect most-specific first.
@@ -40,15 +52,26 @@ DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
     ("2000m pursuit", "pursuit_2k"),
     ("individual pursuit", "pursuit_3k"),         # men (U17/U15/unmatched masters) fallback
     ("pursuit", "pursuit_3k"),                    # generic fallback
+    ("poursuite", "pursuit_3k"),                  # French: generic pursuit fallback
     ("500m time trial", "time_trial_500"),
+    ("500m clm", "time_trial_500"),               # French: 500m contre-la-montre
     ("750m time trial", "time_trial_750"),
+    ("750m clm", "time_trial_750"),               # French: 750m contre-la-montre
     ("kilo time trial", "time_trial_kilo"),
+    ("kilo clm", "time_trial_kilo"),              # French: kilo contre-la-montre
     ("1000m time trial", "time_trial_kilo"),
+    ("1000m clm", "time_trial_kilo"),             # French: 1000m contre-la-montre
     ("time trial", "time_trial_generic"),
+    ("clm", "time_trial_generic"),                # French: generic contre-la-montre
+    ("flying 200m", "sprint_qualifying"),
     ("sprint qualifying", "sprint_qualifying"),
+    ("vitesse qualifying", "sprint_qualifying"),  # French: sprint qualifying
     ("sprint", "sprint_match"),
+    ("vitesse", "sprint_match"),                  # French: sprint match
+    ("200m", "sprint_qualifying"),                # bare 200m = sprint qualifying
     ("medal ceremonies", "ceremony"),
     ("medal ceremony", "ceremony"),
+    ("pause", "break_"),                          # French: break
     ("break", "break_"),
     ("end of session", "end_of_session"),
 ]
@@ -101,7 +124,7 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "unknown": 10.0,
 }
 
-SPECIAL_EVENT_NAMES = {"break", "end of session", "medal ceremonies", "medal ceremony"}
+SPECIAL_EVENT_NAMES = {"break", "pause", "end of session", "medal ceremonies", "medal ceremony"}
 
 # Per-heat durations in minutes for use when heat count is known from a start list.
 # One "heat" = one sequential time slot (e.g. one keirin race, one pursuit pair,
@@ -161,6 +184,7 @@ def detect_discipline(event_name: str) -> str:
     for keyword, key in DISCIPLINE_KEYWORDS:
         if keyword in lower:
             return key
+    logger.warning("Unrecognized discipline, falling back to default duration", extra={"event_name": event_name})
     return "unknown"
 
 

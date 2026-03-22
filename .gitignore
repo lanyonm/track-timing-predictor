@@ -11,6 +11,7 @@ timings.db
 .claude/
 .playwright-mcp/
 cdk.out/
+data/
 
 # Speckit plugin installed files (reinstall via: specify init / plugin install)
 .specify/scripts/

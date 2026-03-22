@@ -8,7 +8,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger.json import JsonFormatter
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,7 +37,7 @@ from app.predictor import (
 
 def setup_logging() -> None:
     handler = logging.StreamHandler()
-    handler.setFormatter(jsonlogger.JsonFormatter(
+    handler.setFormatter(JsonFormatter(
         fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%SZ",
         rename_fields={"asctime": "timestamp", "levelname": "level"},
@@ -204,7 +204,7 @@ async def health():
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/schedule/{event_id}", response_class=HTMLResponse)
@@ -249,8 +249,7 @@ async def get_schedule(request: Request, event_id: int, r: str | None = Query(No
     if racer_name:
         racer_encoded = _encode_racer_name(racer_name)
 
-    response = templates.TemplateResponse("schedule.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "schedule.html", {
         "schedule": schedule,
         "competition_id": event_id,
         "now": now,
@@ -303,8 +302,7 @@ async def refresh_schedule(request: Request, event_id: int, r: str | None = Quer
     racer_name = _resolve_racer_name(request, r)
     schedule = predict_schedule(event_id, sessions, now=now, racer_name=racer_name, use_learned=_use_learned(request))
 
-    return templates.TemplateResponse("_schedule_body.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "_schedule_body.html", {
         "schedule": schedule,
         "competition_id": event_id,
         "now": now,
@@ -349,15 +347,14 @@ async def default_durations(request: Request):
         {"discipline": d, "default": DEFAULT_DURATIONS[d], "per_heat": PER_HEAT_DURATIONS.get(d)}
         for d in DEFAULT_DURATIONS
     ]
-    return templates.TemplateResponse("defaults.html", {"request": request, "rows": rows})
+    return templates.TemplateResponse(request, "defaults.html", {"rows": rows})
 
 
 @app.get("/learned", response_class=HTMLResponse)
 async def learned_durations(request: Request):
     """Display the learned duration database for inspection."""
     durations = get_all_learned_durations()
-    return templates.TemplateResponse("learned.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "learned.html", {
         "durations": durations,
         "min_samples": settings.min_learned_samples,
     })

@@ -3,8 +3,23 @@ from __future__ import annotations
 import unicodedata
 from datetime import datetime, time
 from enum import Enum
+from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
+
+
+class EventCategory(BaseModel):
+    """Structured decomposition of an event name into component dimensions."""
+    model_config = ConfigDict(frozen=True)
+
+    discipline: str = Field(min_length=1)
+    classification: str | None = None
+    gender: Literal["men", "women", "open"] = "open"
+    round: str | None = None
+    ride_number: int | None = Field(default=None, ge=1)
+    omnium_part: int | None = Field(default=None, ge=1)
 
 
 class EventStatus(str, Enum):
@@ -110,3 +125,83 @@ class SchedulePrediction(BaseModel):
     events_without_start_lists: int = 0
     total_events: int = 0
     next_race: NextRace | None = None
+
+
+# ---------------------------------------------------------------------------
+# Duration data import models
+# ---------------------------------------------------------------------------
+
+class DurationRecord(BaseModel):
+    """A single observation of how long an event took."""
+    category: EventCategory
+    event_name: str
+    heat_count: int | None = Field(default=None, ge=1)
+    duration_minutes: float = Field(gt=0)
+    per_heat_duration_minutes: float | None = Field(default=None, gt=0)
+    duration_source: DurationSource
+    competition_id: int = Field(gt=0)
+    session_id: int = Field(ge=1)
+    event_position: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _heat_count_required_for_heat_source(self) -> "DurationRecord":
+        if self.duration_source == "heat_count" and self.heat_count is None:
+            raise ValueError("heat_count must be set when duration_source is 'heat_count'")
+        if self.per_heat_duration_minutes is not None and self.heat_count is None:
+            raise ValueError("per_heat_duration_minutes requires heat_count to be set")
+        return self
+
+
+class UncategorizedEntry(BaseModel):
+    """Summary of an event name that couldn't be fully categorized."""
+    event_name: str
+    partial_category: EventCategory
+    unresolved_text: str = Field(min_length=1)
+    frequency: int = Field(ge=1)
+    avg_duration_minutes: float | None = Field(default=None, gt=0)
+    has_heats: bool
+
+
+class CompetitionMeta(BaseModel):
+    """Metadata for a competition."""
+    competition_id: int = Field(gt=0)
+    name: str | None = None
+    url: str = Field(min_length=1)
+
+
+class EventReport(BaseModel):
+    """Per-event data in a competition report."""
+    position: int = Field(ge=0)
+    name: str
+    category: EventCategory
+    status: EventStatus
+    is_special: bool
+    heat_count: int | None = Field(default=None, ge=1)
+    duration_minutes: float | None = Field(default=None, gt=0)
+    duration_source: DurationSource | None = None
+
+    @model_validator(mode="after")
+    def _duration_fields_co_present(self) -> "EventReport":
+        has_minutes = self.duration_minutes is not None
+        has_source = self.duration_source is not None
+        if has_minutes != has_source:
+            raise ValueError("duration_minutes and duration_source must both be set or both be None")
+        return self
+
+
+class SessionReport(BaseModel):
+    """Per-session data in a competition report."""
+    session_id: int = Field(ge=1)
+    day: str = Field(min_length=1)
+    scheduled_start: str = Field(pattern=r"^\d{2}:\d{2}$")
+    events: list[EventReport]
+
+
+class CompetitionReport(BaseModel):
+    """Top-level JSON output file structure."""
+    version: Literal["1.0"] = "1.0"
+    extracted_at: datetime
+    competition: CompetitionMeta
+    sessions: list[SessionReport]
+    duration_observations: list[DurationRecord]
+    uncategorized_summary: list[UncategorizedEntry]

@@ -57,9 +57,15 @@ app/
 ├── parser.py        # HTML parsing of Jaxon AJAX responses
 ├── predictor.py     # Prediction algorithm and live delay detection
 ├── disciplines.py   # Discipline detection and default duration estimates
-├── database.py      # SQLite storage for learned durations
+├── categorizer.py   # Compositional event name parser (bilingual)
+├── database.py      # SQLite/DynamoDB storage for learned durations
 ├── models.py        # Pydantic data models
 └── templates/       # Jinja2 HTML templates
+tools/
+├── extract_competition.py  # CLI: competition ID → JSON report
+└── load_durations.py       # CLI: JSON reports → learning database
+data/
+└── competitions/    # Extracted JSON reports (gitignored)
 static/
 └── style.css
 ```
@@ -85,6 +91,24 @@ Each event's slot duration is determined by the first available source:
 4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py). Shown as **est.** in the UI.
 
 Per-heat constants (`PER_HEAT_DURATIONS`) and overall fallback defaults (`DEFAULT_DURATIONS`) can both be adjusted in [app/disciplines.py](app/disciplines.py).
+
+## Importing historical duration data
+
+The built-in defaults work out of the box, but the prediction engine improves significantly when seeded with real data from past competitions. A pair of CLI tools extract historical durations from tracktiming.live and load them into the learning database:
+
+```bash
+# Extract a competition's data into a JSON report
+python -m tools.extract_competition 26008
+
+# Load the report into the learning database
+python -m tools.load_durations data/competitions/26008.json
+```
+
+The extraction script decomposes event names (e.g. `"Elite/Junior Women Scratch Race / Omni I"`) into structured categories — discipline, classification, gender, round — using a bilingual parser that handles both English and French naming. Durations are computed from result-page finish times, consecutive generated timestamps, or start-list heat counts (same priority as the live app).
+
+The loader validates each observation against [0.5x, 2.0x] bounds of the expected duration (heat-count-derived when available, static default otherwise) and writes to the learning database with structured category info. On first run against an existing database with duplicate rows from live learning, it prompts to deduplicate (or use `--force` to skip the prompt). Re-loading corrected data overwrites previous values. This enables **cascading granularity fallback**: the app first checks for a category-specific average (e.g. elite men sprint), then progressively broader averages (all men sprint, then all sprint), before falling back to the static default.
+
+See [docs/duration-data-import.md](docs/duration-data-import.md) for full documentation including the categorization rules, output format, database schema changes, and reference competitions.
 
 ## Configuration
 
