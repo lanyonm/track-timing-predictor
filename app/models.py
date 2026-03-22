@@ -7,6 +7,16 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 
+class EventCategory(BaseModel):
+    """Structured decomposition of an event name into component dimensions."""
+    discipline: str = Field(min_length=1)
+    classification: str | None = None
+    gender: str = Field(default="open", pattern=r"^(men|women|open)$")
+    round: str | None = None
+    ride_number: int | None = Field(default=None, ge=1)
+    omnium_part: int | None = Field(default=None, ge=1)
+
+
 class EventStatus(str, Enum):
     NOT_READY = "not_ready"
     UPCOMING = "upcoming"
@@ -110,3 +120,71 @@ class SchedulePrediction(BaseModel):
     events_without_start_lists: int = 0
     total_events: int = 0
     next_race: NextRace | None = None
+
+
+# ---------------------------------------------------------------------------
+# Duration data import models
+# ---------------------------------------------------------------------------
+
+class DurationRecord(BaseModel):
+    """A single observation of how long an event took."""
+    discipline: str = Field(min_length=1)
+    classification: str | None = None
+    gender: str = Field(default="open", pattern=r"^(men|women|open)$")
+    round: str | None = None
+    omnium_part: int | None = Field(default=None, ge=1)
+    event_name: str
+    heat_count: int | None = Field(default=None, ge=1)
+    duration_minutes: float = Field(gt=0)
+    per_heat_duration_minutes: float | None = Field(default=None, gt=0)
+    duration_source: str = Field(pattern=r"^(finish_time|generated_diff|heat_count)$")
+    competition_id: int = Field(gt=0)
+    session_id: int = Field(ge=1)
+    event_position: int = Field(ge=0)
+
+
+class UncategorizedEntry(BaseModel):
+    """Summary of an event name that couldn't be fully categorized."""
+    event_name: str
+    partial_category: EventCategory
+    unresolved_text: str
+    frequency: int = Field(ge=1)
+    avg_duration_minutes: float | None = Field(default=None, gt=0)
+    has_heats: bool
+
+
+class CompetitionMeta(BaseModel):
+    """Metadata for a competition."""
+    competition_id: int = Field(gt=0)
+    name: str | None = None
+    url: str = Field(min_length=1)
+
+
+class EventReport(BaseModel):
+    """Per-event data in a competition report."""
+    position: int = Field(ge=0)
+    name: str
+    category: EventCategory
+    status: str = Field(pattern=r"^(not_ready|upcoming|completed)$")
+    is_special: bool
+    heat_count: int | None = Field(default=None, ge=1)
+    duration_minutes: float | None = None
+    duration_source: str | None = Field(default=None, pattern=r"^(finish_time|generated_diff|heat_count)$")
+
+
+class SessionReport(BaseModel):
+    """Per-session data in a competition report."""
+    session_id: int = Field(ge=1)
+    day: str = Field(min_length=1)
+    scheduled_start: str = Field(pattern=r"^\d{2}:\d{2}$")
+    events: list[EventReport]
+
+
+class CompetitionReport(BaseModel):
+    """Top-level JSON output file structure."""
+    version: str = "1.0"
+    extracted_at: str
+    competition: CompetitionMeta
+    sessions: list[SessionReport]
+    duration_observations: list[DurationRecord]
+    uncategorized_summary: list[UncategorizedEntry]

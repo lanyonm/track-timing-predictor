@@ -18,6 +18,18 @@ pytest tests/test_predictor.py
 # Run a single test class or function
 pytest tests/test_predictor.py::TestComputeDelay
 pytest tests/test_predictor.py::TestComputeDelay::test_positive_delay_when_behind
+
+# Extract competition data from tracktiming.live
+python -m tools.extract_competition 26008
+
+# Load extracted data into the learning database
+python -m tools.load_durations data/competitions/26008.json
+
+# Batch extract + load
+for id in 25022 25026 25027 25028 25031 26001 26002 26008 26009 26010; do
+    python -m tools.extract_competition "$id"
+done
+python -m tools.load_durations data/competitions/*.json
 ```
 
 Install dependencies: `pip install -r requirements.txt`
@@ -85,14 +97,32 @@ The app predicts per-event start times for track cycling competitions fetched fr
 
 **Learning mechanism** (`database.py`):
 - Dual backend: DynamoDB in production (`DYNAMODB_TABLE` set), SQLite for local dev
-- DynamoDB single-table design: `AGGREGATE#<discipline>` items store running totals; `OVERRIDE#<discipline>` items store manual overrides
-- SQLite tables: `event_durations` accumulates observations, `discipline_overrides` for manual overrides
+- DynamoDB single-table design (pk-only, no sort key):
+  - `AGGREGATE#<disc>` — broadest running total (Level 1, existing)
+  - `AGGREGATE#<disc>##<gender>` — discipline+gender (Level 2, double-hash separates from Level 3)
+  - `AGGREGATE#<disc>#<class>` — discipline+classification (Level 3)
+  - `AGGREGATE#<disc>#<class>#<gender>` — most specific (Level 4)
+  - `OVERRIDE#<disc>` (through `OVERRIDE#<disc>#<class>#<gender>`) — manual overrides at each level
+  - `OBS#<comp_id>#<sess_id>#<pos>` — observation items for idempotent upsert (prevents double-counting)
+- SQLite tables: `event_durations` accumulates observations (with `classification`, `gender`, `per_heat_duration_minutes` columns), `discipline_overrides` for manual overrides
 - `get_learned_duration()` returns the average when ≥ `min_learned_samples` (3) rows exist
+- `get_learned_duration_cascading(discipline, classification, gender)` queries 4 specificity levels: discipline+classification+gender → discipline+classification → discipline+gender → discipline → static default
+- `record_duration_structured()` writes with structured category info and idempotent upsert via natural key (competition_id, session_id, event_position)
 - Wall-clock learning (UPCOMING→COMPLETED transition) is a fallback, capped at 3× the static default to reject inflated values when start lists are published before the race
 
 **Discipline detection** (`disciplines.py`):
 - Keyword list in `DISCIPLINE_KEYWORDS` matched against lowercase event names
 - Order matters — more specific phrases must appear before less specific ones (e.g. `"elite men individual pursuit"` before `"individual pursuit"`)
+
+**Event name categorizer** (`categorizer.py`):
+- Compositional strip-and-match parser extracting: special events, omnium part, ride number, round, classification (age/license/compound/para), gender (English + French), discipline (bilingual keyword table)
+- Post-extraction mapping resolves distance-variant discipline keys (e.g., pursuit → pursuit_4k/3k/2k based on classification + gender)
+- Returns `(EventCategory, unresolved_text)` tuple
+
+**CLI import tools** (`tools/` package, invoked via `python -m`):
+- `python -m tools.extract_competition <competition_id>` — fetches schedule/result/start-list pages, extracts durations, writes JSON to `data/competitions/<id>.json`
+- `python -m tools.load_durations <file>...` — reads JSON reports, validates duration bounds (0.5×–2.0× static default), writes to learning DB with structured categories
+- `data/competitions/` output directory is gitignored
 
 **Live delay adjustment** (`predictor.py::_compute_delay`):
 - Only applied when session is in-progress (has both completed and pending events)
@@ -103,9 +133,13 @@ The app predicts per-event start times for track cycling competitions fetched fr
 
 - Tests use `conftest.py` to redirect SQLite to a temp file and force SQLite mode (prevents production DB contamination)
 - `sample-event-output.json` is a captured Jaxon API response used as a test fixture
-- `is_special` events (Break, End of Session, Medal Ceremonies) are excluded from `is_complete` checks and their COMPLETED status is deferred until the next event starts
+- `is_special` events (Break, End of Session, Medal Ceremonies, Warm-up) are excluded from `is_complete` checks and their COMPLETED status is deferred until the next event starts
 - `end_of_session` discipline contributes 0 minutes to the cumulative timeline
 - Templates: `schedule.html` is the full page; `_schedule_body.html` is the HTMX partial returned by `/schedule/{id}/refresh`
+- Categorizer extraction order: special events → omnium part → ride number → round → classification → gender → discipline (most specific patterns matched first within each step)
+- Extraction test fixtures in `tests/fixtures/`: captured Jaxon schedule responses, result page HTML (bunch race with Finish Time, non-bunch with Generated timestamp), start-list HTML with heats
+- DynamoDB structured writes: aggregates updated BEFORE OBS# item written — ensures partial failures are retryable on next load (OBS# acts as the commit marker)
+- SQLite schema migration (`_migrate_schema`) adds `classification`, `gender`, `per_heat_duration_minutes` columns to existing databases via `ALTER TABLE ADD COLUMN`
 
 ## Active Technologies
 - Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing) (001-racer-schedule-lookup)
