@@ -114,17 +114,35 @@ for entry in report.get('uncategorized_summary', []):
 ## Loader Script
 
 ```
-python -m tools.load_durations <file> [<file> ...]
+python -m tools.load_durations [--force] <file> [<file> ...]
 ```
 
 The loader reads JSON report files and writes duration observations into the app's learning database.
 
+### First Run: Database Migration
+
+On first run against an existing database, the loader adds new columns and a unique index. If the database contains duplicate rows for the same `(competition_id, session_id, event_position)` — which can happen from the live app's wall-clock learning — the loader will prompt:
+
+```
+The database at timings.db has 42 duplicate rows that conflict with the new unique index.
+The most recent row for each (competition_id, session_id, event_position) will be kept;
+older duplicates will be removed.
+
+Remove 42 duplicate rows? [y/N]
+```
+
+Use `--force` to skip the prompt and automatically deduplicate:
+
+```bash
+python -m tools.load_durations --force data/competitions/*.json
+```
+
 ### Validation
 
-Before writing, each observation is checked against the static default for its discipline:
+Before writing, each observation is checked against the expected duration for its discipline:
 
-- **Bounds check** — durations outside [0.5x, 2.0x] of `DEFAULT_DURATIONS[discipline]` are rejected as outliers with a warning
-- **Idempotent upsert** — uses the natural key `(competition_id, session_id, event_position)` so re-running the loader on the same file is safe
+- **Bounds check** — when `heat_count` is available, the expected duration is `heat_count * per_heat_duration + changeover`; otherwise the static `DEFAULT_DURATIONS[discipline]` is used. Durations outside [0.5x, 2.0x] of the expected value are rejected as outliers with a warning.
+- **Idempotent upsert** — uses the natural key `(competition_id, session_id, event_position)` so re-running the loader on the same file is safe. In SQLite, re-loading with corrected data overwrites the previous values.
 
 ### Per-Heat Duration Computation
 

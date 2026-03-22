@@ -18,21 +18,29 @@ import sys
 from pathlib import Path
 
 from app.config import settings
-from app.database import init_db, record_duration_structured
-from app.disciplines import get_changeover, get_default_duration, DEFAULT_DURATIONS
+from app.database import DuplicateRowsError, deduplicate_event_durations, init_db, record_duration_structured
+from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration, DEFAULT_DURATIONS
 from app.models import CompetitionReport, DurationRecord
 
 logger = logging.getLogger(__name__)
 
 
 def _validate_duration_bounds(record: DurationRecord) -> bool:
-    """Check if duration is within [0.5x, 2.0x] of the static default.
+    """Check if duration is within [0.5x, 2.0x] of the expected duration.
+
+    When heat_count is available, the expected duration is computed from
+    heat_count * per_heat_duration + changeover (matching how the extraction
+    script derived it). Otherwise, falls back to the static default.
 
     Returns True if valid, False if out of bounds.
     """
-    default = get_default_duration(record.discipline)
-    lo = 0.5 * default
-    hi = 2.0 * default
+    if record.heat_count is not None and record.heat_count > 0:
+        expected = (record.heat_count * get_per_heat_duration(record.discipline)
+                    + get_changeover(record.discipline))
+    else:
+        expected = get_default_duration(record.discipline)
+    lo = 0.5 * expected
+    hi = 2.0 * expected
     return lo <= record.duration_minutes <= hi
 
 
@@ -114,11 +122,32 @@ def main() -> None:
         type=Path,
         help="Path(s) to JSON report files (e.g. data/competitions/26008.json)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Automatically deduplicate existing rows without prompting",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    init_db()
+    try:
+        init_db()
+    except DuplicateRowsError as exc:
+        print(f"\nThe database at {settings.db_path} has {exc.duplicate_count} "
+              "duplicate rows that conflict with the new unique index.")
+        print("The most recent row for each (competition_id, session_id, "
+              "event_position) will be kept; older duplicates will be removed.\n")
+        if args.force:
+            proceed = True
+        else:
+            answer = input(f"Remove {exc.duplicate_count} duplicate rows? [y/N] ").strip().lower()
+            proceed = answer in ("y", "yes")
+        if not proceed:
+            print("Aborted. No changes made.")
+            sys.exit(1)
+        deleted = deduplicate_event_durations()
+        print(f"Removed {deleted} duplicate rows.\n")
 
     total_stats = {"loaded": 0, "skipped_bounds": 0, "warnings": 0}
 

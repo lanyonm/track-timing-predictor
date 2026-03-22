@@ -8,6 +8,8 @@ import pytest
 
 from app.config import settings
 from app.database import (
+    DuplicateRowsError,
+    deduplicate_event_durations,
     get_db,
     get_learned_duration,
     get_learned_duration_cascading,
@@ -116,6 +118,71 @@ class TestSchemaMigration:
             conn.close()
             assert "idx_event_durations_category" in index_names
             assert "idx_event_durations_natural_key" in index_names
+        finally:
+            settings.db_path = original_db
+            settings.dynamodb_table = original_dynamo
+
+    def test_duplicate_rows_raise_error(self, tmp_path):
+        """Duplicate natural keys in existing data raise DuplicateRowsError."""
+        db_path = str(tmp_path / "dupes.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(_OLD_SCHEMA)
+        # Insert duplicate rows for the same natural key
+        for dur in [10.0, 12.0, 14.0]:
+            conn.execute(
+                "INSERT INTO event_durations (competition_id, session_id, event_position, "
+                "event_name, discipline, duration_minutes) VALUES (1, 1, 0, 'test', 'sprint_match', ?)",
+                (dur,),
+            )
+        conn.commit()
+        conn.close()
+
+        original_db = settings.db_path
+        original_dynamo = settings.dynamodb_table
+        settings.db_path = db_path
+        settings.dynamodb_table = ""
+        try:
+            with pytest.raises(DuplicateRowsError) as exc_info:
+                init_db()
+            assert exc_info.value.duplicate_count == 2  # 3 rows, keep 1, remove 2
+        finally:
+            settings.db_path = original_db
+            settings.dynamodb_table = original_dynamo
+
+    def test_deduplicate_keeps_most_recent(self, tmp_path):
+        """deduplicate_event_durations keeps the row with the highest id."""
+        db_path = str(tmp_path / "dedup.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript(_OLD_SCHEMA)
+        for dur in [10.0, 12.0, 14.0]:
+            conn.execute(
+                "INSERT INTO event_durations (competition_id, session_id, event_position, "
+                "event_name, discipline, duration_minutes) VALUES (1, 1, 0, 'test', 'sprint_match', ?)",
+                (dur,),
+            )
+        conn.commit()
+        conn.close()
+
+        original_db = settings.db_path
+        original_dynamo = settings.dynamodb_table
+        settings.db_path = db_path
+        settings.dynamodb_table = ""
+        try:
+            # init_db will raise due to duplicates — run schema without unique index first
+            conn = sqlite3.connect(db_path)
+            conn.executescript(_OLD_SCHEMA)
+            conn.close()
+
+            deleted = deduplicate_event_durations()
+            assert deleted == 2
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT duration_minutes FROM event_durations").fetchone()
+            count = conn.execute("SELECT COUNT(*) FROM event_durations").fetchone()[0]
+            conn.close()
+            assert count == 1
+            assert row["duration_minutes"] == 14.0  # most recent (highest id)
         finally:
             settings.db_path = original_db
             settings.dynamodb_table = original_dynamo
@@ -254,4 +321,33 @@ class TestLoaderIntegration:
     def test_validate_bounds_rejects_too_low(self):
         """Duration < 0.5x default is rejected."""
         record = _make_duration_record(duration_minutes=5.0)  # 0.5x of 12.0 = 6.0
+        assert _validate_duration_bounds(record) is False
+
+    def test_validate_bounds_uses_heat_count_when_available(self):
+        """With heat_count, bounds are computed from per-heat duration, not flat default."""
+        # sprint_qualifying: per_heat=1.25, changeover=0.0
+        # 39 heats -> expected = 39 * 1.25 = 48.75 min
+        # Flat default is 10.0 -> [5.0, 20.0] would reject 48.75
+        # Heat-based expected is 48.75 -> [24.375, 97.5] should accept
+        record = _make_duration_record(
+            event_position=80,
+            discipline="sprint_qualifying",
+            duration_minutes=48.75,
+            heat_count=39,
+            duration_source="heat_count",
+        )
+        assert _validate_duration_bounds(record) is True
+
+    def test_validate_bounds_heat_count_still_rejects_extreme(self):
+        """Heat-count-based bounds still reject truly extreme values."""
+        # keirin: per_heat=4.5, changeover=2.0
+        # 2 heats -> expected = 2 * 4.5 + 2.0 = 11.0
+        # [5.5, 22.0] should reject 50.0
+        record = _make_duration_record(
+            event_position=81,
+            discipline="keirin",
+            duration_minutes=50.0,
+            heat_count=2,
+            duration_source="heat_count",
+        )
         assert _validate_duration_bounds(record) is False

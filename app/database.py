@@ -62,42 +62,79 @@ def init_db() -> None:
         _migrate_schema(conn)
 
 
+class DuplicateRowsError(Exception):
+    """Raised when the unique index cannot be created due to duplicate rows."""
+    def __init__(self, duplicate_count: int):
+        self.duplicate_count = duplicate_count
+        super().__init__(
+            f"{duplicate_count} duplicate rows must be removed before the "
+            "unique index on (competition_id, session_id, event_position) "
+            "can be created"
+        )
+
+
 def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Add classification, gender, per_heat_duration_minutes columns if missing.
 
     Safe for production DBs created before structured categories existed.
     Existing rows keep NULL for new columns — correct behavior since they
     contribute to Level 1 (discipline-only) aggregates.
+
+    Raises DuplicateRowsError if the unique index cannot be created because
+    the existing data contains duplicate natural keys.
     """
+    cursor = conn.execute("PRAGMA table_info(event_durations)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    for col, col_type in [
+        ("classification", "TEXT DEFAULT NULL"),
+        ("gender", "TEXT DEFAULT NULL"),
+        ("per_heat_duration_minutes", "REAL DEFAULT NULL"),
+    ]:
+        if col not in existing_columns:
+            conn.execute(f"ALTER TABLE event_durations ADD COLUMN {col} {col_type}")
+
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_event_durations_category
+        ON event_durations(discipline, classification, gender)
+    """)
+
     try:
-        cursor = conn.execute("PRAGMA table_info(event_durations)")
-        existing_columns = {row[1] for row in cursor.fetchall()}
-
-        for col, col_type in [
-            ("classification", "TEXT DEFAULT NULL"),
-            ("gender", "TEXT DEFAULT NULL"),
-            ("per_heat_duration_minutes", "REAL DEFAULT NULL"),
-        ]:
-            if col not in existing_columns:
-                conn.execute(f"ALTER TABLE event_durations ADD COLUMN {col} {col_type}")
-
-        # Ensure indexes exist (idempotent)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_event_durations_category
-            ON event_durations(discipline, classification, gender)
-        """)
         conn.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_event_durations_natural_key
             ON event_durations(competition_id, session_id, event_position)
         """)
-    except sqlite3.Error:
-        logger.error(
-            "Schema migration failed for %s — the database may need manual "
-            "intervention. If you see a UNIQUE constraint failure, existing "
-            "duplicate rows must be deduplicated first.",
-            settings.db_path,
-            exc_info=True,
-        )
+    except sqlite3.IntegrityError:
+        dup_count = conn.execute("""
+            SELECT COUNT(*) FROM event_durations
+            WHERE id NOT IN (
+                SELECT MAX(id) FROM event_durations
+                GROUP BY competition_id, session_id, event_position
+            )
+        """).fetchone()[0]
+        raise DuplicateRowsError(dup_count)
+
+
+def deduplicate_event_durations() -> int:
+    """Remove duplicate rows, keeping the most recent for each natural key.
+
+    Returns the number of rows deleted.
+    """
+    with get_db() as conn:
+        cursor = conn.execute("""
+            DELETE FROM event_durations
+            WHERE id NOT IN (
+                SELECT MAX(id) FROM event_durations
+                GROUP BY competition_id, session_id, event_position
+            )
+        """)
+        deleted = cursor.rowcount
+        # Now create the unique index
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_event_durations_natural_key
+            ON event_durations(competition_id, session_id, event_position)
+        """)
+    return deleted
 
 
 # ---------------------------------------------------------------------------

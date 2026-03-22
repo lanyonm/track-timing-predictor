@@ -106,7 +106,7 @@ python -m tools.load_durations data/competitions/26008.json
 
 The extraction script decomposes event names (e.g. `"Elite/Junior Women Scratch Race / Omni I"`) into structured categories — discipline, classification, gender, round — using a bilingual parser that handles both English and French naming. Durations are computed from result-page finish times, consecutive generated timestamps, or start-list heat counts (same priority as the live app).
 
-The loader validates each observation against [0.5x, 2.0x] bounds of the static default and writes to the learning database with structured category info. This enables **cascading granularity fallback**: the app first checks for a category-specific average (e.g. elite men sprint), then progressively broader averages (all men sprint, then all sprint), before falling back to the static default.
+The loader validates each observation against [0.5x, 2.0x] bounds of the expected duration (heat-count-derived when available, static default otherwise) and writes to the learning database with structured category info. On first run against an existing database with duplicate rows from live learning, it prompts to deduplicate (or use `--force` to skip the prompt). Re-loading corrected data overwrites previous values. This enables **cascading granularity fallback**: the app first checks for a category-specific average (e.g. elite men sprint), then progressively broader averages (all men sprint, then all sprint), before falling back to the static default.
 
 See [docs/duration-data-import.md](docs/duration-data-import.md) for full documentation including the categorization rules, output format, database schema changes, and reference competitions.
 
