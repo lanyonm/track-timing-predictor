@@ -3,6 +3,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import datetime, time
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -11,7 +12,7 @@ class EventCategory(BaseModel):
     """Structured decomposition of an event name into component dimensions."""
     discipline: str = Field(min_length=1)
     classification: str | None = None
-    gender: str = Field(default="open", pattern=r"^(men|women|open)$")
+    gender: Literal["men", "women", "open"] = "open"
     round: str | None = None
     ride_number: int | None = Field(default=None, ge=1)
     omnium_part: int | None = Field(default=None, ge=1)
@@ -128,19 +129,21 @@ class SchedulePrediction(BaseModel):
 
 class DurationRecord(BaseModel):
     """A single observation of how long an event took."""
-    discipline: str = Field(min_length=1)
-    classification: str | None = None
-    gender: str = Field(default="open", pattern=r"^(men|women|open)$")
-    round: str | None = None
-    omnium_part: int | None = Field(default=None, ge=1)
+    category: EventCategory
     event_name: str
     heat_count: int | None = Field(default=None, ge=1)
     duration_minutes: float = Field(gt=0)
     per_heat_duration_minutes: float | None = Field(default=None, gt=0)
-    duration_source: str = Field(pattern=r"^(finish_time|generated_diff|heat_count)$")
+    duration_source: Literal["finish_time", "generated_diff", "heat_count"]
     competition_id: int = Field(gt=0)
     session_id: int = Field(ge=1)
     event_position: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _heat_count_required_for_heat_source(self) -> "DurationRecord":
+        if self.duration_source == "heat_count" and self.heat_count is None:
+            raise ValueError("heat_count must be set when duration_source is 'heat_count'")
+        return self
 
 
 class UncategorizedEntry(BaseModel):
@@ -165,11 +168,11 @@ class EventReport(BaseModel):
     position: int = Field(ge=0)
     name: str
     category: EventCategory
-    status: str = Field(pattern=r"^(not_ready|upcoming|completed)$")
+    status: EventStatus
     is_special: bool
     heat_count: int | None = Field(default=None, ge=1)
-    duration_minutes: float | None = None
-    duration_source: str | None = Field(default=None, pattern=r"^(finish_time|generated_diff|heat_count)$")
+    duration_minutes: float | None = Field(default=None, ge=0)
+    duration_source: Literal["finish_time", "generated_diff", "heat_count"] | None = None
 
 
 class SessionReport(BaseModel):
@@ -182,8 +185,8 @@ class SessionReport(BaseModel):
 
 class CompetitionReport(BaseModel):
     """Top-level JSON output file structure."""
-    version: str = "1.0"
-    extracted_at: str
+    version: Literal["1.0"] = "1.0"
+    extracted_at: datetime
     competition: CompetitionMeta
     sessions: list[SessionReport]
     duration_observations: list[DurationRecord]

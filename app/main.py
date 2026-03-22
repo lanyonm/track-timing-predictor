@@ -8,7 +8,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger.json import JsonFormatter
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,7 +37,7 @@ from app.predictor import (
 
 def setup_logging() -> None:
     handler = logging.StreamHandler()
-    handler.setFormatter(jsonlogger.JsonFormatter(
+    handler.setFormatter(JsonFormatter(
         fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%SZ",
         rename_fields={"asctime": "timestamp", "levelname": "level"},

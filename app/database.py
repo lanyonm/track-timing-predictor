@@ -5,10 +5,26 @@ from decimal import Decimal
 from typing import Literal
 
 try:
-    from botocore.exceptions import BotoCoreError, ClientError
+    from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
     _BotoError = (BotoCoreError, ClientError)
+    _AUTH_ERROR_CODES = frozenset({
+        "ExpiredTokenException", "UnrecognizedClientException",
+        "AccessDeniedException", "InvalidSignatureException",
+    })
 except ImportError:  # boto3 not installed (local dev without AWS deps)
     _BotoError = ()  # type: ignore[assignment]
+    NoCredentialsError = None  # type: ignore[assignment,misc]
+    _AUTH_ERROR_CODES = frozenset()
+
+
+def _raise_if_auth_error(exc: Exception) -> None:
+    """Re-raise credential/config errors that should not be silently caught."""
+    if NoCredentialsError is not None and isinstance(exc, NoCredentialsError):
+        raise
+    if isinstance(exc, ClientError):
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in _AUTH_ERROR_CODES:
+            raise
 
 from app.config import settings
 
@@ -146,8 +162,12 @@ def deduplicate_event_durations() -> int:
 # Single-table design — partition key "pk" only (matches CDK table definition).
 #
 # Item types:
-#   AGGREGATE#<discipline>  — running total_minutes (N) + count (N); used for avg
-#   OVERRIDE#<discipline>   — manual override duration_minutes (N)
+#   AGGREGATE#<disc>                       — Level 1: broadest running total (N) + count (N)
+#   AGGREGATE#<disc>##<gender>             — Level 2: discipline + gender (double-hash separator)
+#   AGGREGATE#<disc>#<class>               — Level 3: discipline + classification
+#   AGGREGATE#<disc>#<class>#<gender>      — Level 4: most specific
+#   OVERRIDE#<disc> (through #<class>#<gender>) — manual override at each level
+#   OBS#<comp_id>#<sess_id>#<pos>          — observation item for idempotent upsert
 # ---------------------------------------------------------------------------
 
 _dynamo_table_cache = None
@@ -176,7 +196,8 @@ def _dynamo_record_duration(
                 ":one": 1,
             },
         )
-    except _BotoError:
+    except _BotoError as exc:
+        _raise_if_auth_error(exc)
         logger.error("DynamoDB error recording duration for %s", discipline, exc_info=True)
 
 
@@ -192,7 +213,8 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
             total = float(item.get("total_minutes", 0))
             if count >= settings.min_learned_samples:
                 return total / count
-    except _BotoError:
+    except _BotoError as exc:
+        _raise_if_auth_error(exc)
         logger.error("DynamoDB error reading learned duration for %s", discipline, exc_info=True)
     return None
 
@@ -215,7 +237,11 @@ def _obs_fields_match(
 
     # Decimal→float comparison with epsilon tolerance
     eps = 1e-9
-    old_dur = float(existing.get("duration_minutes", 0))
+    raw_dur = existing.get("duration_minutes")
+    if raw_dur is None:
+        logger.warning("OBS item missing duration_minutes field: %s", existing.get("pk"))
+        return False
+    old_dur = float(raw_dur)
     if abs(old_dur - duration_minutes) > eps:
         return False
 
@@ -245,12 +271,19 @@ def _dynamo_record_duration_structured(
     """Write structured duration to DynamoDB with multi-level aggregates.
 
     Three-way branch:
-      1. No existing OBS# → create new record (unchanged from original)
+      1. No existing OBS# → create new record (increment aggregates, write OBS#)
       2. Existing OBS# with identical data → return "unchanged"
       3. Existing OBS# with different data → correct aggregates, overwrite OBS#
 
     Maintains aggregates-first, OBS#-last ordering for crash safety.
+
+    Note: Branch 3 performs multiple non-transactional update_item calls.
+    If a partial failure occurs, aggregates may be inconsistent until the
+    next re-load (which will recompute deltas from the unchanged OBS# item).
     """
+    # Normalize empty strings to None for consistent key generation
+    classification = classification or None
+    gender = gender or None
     try:
         table = _dynamo_table()
         obs_key = f"OBS#{competition_id}#{session_id}#{event_position}"
@@ -267,7 +300,15 @@ def _dynamo_record_duration_structured(
             old_discipline = existing.get("discipline", discipline)
             old_classification = existing.get("classification")
             old_gender = existing.get("gender")
-            old_duration = float(existing["duration_minutes"])
+            raw_old_duration = existing.get("duration_minutes")
+            if raw_old_duration is None:
+                logger.error(
+                    "OBS item %s missing duration_minutes — cannot compute correction "
+                    "delta; overwriting with new data", obs_key,
+                )
+                old_duration = 0.0
+            else:
+                old_duration = float(raw_old_duration)
 
             old_agg_keys = set(_build_aggregate_keys(old_discipline, old_classification, old_gender))
             new_agg_keys = set(_build_aggregate_keys(discipline, classification, gender))
@@ -363,10 +404,29 @@ def _dynamo_record_duration_structured(
             )
         except ClientError as exc:
             if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                return "unchanged"  # Concurrent write won
+                # Concurrent write won — roll back aggregate increments
+                try:
+                    for agg_key in aggregate_keys:
+                        table.update_item(
+                            Key={"pk": agg_key},
+                            UpdateExpression="ADD total_minutes :d, #cnt :neg_one",
+                            ExpressionAttributeNames={"#cnt": "count"},
+                            ExpressionAttributeValues={
+                                ":d": Decimal(str(-duration_minutes)),
+                                ":neg_one": -1,
+                            },
+                        )
+                except _BotoError:
+                    logger.error(
+                        "Failed to roll back aggregate increments for %s; "
+                        "aggregates may be over-counted for keys: %s",
+                        obs_key, aggregate_keys, exc_info=True,
+                    )
+                return "unchanged"
             raise
         return "created"
-    except _BotoError:
+    except _BotoError as exc:
+        _raise_if_auth_error(exc)
         logger.error("DynamoDB error recording structured duration for %s", discipline, exc_info=True)
         return "error"
 
@@ -377,6 +437,8 @@ def _build_aggregate_keys(
     gender: str | None,
 ) -> list[str]:
     """Build all applicable AGGREGATE key patterns for a duration observation."""
+    classification = classification or None
+    gender = gender or None
     keys = [f"AGGREGATE#{discipline}"]  # Level 1: always
     if gender:
         keys.append(f"AGGREGATE#{discipline}##{gender}")  # Level 2: disc+gender
@@ -392,7 +454,11 @@ def _dynamo_get_learned_duration_cascading(
     classification: str | None,
     gender: str | None,
 ) -> float | None:
-    """Cascading fallback query for DynamoDB: 4 GetItem calls, most specific first."""
+    """Cascading fallback query for DynamoDB.
+
+    Up to 8 GetItem calls: 4 override checks (most specific first) followed
+    by 4 aggregate checks (most specific first).
+    """
     try:
         table = _dynamo_table()
         levels = []
@@ -419,7 +485,7 @@ def _dynamo_get_learned_duration_cascading(
                 try:
                     return float(item["duration_minutes"])
                 except (ValueError, TypeError):
-                    logger.error("Malformed override value for %s: %r", override_key, item.get("duration_minutes"))
+                    logger.error("Malformed override value for %s: %r", override_key, item.get("duration_minutes"), exc_info=True)
 
         # Check aggregates at each level
         for agg_key in levels:
@@ -437,7 +503,8 @@ def _dynamo_get_learned_duration_cascading(
             total = float(item.get("total_minutes", 0))
             if count >= settings.min_learned_samples:
                 return total / count
-    except _BotoError:
+    except _BotoError as exc:
+        _raise_if_auth_error(exc)
         logger.error("DynamoDB error in cascading fallback for %s", discipline, exc_info=True)
     return None
 
@@ -463,7 +530,8 @@ def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
             if count > 0:
                 result[discipline] = (total / count, count)
         return result
-    except _BotoError:
+    except _BotoError as exc:
+        _raise_if_auth_error(exc)
         logger.error("DynamoDB error reading all learned durations (table=%s)", settings.dynamodb_table, exc_info=True)
         return {}
 
@@ -555,6 +623,10 @@ def record_duration_structured(
     event_position) for idempotent upsert.
 
     Returns "created", "updated", "unchanged", or "error".
+
+    Note: The SQLite path always returns "created" even when replacing an
+    existing row, since INSERT OR REPLACE does not distinguish insert from
+    update. The DynamoDB path returns all four outcome values.
     """
     if settings.dynamodb_table:
         return _dynamo_record_duration_structured(
@@ -598,7 +670,10 @@ def get_learned_duration_cascading(
       Level 1: discipline only
 
     Returns the first level with count >= min_learned_samples.
-    Checks discipline_overrides at Level 1 (same as get_learned_duration).
+    Checks discipline_overrides at Level 1 for SQLite (same as
+    get_learned_duration). The DynamoDB path checks overrides at all 4
+    specificity levels, most specific first.
+
     When classification or gender is None, higher-specificity levels that use
     WHERE col = ? with NULL will never match in SQL — this naturally falls
     through to broader levels.

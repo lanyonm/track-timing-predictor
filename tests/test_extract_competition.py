@@ -7,10 +7,12 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from app.models import EventStatus
 from tools.extract_competition import (
+    _fetch_with_retry,
     extract_competition,
     extract_finish_time_duration,
     extract_generated_diff_duration,
@@ -130,7 +132,7 @@ class TestSelectBestDuration:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests for extract_competition (T008)
+# Integration tests for extract_competition
 # ---------------------------------------------------------------------------
 
 
@@ -205,7 +207,7 @@ class TestExtractCompetitionIntegration:
 
 
 # ---------------------------------------------------------------------------
-# Edge case tests (T009)
+# Edge case tests
 # ---------------------------------------------------------------------------
 
 
@@ -214,10 +216,10 @@ class TestExtractCompetitionEdgeCases:
 
     @pytest.mark.asyncio
     async def test_invalid_competition_raises(self):
-        """Invalid competition ID produces clear error."""
+        """Invalid competition ID produces clear error after retry."""
         with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.side_effect = Exception("HTTP 404: Not Found")
-            with pytest.raises(Exception, match="404"):
+            with pytest.raises(ValueError, match="Failed to fetch schedule"):
                 await extract_competition(99999)
 
     @pytest.mark.asyncio
@@ -239,3 +241,55 @@ class TestExtractCompetitionEdgeCases:
 
         dur, source = select_best_duration(None, None, 12.0)
         assert source == "heat_count"
+
+
+# ---------------------------------------------------------------------------
+# Fetch retry tests
+# ---------------------------------------------------------------------------
+
+
+class TestFetchWithRetry:
+    """Test the _fetch_with_retry helper."""
+
+    @pytest.mark.asyncio
+    async def test_success_on_first_try(self):
+        """Successful fetch returns the result."""
+        result = await _fetch_with_retry(
+            lambda: AsyncMock(return_value="ok")(),
+            "test fetch",
+        )
+        assert result == "ok"
+
+    @pytest.mark.asyncio
+    async def test_retry_then_success(self):
+        """Fetch succeeds on retry after first failure."""
+        call_count = 0
+
+        async def flaky():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise httpx.HTTPError("transient")
+            return "recovered"
+
+        result = await _fetch_with_retry(flaky, "test fetch")
+        assert result == "recovered"
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_all_retries_fail_returns_none(self):
+        """All retries failing returns None."""
+        async def always_fail():
+            raise httpx.HTTPError("permanent")
+
+        result = await _fetch_with_retry(always_fail, "test fetch")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_non_http_error_caught(self):
+        """Non-HTTP exceptions (e.g. JSONDecodeError) are also caught."""
+        async def json_fail():
+            raise ValueError("Expecting value: line 1 column 1")
+
+        result = await _fetch_with_retry(json_fail, "test fetch")
+        assert result is None

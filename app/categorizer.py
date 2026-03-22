@@ -2,7 +2,7 @@
 
 Extracts structured dimensions from track cycling event names by
 stripping matched components in a fixed order:
-  1. Special events (Break, End of Session, Medal Ceremonies, Pause)
+  1. Special events (Break, End of Session, Medal Ceremonies, Pause, Warm-up)
   2. Omnium part (/ Omni I through / Omni VII+)
   3. Ride number (Ride N)
   4. Round (most specific first)
@@ -16,9 +16,12 @@ discipline keys using (discipline, classification, gender).
 
 from __future__ import annotations
 
+import logging
 import re
 
 from app.models import EventCategory
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------
@@ -206,6 +209,7 @@ _DISCIPLINE_KEYWORDS: list[tuple[re.Pattern, str]] = [
 # Elite/Senior men & women = 4k
 # Junior men, Master A/B men = 3k
 # All women (junior/U17/U15/master), U17 and younger, Master C+ men = 2k
+# No classification + men = 4k (assumes elite)
 # Fallback = 3k
 
 _PURSUIT_4K_CLASSES = {"elite", "senior"}
@@ -276,7 +280,6 @@ def categorize_event(event_name: str) -> tuple[EventCategory, str]:
     round_: str | None = None
     ride_number: int | None = None
     omnium_part: int | None = None
-    is_special = False
 
     # Step 1: Special events
     for pattern, disc_key in _SPECIAL_PATTERNS:
@@ -344,12 +347,6 @@ def categorize_event(event_name: str) -> tuple[EventCategory, str]:
         classification = "open"
         text = _strip(text, m_open)
 
-    # Handle "Co-Ed" setting classification to open if not already set
-    m_coed = re.search(r"\bco-ed\b", text, re.IGNORECASE)
-    if m_coed and classification is None:
-        classification = "open"
-        text = _strip(text, m_coed)
-
     # Handle "Exhibition" as a prefix modifier
     m_exhibition = re.search(r"\bexhibition\b", text, re.IGNORECASE)
     if m_exhibition:
@@ -369,6 +366,7 @@ def categorize_event(event_name: str) -> tuple[EventCategory, str]:
             break
 
     if discipline is None:
+        logger.info("No discipline keyword matched for event: %r", event_name)
         discipline = "unknown"
 
     # Post-extraction: set round=qualifying for sprint_qualifying when round not

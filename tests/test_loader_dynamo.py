@@ -1,9 +1,11 @@
 """DynamoDB loader tests using moto mock_aws."""
 
 from decimal import Decimal
+from unittest.mock import patch
 
 import boto3
 import pytest
+from botocore.exceptions import BotoCoreError
 from moto import mock_aws
 
 from app import database
@@ -323,3 +325,91 @@ class TestDynamoReloadCorrection:
             duration_minutes=12.0, classification="elite", gender="men",
         )
         assert result == "created"
+
+
+class TestDynamoErrorPaths:
+    """Test DynamoDB error handling paths."""
+
+    def test_boto_error_returns_error(self, dynamo_table):
+        """BotoCoreError during structured write returns 'error'."""
+        with patch.object(database, "_dynamo_table") as mock_table_fn:
+            mock_table_fn.return_value.get_item.side_effect = BotoCoreError()
+            result = record_duration_structured(
+                competition_id=26008, session_id=1, event_position=0,
+                event_name="Sprint Final", discipline="sprint_match",
+                duration_minutes=12.0, classification="elite", gender="men",
+            )
+        assert result == "error"
+
+    def test_concurrent_write_rolls_back_aggregates(self, dynamo_table):
+        """ConditionalCheckFailedException rolls back aggregate increments."""
+        # First, write a record normally
+        record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+        # Verify count=1
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert item["count"] == 1
+
+        # Now simulate a concurrent write: the OBS# already exists, so the
+        # conditional put will fail and aggregates should be rolled back.
+        # Write a second record at a different position — but manually
+        # insert the OBS# first to trigger ConditionalCheckFailedException
+        dynamo_table.put_item(Item={
+            "pk": "OBS#26008#1#99",
+            "discipline": "sprint_match",
+            "duration_minutes": Decimal("12.0"),
+            "classification": "elite",
+            "gender": "men",
+        })
+        result = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=99,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+        # Should return unchanged (Branch 2: identical data)
+        assert result == "unchanged"
+        # Aggregate should still be count=1 (not double-counted)
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert item["count"] == 1
+
+
+class TestDynamoOverrideLevels:
+    """Test that overrides work at all specificity levels."""
+
+    def test_level_4_override(self, dynamo_table):
+        """Override at discipline+classification+gender takes priority."""
+        # Insert 3 records to get an aggregate
+        for i in range(3):
+            record_duration_structured(
+                competition_id=26008, session_id=1, event_position=400 + i,
+                event_name="Sprint", discipline="sprint_match",
+                duration_minutes=10.0 + i,
+                classification="elite", gender="men",
+            )
+        # Insert Level 4 override
+        dynamo_table.put_item(Item={
+            "pk": "OVERRIDE#sprint_match#elite#men",
+            "duration_minutes": Decimal("99.0"),
+        })
+        result = get_learned_duration_cascading("sprint_match", "elite", "men")
+        assert result == 99.0
+
+    def test_level_2_override(self, dynamo_table):
+        """Override at discipline+gender takes priority over aggregates."""
+        for i in range(3):
+            record_duration_structured(
+                competition_id=26008, session_id=1, event_position=410 + i,
+                event_name="Sprint", discipline="keirin",
+                duration_minutes=10.0 + i,
+                classification="elite", gender="women",
+            )
+        # Insert Level 2 override (disc##gender)
+        dynamo_table.put_item(Item={
+            "pk": "OVERRIDE#keirin##women",
+            "duration_minutes": Decimal("88.0"),
+        })
+        result = get_learned_duration_cascading("keirin", "elite", "women")
+        assert result == 88.0

@@ -42,7 +42,7 @@ OUTPUT_DIR = Path("data/competitions")
 
 
 # ---------------------------------------------------------------------------
-# Duration extraction helpers (T010)
+# Duration extraction helpers
 # ---------------------------------------------------------------------------
 
 def extract_finish_time_duration(result_html: str, discipline: str) -> float | None:
@@ -113,26 +113,41 @@ def select_best_duration(
 
 
 # ---------------------------------------------------------------------------
-# CLI orchestration (T011)
+# CLI orchestration
 # ---------------------------------------------------------------------------
 
+_fetch_failure_count: int = 0
+
+
 async def _fetch_with_retry(coro_factory, description: str, retries: int = 1):
-    """Execute an async fetch with one retry on failure."""
+    """Execute an async fetch with one retry on failure.
+
+    Catches all exceptions (not just httpx.HTTPError) so that SSL errors,
+    JSON decode errors, and other non-HTTP failures are retried and counted
+    rather than crashing the entire extraction.
+    """
+    global _fetch_failure_count
     for attempt in range(retries + 1):
         try:
             return await coro_factory()
-        except httpx.HTTPError as exc:
+        except Exception as exc:
             if attempt < retries:
                 logger.warning("Retry %s after error: %s", description, exc)
             else:
                 logger.error("Failed to fetch %s: %s", description, exc)
+                _fetch_failure_count += 1
                 return None
 
 
 async def extract_competition(competition_id: int) -> CompetitionReport:
     """Extract competition data and build a CompetitionReport."""
-    # Fetch and parse schedule
-    jxn_data = await fetch_initial_layout(competition_id)
+    # Fetch and parse schedule (with retry for transient errors)
+    jxn_data = await _fetch_with_retry(
+        lambda: fetch_initial_layout(competition_id),
+        f"initial layout for competition {competition_id}",
+    )
+    if jxn_data is None:
+        raise ValueError(f"Failed to fetch schedule for competition {competition_id}")
     sessions = parse_schedule(jxn_data)
 
     if not sessions:
@@ -216,7 +231,7 @@ async def extract_competition(competition_id: int) -> CompetitionReport:
                 position=event.position,
                 name=event.name,
                 category=category,
-                status=event.status.value,
+                status=event.status,
                 is_special=event.is_special,
                 heat_count=heat_count,
                 duration_minutes=duration_minutes,
@@ -228,11 +243,7 @@ async def extract_competition(competition_id: int) -> CompetitionReport:
             if (duration_minutes is not None and duration_source is not None
                     and event.status == EventStatus.COMPLETED and not event.is_special):
                 duration_observations.append(DurationRecord(
-                    discipline=category.discipline,
-                    classification=category.classification,
-                    gender=category.gender,
-                    round=category.round,
-                    omnium_part=category.omnium_part,
+                    category=category,
                     event_name=event.name,
                     heat_count=heat_count,
                     duration_minutes=duration_minutes,
@@ -284,7 +295,7 @@ async def extract_competition(competition_id: int) -> CompetitionReport:
 
     return CompetitionReport(
         version="1.0",
-        extracted_at=datetime.now(timezone.utc).isoformat(),
+        extracted_at=datetime.now(timezone.utc),
         competition=CompetitionMeta(
             competition_id=competition_id,
             name=f"Competition {competition_id}",
@@ -313,15 +324,21 @@ def main() -> None:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    global _fetch_failure_count
+    _fetch_failure_count = 0
+
     try:
         report = asyncio.run(extract_competition(args.competition_id))
     except (httpx.HTTPError, ValueError) as exc:
         logger.error("Failed to extract competition %d: %s", args.competition_id, exc)
         sys.exit(1)
+    except Exception as exc:
+        logger.error("Unexpected error extracting competition %d: %s", args.competition_id, exc, exc_info=True)
+        sys.exit(2)
 
     output_path = OUTPUT_DIR / f"{args.competition_id}.json"
     with open(output_path, "w") as f:
-        json.dump(report.model_dump(), f, indent=2)
+        json.dump(report.model_dump(mode="json"), f, indent=2)
 
     n_obs = len(report.duration_observations)
     n_uncat = len(report.uncategorized_summary)
@@ -329,6 +346,8 @@ def main() -> None:
     print(f"Extracted {n_obs} duration observations from {n_sessions} sessions")
     if n_uncat > 0:
         print(f"  {n_uncat} uncategorized event names — see uncategorized_summary in output")
+    if _fetch_failure_count > 0:
+        print(f"  WARNING: {_fetch_failure_count} page fetches failed — durations may be incomplete")
     print(f"Output: {output_path}")
 
 

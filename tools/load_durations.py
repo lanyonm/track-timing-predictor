@@ -35,10 +35,10 @@ def _validate_duration_bounds(record: DurationRecord) -> bool:
     Returns True if valid, False if out of bounds.
     """
     if record.heat_count is not None and record.heat_count > 0:
-        expected = (record.heat_count * get_per_heat_duration(record.discipline)
-                    + get_changeover(record.discipline))
+        expected = (record.heat_count * get_per_heat_duration(record.category.discipline)
+                    + get_changeover(record.category.discipline))
     else:
-        expected = get_default_duration(record.discipline)
+        expected = get_default_duration(record.category.discipline)
     lo = 0.5 * expected
     hi = 2.0 * expected
     return lo <= record.duration_minutes <= hi
@@ -47,19 +47,26 @@ def _validate_duration_bounds(record: DurationRecord) -> bool:
 def _compute_per_heat_duration(record: DurationRecord) -> float | None:
     """Compute per-heat duration when both duration and heat_count are present.
 
-    per_heat = (duration_minutes / heat_count) - changeover
+    Inverse of the forward formula: total = count * per_heat + changeover
+    Therefore: per_heat = (duration_minutes - changeover) / heat_count
     """
     if record.heat_count is None or record.heat_count == 0:
         return None
-    changeover = get_changeover(record.discipline)
-    per_heat = (record.duration_minutes / record.heat_count) - changeover
-    return per_heat if per_heat > 0 else None
+    changeover = get_changeover(record.category.discipline)
+    per_heat = (record.duration_minutes - changeover) / record.heat_count
+    if per_heat <= 0:
+        logger.warning(
+            "Negative per-heat duration %.2f for %s (duration=%.1f, heats=%d, changeover=%.1f)",
+            per_heat, record.category.discipline, record.duration_minutes, record.heat_count, changeover,
+        )
+        return None
+    return per_heat
 
 
 def load_report(report: CompetitionReport) -> dict[str, int]:
     """Load duration observations from a report into the learning database.
 
-    Returns summary counts: loaded, skipped_duplicate, skipped_bounds, warnings.
+    Returns summary counts: loaded, updated, unchanged, skipped_bounds, warnings.
     """
     stats = {"loaded": 0, "updated": 0, "unchanged": 0, "skipped_bounds": 0, "warnings": 0}
 
@@ -68,17 +75,17 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
         if not _validate_duration_bounds(record):
             logger.warning(
                 "Out-of-bounds duration %.1f min for %s (competition %d, session %d, pos %d) — skipping",
-                record.duration_minutes, record.discipline,
+                record.duration_minutes, record.category.discipline,
                 record.competition_id, record.session_id, record.event_position,
             )
             stats["skipped_bounds"] += 1
             continue
 
         # Warn for unrecognized disciplines
-        if record.discipline not in DEFAULT_DURATIONS and record.discipline != "exhibition":
+        if record.category.discipline not in DEFAULT_DURATIONS and record.category.discipline != "exhibition":
             logger.warning(
                 "Unrecognized discipline '%s' for event '%s' — storing anyway",
-                record.discipline, record.event_name,
+                record.category.discipline, record.event_name,
             )
             stats["warnings"] += 1
 
@@ -91,10 +98,10 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
                 session_id=record.session_id,
                 event_position=record.event_position,
                 event_name=record.event_name,
-                discipline=record.discipline,
+                discipline=record.category.discipline,
                 duration_minutes=record.duration_minutes,
-                classification=record.classification,
-                gender=record.gender,
+                classification=record.category.classification,
+                gender=record.category.gender,
                 per_heat_duration_minutes=per_heat,
             )
             if outcome == "created":
@@ -108,7 +115,7 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
         except Exception:
             logger.error(
                 "Failed to record duration for %s (competition %d, session %d, pos %d)",
-                record.discipline, record.competition_id, record.session_id,
+                record.category.discipline, record.competition_id, record.session_id,
                 record.event_position, exc_info=True,
             )
             stats["warnings"] += 1
@@ -182,6 +189,9 @@ def main() -> None:
           f"{total_stats['updated']} updated, {total_stats['unchanged']} unchanged, "
           f"{total_stats['skipped_bounds']} out-of-bounds, "
           f"{total_stats['warnings']} warnings")
+
+    if total_stats["warnings"] > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
