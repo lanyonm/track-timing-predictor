@@ -24,7 +24,7 @@ import httpx
 from app.categorizer import categorize_event
 from app.config import settings
 from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
-from app.fetcher import fetch_initial_layout, fetch_result_html, fetch_start_list_html
+from app.fetcher import fetch_initial_layout, fetch_page_html
 from app.models import (
     CompetitionMeta,
     CompetitionReport,
@@ -148,171 +148,178 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
             fetch_failure_count += 1
         return result
 
-    # Fetch and parse schedule (with retry for transient errors)
-    jxn_data = await _fetch(
-        lambda: fetch_initial_layout(competition_id),
-        f"initial layout for competition {competition_id}",
+    client = httpx.AsyncClient(
+        base_url=settings.tracktiming_base_url, timeout=15.0,
     )
-    if jxn_data is None:
-        raise ValueError(f"Failed to fetch schedule for competition {competition_id}")
-    sessions = parse_schedule(jxn_data)
 
-    if not sessions:
-        raise ValueError(f"No sessions found for competition {competition_id}")
+    try:
+        # Fetch and parse schedule (with retry for transient errors)
+        jxn_data = await _fetch(
+            lambda: fetch_initial_layout(client, competition_id),
+            f"initial layout for competition {competition_id}",
+        )
+        if jxn_data is None:
+            raise ValueError(f"Failed to fetch schedule for competition {competition_id}")
+        sessions = parse_schedule(jxn_data)
 
-    session_reports: list[SessionReport] = []
-    duration_observations: list[DurationRecord] = []
-    uncategorized_counts: dict[str, dict] = {}  # event_name -> tracking info
+        if not sessions:
+            raise ValueError(f"No sessions found for competition {competition_id}")
 
-    for session in sessions:
-        event_reports: list[EventReport] = []
+        session_reports: list[SessionReport] = []
+        duration_observations: list[DurationRecord] = []
+        uncategorized_counts: dict[str, dict] = {}  # event_name -> tracking info
 
-        # Collect generated timestamps for consecutive diffing within session
-        generated_times: dict[int, datetime] = {}  # position -> generated datetime
+        for session in sessions:
+            event_reports: list[EventReport] = []
 
-        # First pass: fetch result pages and start lists for completed events
-        result_htmls: dict[int, str | None] = {}
-        start_list_htmls: dict[int, str | None] = {}
+            # Collect generated timestamps for consecutive diffing within session
+            generated_times: dict[int, datetime] = {}  # position -> generated datetime
 
-        for event in session.events:
-            if event.status == EventStatus.COMPLETED and not event.is_special:
-                if event.result_url:
-                    result_htmls[event.position] = await _fetch(
-                        lambda url=event.result_url: fetch_result_html(url),
-                        f"result for {event.name}",
+            # First pass: fetch result pages and start lists for completed events
+            result_htmls: dict[int, str | None] = {}
+            start_list_htmls: dict[int, str | None] = {}
+
+            for event in session.events:
+                if event.status == EventStatus.COMPLETED and not event.is_special:
+                    if event.result_url:
+                        result_htmls[event.position] = await _fetch(
+                            lambda url=event.result_url: fetch_page_html(client, url),
+                            f"result for {event.name}",
+                        )
+                    if event.start_list_url:
+                        start_list_htmls[event.position] = await _fetch(
+                            lambda url=event.start_list_url: fetch_page_html(client, url),
+                            f"start list for {event.name}",
+                        )
+
+            # Parse generated timestamps from result pages
+            for pos, html in result_htmls.items():
+                if html:
+                    gen_time = parse_generated_time(html)
+                    if gen_time:
+                        generated_times[pos] = gen_time
+
+            # Second pass: extract durations and build event reports
+            for event in session.events:
+                category, residual = categorize_event(event.name)
+
+                finish_time_dur = None
+                generated_diff_dur = None
+                heat_count_dur = None
+                heat_count = None
+
+                if event.status == EventStatus.COMPLETED and not event.is_special:
+                    result_html = result_htmls.get(event.position)
+                    start_list_html = start_list_htmls.get(event.position)
+
+                    if result_html:
+                        finish_time_dur = extract_finish_time_duration(result_html, category.discipline)
+
+                    # Generated diff: use previous event's generated timestamp
+                    prev_pos = max((p for p in generated_times if p < event.position), default=None)
+                    prev_gen = generated_times[prev_pos] if prev_pos is not None else None
+                    curr_gen = generated_times.get(event.position)
+                    generated_diff_dur = extract_generated_diff_duration(
+                        prev_gen, curr_gen, category.discipline,
                     )
-                if event.start_list_url:
-                    start_list_htmls[event.position] = await _fetch(
-                        lambda url=event.start_list_url: fetch_start_list_html(url),
-                        f"start list for {event.name}",
-                    )
 
-        # Parse generated timestamps from result pages
-        for pos, html in result_htmls.items():
-            if html:
-                gen_time = parse_generated_time(html)
-                if gen_time:
-                    generated_times[pos] = gen_time
+                    if start_list_html:
+                        heat_count_dur, heat_count = extract_heat_count_duration(
+                            start_list_html, category.discipline,
+                        )
 
-        # Second pass: extract durations and build event reports
-        for event in session.events:
-            category, residual = categorize_event(event.name)
-
-            finish_time_dur = None
-            generated_diff_dur = None
-            heat_count_dur = None
-            heat_count = None
-
-            if event.status == EventStatus.COMPLETED and not event.is_special:
-                result_html = result_htmls.get(event.position)
-                start_list_html = start_list_htmls.get(event.position)
-
-                if result_html:
-                    finish_time_dur = extract_finish_time_duration(result_html, category.discipline)
-
-                # Generated diff: use previous event's generated timestamp
-                prev_pos = max((p for p in generated_times if p < event.position), default=None)
-                prev_gen = generated_times[prev_pos] if prev_pos is not None else None
-                curr_gen = generated_times.get(event.position)
-                generated_diff_dur = extract_generated_diff_duration(
-                    prev_gen, curr_gen, category.discipline,
+                duration_minutes, duration_source = select_best_duration(
+                    finish_time_dur, generated_diff_dur, heat_count_dur,
                 )
 
-                if start_list_html:
-                    heat_count_dur, heat_count = extract_heat_count_duration(
-                        start_list_html, category.discipline,
+                # Flag outliers
+                if duration_minutes is not None and duration_minutes > 120:
+                    logger.warning(
+                        "Outlier duration %.1f min for %s (session %d, pos %d)",
+                        duration_minutes, event.name, session.session_id, event.position,
                     )
 
-            duration_minutes, duration_source = select_best_duration(
-                finish_time_dur, generated_diff_dur, heat_count_dur,
-            )
-
-            # Flag outliers
-            if duration_minutes is not None and duration_minutes > 120:
-                logger.warning(
-                    "Outlier duration %.1f min for %s (session %d, pos %d)",
-                    duration_minutes, event.name, session.session_id, event.position,
-                )
-
-            event_report = EventReport(
-                position=event.position,
-                name=event.name,
-                category=category,
-                status=event.status,
-                is_special=event.is_special,
-                heat_count=heat_count,
-                duration_minutes=duration_minutes,
-                duration_source=duration_source,
-            )
-            event_reports.append(event_report)
-
-            # Build duration observation for completed events with durations
-            if (duration_minutes is not None and duration_source is not None
-                    and event.status == EventStatus.COMPLETED and not event.is_special):
-                duration_observations.append(DurationRecord(
+                event_report = EventReport(
+                    position=event.position,
+                    name=event.name,
                     category=category,
-                    event_name=event.name,
+                    status=event.status,
+                    is_special=event.is_special,
                     heat_count=heat_count,
                     duration_minutes=duration_minutes,
-                    per_heat_duration_minutes=None,  # computed by loader, not extractor
                     duration_source=duration_source,
-                    competition_id=competition_id,
-                    session_id=session.session_id,
-                    event_position=event.position,
-                ))
+                )
+                event_reports.append(event_report)
 
-            # Track uncategorized events
-            if residual:
-                key = event.name
-                if key not in uncategorized_counts:
-                    uncategorized_counts[key] = {
-                        "partial_category": category,
-                        "unresolved_text": residual,
-                        "frequency": 0,
-                        "total_duration": 0.0,
-                        "has_heats": False,
-                    }
-                uncategorized_counts[key]["frequency"] += 1
-                if duration_minutes:
-                    uncategorized_counts[key]["total_duration"] += duration_minutes
-                if heat_count:
-                    uncategorized_counts[key]["has_heats"] = True
+                # Build duration observation for completed events with durations
+                if (duration_minutes is not None and duration_source is not None
+                        and event.status == EventStatus.COMPLETED and not event.is_special):
+                    duration_observations.append(DurationRecord(
+                        category=category,
+                        event_name=event.name,
+                        heat_count=heat_count,
+                        duration_minutes=duration_minutes,
+                        per_heat_duration_minutes=None,  # computed by loader, not extractor
+                        duration_source=duration_source,
+                        competition_id=competition_id,
+                        session_id=session.session_id,
+                        event_position=event.position,
+                    ))
 
-        session_reports.append(SessionReport(
-            session_id=session.session_id,
-            day=session.day,
-            scheduled_start=session.scheduled_start.strftime("%H:%M"),
-            events=event_reports,
-        ))
+                # Track uncategorized events
+                if residual:
+                    key = event.name
+                    if key not in uncategorized_counts:
+                        uncategorized_counts[key] = {
+                            "partial_category": category,
+                            "unresolved_text": residual,
+                            "frequency": 0,
+                            "total_duration": 0.0,
+                            "has_heats": False,
+                        }
+                    uncategorized_counts[key]["frequency"] += 1
+                    if duration_minutes:
+                        uncategorized_counts[key]["total_duration"] += duration_minutes
+                    if heat_count:
+                        uncategorized_counts[key]["has_heats"] = True
 
-    # Build uncategorized summary
-    uncategorized_summary: list[UncategorizedEntry] = []
-    for event_name, info in uncategorized_counts.items():
-        avg_dur = None
-        if info["frequency"] > 0 and info["total_duration"] > 0:
-            avg_dur = info["total_duration"] / info["frequency"]
-        uncategorized_summary.append(UncategorizedEntry(
-            event_name=event_name,
-            partial_category=info["partial_category"],
-            unresolved_text=info["unresolved_text"],
-            frequency=info["frequency"],
-            avg_duration_minutes=avg_dur,
-            has_heats=info["has_heats"],
-        ))
+            session_reports.append(SessionReport(
+                session_id=session.session_id,
+                day=session.day,
+                scheduled_start=session.scheduled_start.strftime("%H:%M"),
+                events=event_reports,
+            ))
 
-    report = CompetitionReport(
-        version="1.0",
-        extracted_at=datetime.now(timezone.utc),
-        competition=CompetitionMeta(
-            competition_id=competition_id,
-            name=f"Competition {competition_id}",
-            url=f"{settings.tracktiming_base_url}/eventpage.php?EventId={competition_id}",
-        ),
-        sessions=session_reports,
-        duration_observations=duration_observations,
-        uncategorized_summary=uncategorized_summary,
-    )
-    return report, fetch_failure_count
+        # Build uncategorized summary
+        uncategorized_summary: list[UncategorizedEntry] = []
+        for event_name, info in uncategorized_counts.items():
+            avg_dur = None
+            if info["frequency"] > 0 and info["total_duration"] > 0:
+                avg_dur = info["total_duration"] / info["frequency"]
+            uncategorized_summary.append(UncategorizedEntry(
+                event_name=event_name,
+                partial_category=info["partial_category"],
+                unresolved_text=info["unresolved_text"],
+                frequency=info["frequency"],
+                avg_duration_minutes=avg_dur,
+                has_heats=info["has_heats"],
+            ))
+
+        report = CompetitionReport(
+            version="1.0",
+            extracted_at=datetime.now(timezone.utc),
+            competition=CompetitionMeta(
+                competition_id=competition_id,
+                name=f"Competition {competition_id}",
+                url=f"{settings.tracktiming_base_url}/eventpage.php?EventId={competition_id}",
+            ),
+            sessions=session_reports,
+            duration_observations=duration_observations,
+            uncategorized_summary=uncategorized_summary,
+        )
+        return report, fetch_failure_count
+    finally:
+        await client.aclose()
 
 
 def main() -> None:

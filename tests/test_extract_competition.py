@@ -156,14 +156,12 @@ class TestExtractCompetitionIntegration:
         return _load_fixture("result-team-pursuit-26009.html")
 
     @pytest.mark.asyncio
-    async def test_extract_produces_event_reports_with_categories(self, schedule_data, tp_result_html, start_list_html):
+    async def test_extract_produces_event_reports_with_categories(self, schedule_data, tp_result_html):
         """Schedule parsing produces EventReport entries with structured categories."""
         with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
-             patch("tools.extract_competition.fetch_result_html", new_callable=AsyncMock) as mock_result, \
-             patch("tools.extract_competition.fetch_start_list_html", new_callable=AsyncMock) as mock_sl:
+             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
             mock_fetch.return_value = schedule_data
-            mock_result.return_value = tp_result_html
-            mock_sl.return_value = start_list_html
+            mock_page.return_value = tp_result_html
 
             report, _ = await extract_competition(26009)
 
@@ -174,14 +172,12 @@ class TestExtractCompetitionIntegration:
                 assert event.category.discipline != ""
 
     @pytest.mark.asyncio
-    async def test_incomplete_events_excluded_from_observations(self, schedule_data, tp_result_html, start_list_html):
+    async def test_incomplete_events_excluded_from_observations(self, schedule_data, tp_result_html):
         """Incomplete events should not appear in duration_observations."""
         with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
-             patch("tools.extract_competition.fetch_result_html", new_callable=AsyncMock) as mock_result, \
-             patch("tools.extract_competition.fetch_start_list_html", new_callable=AsyncMock) as mock_sl:
+             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
             mock_fetch.return_value = schedule_data
-            mock_result.return_value = tp_result_html
-            mock_sl.return_value = start_list_html
+            mock_page.return_value = tp_result_html
 
             report, _ = await extract_competition(26009)
 
@@ -191,14 +187,12 @@ class TestExtractCompetitionIntegration:
             assert obs.duration_minutes > 0
 
     @pytest.mark.asyncio
-    async def test_multi_session_competition(self, schedule_data, tp_result_html, start_list_html):
+    async def test_multi_session_competition(self, schedule_data, tp_result_html):
         """Multi-session competitions produce records for all sessions."""
         with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
-             patch("tools.extract_competition.fetch_result_html", new_callable=AsyncMock) as mock_result, \
-             patch("tools.extract_competition.fetch_start_list_html", new_callable=AsyncMock) as mock_sl:
+             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
             mock_fetch.return_value = schedule_data
-            mock_result.return_value = tp_result_html
-            mock_sl.return_value = start_list_html
+            mock_page.return_value = tp_result_html
 
             report, _ = await extract_competition(26009)
 

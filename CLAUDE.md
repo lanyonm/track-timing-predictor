@@ -59,9 +59,13 @@ The app predicts per-event start times for track cycling competitions fetched fr
 
 **Deployment:** Lambda + Function URL (Docker image from ECR). Mangum adapts FastAPI to the Lambda handler. Local dev uses uvicorn. See `plans/hosting-plan.md` for full infrastructure details. **All routes must be GET** — CloudFront OAC with Lambda Function URLs doesn't support POST request bodies (SigV4 payload signature mismatch causes 403s).
 
+**Configuration:** `app/config.py` uses `pydantic_settings.BaseSettings` for validated configuration with automatic environment variable loading. A `get_settings()` function provides the settings instance via FastAPI `Depends()`.
+
+**HTTP client:** A shared `httpx.AsyncClient` is created in the FastAPI lifespan (with `max_connections=50`) and stored on `app.state.http_client`. Route handlers receive it via `Depends(get_http_client)`. Fetcher functions accept the client and base URL as parameters.
+
 **Request flow:**
 1. `main.py` receives a tracktiming.live EventId via form or URL
-2. `fetcher.py` POSTs to the Jaxon API to get schedule HTML
+2. `fetcher.py` POSTs to the Jaxon API using the shared `httpx.AsyncClient` to get schedule HTML
 3. `parser.py` parses the HTML into `Session`/`Event` models
 4. `main.py` concurrently fetches start lists, result pages, and live heat pages
 5. `predictor.py` computes predicted start times and returns a `SchedulePrediction`
@@ -71,14 +75,15 @@ The app predicts per-event start times for track cycling competitions fetched fr
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/` | Landing page with EventId form |
+| GET | `/` | Landing page with EventId form (works without JavaScript) |
+| GET | `/schedule` | No-JS fallback redirect; `?event_id=X` → `/schedule/X` (303) |
 | GET | `/schedule/{event_id}` | Schedule view; optional `?r=` Base64-encoded racer name |
 | GET | `/schedule/{event_id}/refresh` | HTMX partial for live polling; optional `?r=` param |
 | GET | `/settings/racer-name` | Set/clear racer name cookie; `?event_id=&name=` |
 | GET | `/settings/use-learned` | Toggle learned-durations cookie; `?event_id=&use_learned=on\|off` |
 | GET | `/defaults` | Display built-in default durations |
 | GET | `/learned` | Display learned duration database |
-| GET | `/health` | Health check |
+| GET | `/health` | Health check; returns HTTP 200 with per-component status (healthy/degraded) |
 
 **In-memory caches in `predictor.py`** (keyed by `(competition_id, session_id, position)`):
 - `_status_cache` — tracks event status transitions for the learning fallback
@@ -146,6 +151,8 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - In-memory caches (existing pattern) — no database changes (001-racer-schedule-lookup)
 - Python 3.11+ (same as existing app) + httpx (HTTP client, existing), beautifulsoup4 (HTML parsing, existing), boto3 (DynamoDB, existing), argparse (CLI, stdlib) (002-duration-data-import)
 - SQLite (local dev) + DynamoDB (production) — extended schema with classification + gender columns; JSON files for intermediate output (002-duration-data-import)
+- Python 3.11+ + FastAPI, httpx, Pydantic, pydantic-settings (new), Jinja2, BeautifulSoup, boto3, Mangum (003-constitution-compliance)
+- SQLite (local dev) / DynamoDB (production) — no schema changes (003-constitution-compliance)
 
 ## Recent Changes
 - 001-racer-schedule-lookup: Added Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing)

@@ -13,12 +13,16 @@
     &nbsp;·&nbsp; <a href="/learned">View learned durations</a>
     &nbsp;·&nbsp;</span>
     <span class="meta-toggle-form">
-      <label class="meta-toggle-label">
-        <input type="checkbox"
-               {% if use_learned %}checked{% endif %}
-               onchange="window.location.href='/settings/use-learned?event_id={{ competition_id }}&use_learned=' + (this.checked ? 'on' : 'off')">
-        Use learned durations
-      </label>
+      <form action="/settings/use-learned" method="get" style="display:inline">
+        <input type="hidden" name="event_id" value="{{ competition_id }}">
+        <label class="meta-toggle-label">
+          <input type="checkbox" name="use_learned" value="on"
+                 {% if use_learned %}checked{% endif %}
+                 onchange="window.location.href='/settings/use-learned?event_id={{ competition_id }}&use_learned=' + (this.checked ? 'on' : 'off')">
+          Use learned durations
+        </label>
+        <noscript><button type="submit">Apply</button></noscript>
+      </form>
     </span>
   </p>
 

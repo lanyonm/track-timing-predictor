@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sqlite3
 from contextlib import contextmanager
@@ -761,3 +762,24 @@ def get_all_learned_durations() -> dict[str, tuple[float, int]]:
     except sqlite3.Error:
         logger.error("SQLite error reading all learned durations (db=%s)", settings.db_path, exc_info=True)
         return {}
+
+
+async def check_health() -> dict[str, str]:
+    """Check database connectivity and return health status.
+
+    Returns {"status": "healthy"} on success, or
+    {"status": "degraded", "detail": "<summary>"} on failure.
+    Never raises.
+    """
+    backend = "DynamoDB" if settings.dynamodb_table else "SQLite"
+    try:
+        if settings.dynamodb_table:
+            await asyncio.to_thread(lambda: _dynamo_table().table_status)
+        else:
+            def _check_sqlite():
+                with get_db() as conn:
+                    conn.execute("SELECT 1")
+            await asyncio.to_thread(_check_sqlite)
+        return {"status": "healthy"}
+    except Exception:
+        return {"status": "degraded", "detail": f"{backend} connection failed"}
