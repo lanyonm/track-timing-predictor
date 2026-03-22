@@ -5,11 +5,15 @@ from datetime import datetime, time
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
 
 
 class EventCategory(BaseModel):
     """Structured decomposition of an event name into component dimensions."""
+    model_config = ConfigDict(frozen=True)
+
     discipline: str = Field(min_length=1)
     classification: str | None = None
     gender: Literal["men", "women", "open"] = "open"
@@ -134,7 +138,7 @@ class DurationRecord(BaseModel):
     heat_count: int | None = Field(default=None, ge=1)
     duration_minutes: float = Field(gt=0)
     per_heat_duration_minutes: float | None = Field(default=None, gt=0)
-    duration_source: Literal["finish_time", "generated_diff", "heat_count"]
+    duration_source: DurationSource
     competition_id: int = Field(gt=0)
     session_id: int = Field(ge=1)
     event_position: int = Field(ge=0)
@@ -143,6 +147,8 @@ class DurationRecord(BaseModel):
     def _heat_count_required_for_heat_source(self) -> "DurationRecord":
         if self.duration_source == "heat_count" and self.heat_count is None:
             raise ValueError("heat_count must be set when duration_source is 'heat_count'")
+        if self.per_heat_duration_minutes is not None and self.heat_count is None:
+            raise ValueError("per_heat_duration_minutes requires heat_count to be set")
         return self
 
 
@@ -150,7 +156,7 @@ class UncategorizedEntry(BaseModel):
     """Summary of an event name that couldn't be fully categorized."""
     event_name: str
     partial_category: EventCategory
-    unresolved_text: str
+    unresolved_text: str = Field(min_length=1)
     frequency: int = Field(ge=1)
     avg_duration_minutes: float | None = Field(default=None, gt=0)
     has_heats: bool
@@ -171,8 +177,16 @@ class EventReport(BaseModel):
     status: EventStatus
     is_special: bool
     heat_count: int | None = Field(default=None, ge=1)
-    duration_minutes: float | None = Field(default=None, ge=0)
-    duration_source: Literal["finish_time", "generated_diff", "heat_count"] | None = None
+    duration_minutes: float | None = Field(default=None, gt=0)
+    duration_source: DurationSource | None = None
+
+    @model_validator(mode="after")
+    def _duration_fields_co_present(self) -> "EventReport":
+        has_minutes = self.duration_minutes is not None
+        has_source = self.duration_source is not None
+        if has_minutes != has_source:
+            raise ValueError("duration_minutes and duration_source must both be set or both be None")
+        return self
 
 
 class SessionReport(BaseModel):

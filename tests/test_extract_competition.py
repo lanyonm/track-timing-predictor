@@ -165,7 +165,7 @@ class TestExtractCompetitionIntegration:
             mock_result.return_value = tp_result_html
             mock_sl.return_value = start_list_html
 
-            report = await extract_competition(26009)
+            report, _ = await extract_competition(26009)
 
         assert len(report.sessions) > 0
         for session in report.sessions:
@@ -183,7 +183,7 @@ class TestExtractCompetitionIntegration:
             mock_result.return_value = tp_result_html
             mock_sl.return_value = start_list_html
 
-            report = await extract_competition(26009)
+            report, _ = await extract_competition(26009)
 
         for obs in report.duration_observations:
             # Every observation should reference a completed event
@@ -200,7 +200,7 @@ class TestExtractCompetitionIntegration:
             mock_result.return_value = tp_result_html
             mock_sl.return_value = start_list_html
 
-            report = await extract_competition(26009)
+            report, _ = await extract_competition(26009)
 
         session_ids = {s.session_id for s in report.sessions}
         assert len(session_ids) >= 1
@@ -218,7 +218,7 @@ class TestExtractCompetitionEdgeCases:
     async def test_invalid_competition_raises(self):
         """Invalid competition ID produces clear error after retry."""
         with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch:
-            mock_fetch.side_effect = Exception("HTTP 404: Not Found")
+            mock_fetch.side_effect = httpx.HTTPError("HTTP 404: Not Found")
             with pytest.raises(ValueError, match="Failed to fetch schedule"):
                 await extract_competition(99999)
 

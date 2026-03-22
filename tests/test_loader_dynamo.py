@@ -413,3 +413,75 @@ class TestDynamoOverrideLevels:
         })
         result = get_learned_duration_cascading("keirin", "elite", "women")
         assert result == 88.0
+
+
+class TestDynamoDisciplineChange:
+    """Test correction path when discipline changes on re-load."""
+
+    def test_discipline_change_swaps_all_aggregates(self, dynamo_table):
+        """Changing discipline removes old aggregates and creates new ones."""
+        # Initial load as sprint_match
+        record_duration_structured(
+            competition_id=26008, session_id=1, event_position=500,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+        old_agg = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert old_agg is not None
+        assert old_agg["count"] == 1
+
+        # Re-load as sprint_qualifying (discipline change)
+        result = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=500,
+            event_name="Sprint Qualifying", discipline="sprint_qualifying",
+            duration_minutes=10.0, classification="elite", gender="men",
+        )
+        assert result == "updated"
+
+        # Old discipline aggregates should be decremented to 0
+        old_agg = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert old_agg["count"] == 0
+
+        # New discipline aggregates should have count=1
+        new_agg = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_qualifying"}).get("Item")
+        assert new_agg is not None
+        assert new_agg["count"] == 1
+        assert float(new_agg["total_minutes"]) == pytest.approx(10.0)
+
+
+class TestBuildAggregateKeys:
+    """Test _build_aggregate_keys with various None combinations."""
+
+    def test_none_classification_none_gender(self, dynamo_table):
+        """With both None, only Level 1 key is generated."""
+        from app.database import _build_aggregate_keys
+        keys = _build_aggregate_keys("keirin", None, None)
+        assert keys == ["AGGREGATE#keirin"]
+
+    def test_none_classification_with_gender(self, dynamo_table):
+        """With gender but no classification, Levels 1 and 2 are generated."""
+        from app.database import _build_aggregate_keys
+        keys = _build_aggregate_keys("keirin", None, "women")
+        assert keys == ["AGGREGATE#keirin", "AGGREGATE#keirin##women"]
+
+    def test_with_classification_none_gender(self, dynamo_table):
+        """With classification but no gender, Levels 1 and 3 are generated."""
+        from app.database import _build_aggregate_keys
+        keys = _build_aggregate_keys("keirin", "elite", None)
+        assert keys == ["AGGREGATE#keirin", "AGGREGATE#keirin#elite"]
+
+    def test_all_fields_present(self, dynamo_table):
+        """With all fields, all 4 levels are generated."""
+        from app.database import _build_aggregate_keys
+        keys = _build_aggregate_keys("keirin", "elite", "men")
+        assert len(keys) == 4
+        assert keys[0] == "AGGREGATE#keirin"
+        assert keys[1] == "AGGREGATE#keirin##men"
+        assert keys[2] == "AGGREGATE#keirin#elite"
+        assert keys[3] == "AGGREGATE#keirin#elite#men"
+
+    def test_empty_string_treated_as_falsy(self, dynamo_table):
+        """Empty strings are falsy, so they behave like None for key generation."""
+        from app.database import _build_aggregate_keys
+        keys = _build_aggregate_keys("keirin", "", "")
+        assert keys == ["AGGREGATE#keirin"]

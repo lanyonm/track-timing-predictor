@@ -20,11 +20,11 @@ except ImportError:  # boto3 not installed (local dev without AWS deps)
 def _raise_if_auth_error(exc: Exception) -> None:
     """Re-raise credential/config errors that should not be silently caught."""
     if NoCredentialsError is not None and isinstance(exc, NoCredentialsError):
-        raise
+        raise exc
     if isinstance(exc, ClientError):
         code = exc.response.get("Error", {}).get("Code", "")
         if code in _AUTH_ERROR_CODES:
-            raise
+            raise exc
 
 from app.config import settings
 
@@ -206,7 +206,10 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
         table = _dynamo_table()
         override = table.get_item(Key={"pk": f"OVERRIDE#{discipline}"}).get("Item")
         if override:
-            return float(override["duration_minutes"])
+            try:
+                return float(override["duration_minutes"])
+            except (ValueError, TypeError):
+                logger.error("Malformed override value for %s: %r", discipline, override.get("duration_minutes"), exc_info=True)
         item = table.get_item(Key={"pk": f"AGGREGATE#{discipline}"}).get("Item")
         if item:
             count = int(item.get("count", 0))
@@ -416,7 +419,8 @@ def _dynamo_record_duration_structured(
                                 ":neg_one": -1,
                             },
                         )
-                except _BotoError:
+                except _BotoError as rollback_exc:
+                    _raise_if_auth_error(rollback_exc)
                     logger.error(
                         "Failed to roll back aggregate increments for %s; "
                         "aggregates may be over-counted for keys: %s",
@@ -427,7 +431,11 @@ def _dynamo_record_duration_structured(
         return "created"
     except _BotoError as exc:
         _raise_if_auth_error(exc)
-        logger.error("DynamoDB error recording structured duration for %s", discipline, exc_info=True)
+        logger.error(
+            "DynamoDB error recording structured duration for %s; "
+            "partial aggregate updates may have occurred and will self-correct on re-load",
+            discipline, exc_info=True,
+        )
         return "error"
 
 
@@ -437,8 +445,6 @@ def _build_aggregate_keys(
     gender: str | None,
 ) -> list[str]:
     """Build all applicable AGGREGATE key patterns for a duration observation."""
-    classification = classification or None
-    gender = gender or None
     keys = [f"AGGREGATE#{discipline}"]  # Level 1: always
     if gender:
         keys.append(f"AGGREGATE#{discipline}##{gender}")  # Level 2: disc+gender
@@ -468,6 +474,7 @@ def _dynamo_get_learned_duration_cascading(
             levels.append(f"AGGREGATE#{discipline}#{classification}")
         if gender:
             levels.append(f"AGGREGATE#{discipline}##{gender}")
+        levels.append(f"AGGREGATE#{discipline}")  # Level 1: broadest
 
         # Check overrides at each level
         override_levels = []
@@ -487,22 +494,19 @@ def _dynamo_get_learned_duration_cascading(
                 except (ValueError, TypeError):
                     logger.error("Malformed override value for %s: %r", override_key, item.get("duration_minutes"), exc_info=True)
 
-        # Check aggregates at each level
+        # Check aggregates at each level (most specific to broadest)
         for agg_key in levels:
             item = table.get_item(Key={"pk": agg_key}).get("Item")
             if item:
-                count = int(item.get("count", 0))
-                total = float(item.get("total_minutes", 0))
+                try:
+                    count = int(item.get("count", 0))
+                    total = float(item.get("total_minutes", 0))
+                except (ValueError, TypeError):
+                    logger.error("Malformed aggregate values for %s: count=%r total=%r",
+                                 agg_key, item.get("count"), item.get("total_minutes"), exc_info=True)
+                    continue
                 if count >= settings.min_learned_samples:
                     return total / count
-
-        # Level 1: broadest (existing pattern)
-        item = table.get_item(Key={"pk": f"AGGREGATE#{discipline}"}).get("Item")
-        if item:
-            count = int(item.get("count", 0))
-            total = float(item.get("total_minutes", 0))
-            if count >= settings.min_learned_samples:
-                return total / count
     except _BotoError as exc:
         _raise_if_auth_error(exc)
         logger.error("DynamoDB error in cascading fallback for %s", discipline, exc_info=True)
@@ -525,6 +529,8 @@ def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
         result = {}
         for item in items:
             discipline = item["pk"][len("AGGREGATE#"):]
+            if "#" in discipline:
+                continue  # Skip Level 2/3/4 aggregate keys
             count = int(item.get("count", 0))
             total = float(item.get("total_minutes", 0))
             if count > 0:
