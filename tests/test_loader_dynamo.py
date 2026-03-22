@@ -141,3 +141,185 @@ class TestDynamoCascadingFallback:
         )
         result = get_learned_duration_cascading("unknown_disc", "elite", "men")
         assert result is None
+
+
+class TestDynamoReloadCorrection:
+    """Test idempotent re-load with corrected data."""
+
+    def test_reload_identical_returns_unchanged(self, dynamo_table):
+        """Recording identical data twice returns 'unchanged' and aggregates stay at count=1."""
+        result1 = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+        assert result1 == "created"
+
+        result2 = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+        assert result2 == "unchanged"
+
+        # Aggregates must still show count=1
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(12.0)
+
+    def test_reload_corrected_duration(self, dynamo_table):
+        """Re-recording with a different duration corrects all shared aggregates."""
+        record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+
+        result = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=14.0, classification="elite", gender="men",
+        )
+        assert result == "updated"
+
+        # All 4 aggregate levels should have count=1, total=14.0
+        for agg_key in [
+            "AGGREGATE#sprint_match",
+            "AGGREGATE#sprint_match##men",
+            "AGGREGATE#sprint_match#elite",
+            "AGGREGATE#sprint_match#elite#men",
+        ]:
+            item = dynamo_table.get_item(Key={"pk": agg_key}).get("Item")
+            assert item is not None, f"Missing {agg_key}"
+            assert item["count"] == 1, f"Wrong count for {agg_key}"
+            assert float(item["total_minutes"]) == pytest.approx(14.0), f"Wrong total for {agg_key}"
+
+        # OBS# item should have new duration
+        obs = dynamo_table.get_item(Key={"pk": "OBS#26008#1#0"}).get("Item")
+        assert float(obs["duration_minutes"]) == pytest.approx(14.0)
+
+    def test_reload_corrected_category(self, dynamo_table):
+        """Re-recording with different classification fixes old and new aggregate keys."""
+        record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+
+        result = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="junior", gender="men",
+        )
+        assert result == "updated"
+
+        # Level 1 (shared): count=1, total=12.0 (unchanged)
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(12.0)
+
+        # Level 2 disc+gender (shared): count=1, total=12.0
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match##men"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(12.0)
+
+        # Old Level 3 (removed): count=0
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match#elite"}).get("Item")
+        assert item["count"] == 0
+
+        # New Level 3 (added): count=1, total=12.0
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match#junior"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(12.0)
+
+        # Old Level 4 (removed): count=0
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match#elite#men"}).get("Item")
+        assert item["count"] == 0
+
+        # New Level 4 (added): count=1, total=12.0
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match#junior#men"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(12.0)
+
+    def test_reload_duration_and_category(self, dynamo_table):
+        """Changing both duration and classification applies both corrections."""
+        record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+
+        result = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=14.0, classification="junior", gender="men",
+        )
+        assert result == "updated"
+
+        # Level 1 (shared): count=1, total corrected 12→14
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(14.0)
+
+        # Level 2 disc+gender (shared): count=1, total corrected 12→14
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match##men"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(14.0)
+
+        # Old Level 3 (removed): decremented
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match#elite"}).get("Item")
+        assert item["count"] == 0
+
+        # New Level 3 (added): count=1, total=14.0
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match#junior"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(14.0)
+
+    def test_reload_old_obs_without_optional_fields(self, dynamo_table):
+        """OBS# items without classification/gender get corrected when re-loaded with them."""
+        # Manually insert an OBS# item without optional fields (simulates old data)
+        dynamo_table.put_item(Item={
+            "pk": "OBS#26008#1#0",
+            "discipline": "sprint_match",
+            "duration_minutes": Decimal("12.0"),
+        })
+        # Manually insert Level 1 aggregate
+        dynamo_table.update_item(
+            Key={"pk": "AGGREGATE#sprint_match"},
+            UpdateExpression="ADD total_minutes :d, #cnt :one",
+            ExpressionAttributeNames={"#cnt": "count"},
+            ExpressionAttributeValues={":d": Decimal("12.0"), ":one": 1},
+        )
+
+        # Re-load with classification and gender
+        result = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+        assert result == "updated"
+
+        # Level 1 (shared): count=1, total=12.0 (unchanged)
+        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#sprint_match"}).get("Item")
+        assert item["count"] == 1
+        assert float(item["total_minutes"]) == pytest.approx(12.0)
+
+        # New Level 2, 3, 4 created with count=1
+        for agg_key in [
+            "AGGREGATE#sprint_match##men",
+            "AGGREGATE#sprint_match#elite",
+            "AGGREGATE#sprint_match#elite#men",
+        ]:
+            item = dynamo_table.get_item(Key={"pk": agg_key}).get("Item")
+            assert item is not None, f"Missing {agg_key}"
+            assert item["count"] == 1
+            assert float(item["total_minutes"]) == pytest.approx(12.0)
+
+    def test_first_load_returns_created(self, dynamo_table):
+        """First load of a new record returns 'created'."""
+        result = record_duration_structured(
+            competition_id=26008, session_id=1, event_position=0,
+            event_name="Sprint Final", discipline="sprint_match",
+            duration_minutes=12.0, classification="elite", gender="men",
+        )
+        assert result == "created"

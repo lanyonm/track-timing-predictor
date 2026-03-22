@@ -2,6 +2,7 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
+from typing import Literal
 
 try:
     from botocore.exceptions import BotoCoreError, ClientError
@@ -12,6 +13,8 @@ except ImportError:  # boto3 not installed (local dev without AWS deps)
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+RecordOutcome = Literal["created", "updated", "unchanged", "error"]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS event_durations (
@@ -194,6 +197,41 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
     return None
 
 
+def _obs_fields_match(
+    existing: dict,
+    discipline: str,
+    duration_minutes: float,
+    classification: str | None,
+    gender: str | None,
+    per_heat_duration_minutes: float | None,
+) -> bool:
+    """Compare existing OBS# item fields against new parameters."""
+    if existing.get("discipline") != discipline:
+        return False
+    if existing.get("classification") != classification:
+        return False
+    if existing.get("gender") != gender:
+        return False
+
+    # Decimal→float comparison with epsilon tolerance
+    eps = 1e-9
+    old_dur = float(existing.get("duration_minutes", 0))
+    if abs(old_dur - duration_minutes) > eps:
+        return False
+
+    old_per_heat = existing.get("per_heat_duration_minutes")
+    if old_per_heat is not None:
+        old_per_heat = float(old_per_heat)
+    if per_heat_duration_minutes is None and old_per_heat is None:
+        pass  # both None — match
+    elif per_heat_duration_minutes is None or old_per_heat is None:
+        return False  # one is None, the other isn't
+    elif abs(old_per_heat - per_heat_duration_minutes) > eps:
+        return False
+
+    return True
+
+
 def _dynamo_record_duration_structured(
     discipline: str,
     duration_minutes: float,
@@ -203,25 +241,98 @@ def _dynamo_record_duration_structured(
     competition_id: int,
     session_id: int,
     event_position: int,
-) -> None:
+) -> RecordOutcome:
     """Write structured duration to DynamoDB with multi-level aggregates.
 
-    Checks for existing OBS# item first (idempotency), then updates
-    AGGREGATE# items, and only writes the OBS# item last. This ordering
-    ensures partial failures (aggregate written but OBS not) are retryable
-    on the next load attempt.
+    Three-way branch:
+      1. No existing OBS# → create new record (unchanged from original)
+      2. Existing OBS# with identical data → return "unchanged"
+      3. Existing OBS# with different data → correct aggregates, overwrite OBS#
+
+    Maintains aggregates-first, OBS#-last ordering for crash safety.
     """
     try:
         table = _dynamo_table()
         obs_key = f"OBS#{competition_id}#{session_id}#{event_position}"
 
-        # Check if already recorded (idempotency)
         existing = table.get_item(Key={"pk": obs_key}).get("Item")
-        if existing:
-            return
 
-        # Update aggregates FIRST — if this fails, no OBS item is written,
-        # so a retry will re-attempt everything.
+        if existing:
+            # Branch 2: identical data — no writes needed
+            if _obs_fields_match(existing, discipline, duration_minutes,
+                                 classification, gender, per_heat_duration_minutes):
+                return "unchanged"
+
+            # Branch 3: correction path — compute deltas and fix aggregates
+            old_discipline = existing.get("discipline", discipline)
+            old_classification = existing.get("classification")
+            old_gender = existing.get("gender")
+            old_duration = float(existing["duration_minutes"])
+
+            old_agg_keys = set(_build_aggregate_keys(old_discipline, old_classification, old_gender))
+            new_agg_keys = set(_build_aggregate_keys(discipline, classification, gender))
+
+            removed = old_agg_keys - new_agg_keys
+            added = new_agg_keys - old_agg_keys
+            shared = old_agg_keys & new_agg_keys
+
+            # Decrement removed aggregate keys
+            for agg_key in removed:
+                table.update_item(
+                    Key={"pk": agg_key},
+                    UpdateExpression="ADD total_minutes :d, #cnt :neg_one",
+                    ExpressionAttributeNames={"#cnt": "count"},
+                    ExpressionAttributeValues={
+                        ":d": Decimal(str(-old_duration)),
+                        ":neg_one": -1,
+                    },
+                )
+
+            # Increment added aggregate keys
+            for agg_key in added:
+                table.update_item(
+                    Key={"pk": agg_key},
+                    UpdateExpression="ADD total_minutes :d, #cnt :one",
+                    ExpressionAttributeNames={"#cnt": "count"},
+                    ExpressionAttributeValues={
+                        ":d": Decimal(str(duration_minutes)),
+                        ":one": 1,
+                    },
+                )
+
+            # Correct shared aggregate keys (duration delta only, count unchanged)
+            duration_delta = duration_minutes - old_duration
+            if abs(duration_delta) > 1e-9:
+                for agg_key in shared:
+                    table.update_item(
+                        Key={"pk": agg_key},
+                        UpdateExpression="ADD total_minutes :d",
+                        ExpressionAttributeValues={
+                            ":d": Decimal(str(duration_delta)),
+                        },
+                    )
+
+            # Overwrite OBS# item
+            obs_item: dict = {
+                "pk": obs_key,
+                "discipline": discipline,
+                "duration_minutes": Decimal(str(duration_minutes)),
+            }
+            if classification:
+                obs_item["classification"] = classification
+            if gender:
+                obs_item["gender"] = gender
+            if per_heat_duration_minutes is not None:
+                obs_item["per_heat_duration_minutes"] = Decimal(str(per_heat_duration_minutes))
+            table.put_item(Item=obs_item)
+
+            logger.info(
+                "Corrected OBS %s: discipline=%s duration=%.1f→%.1f",
+                obs_key, discipline, old_duration, duration_minutes,
+            )
+            return "updated"
+
+        # Branch 1: new record — update aggregates FIRST, then write OBS#
         aggregate_keys = _build_aggregate_keys(discipline, classification, gender)
         for agg_key in aggregate_keys:
             table.update_item(
@@ -234,8 +345,6 @@ def _dynamo_record_duration_structured(
                 },
             )
 
-        # Mark as processed ONLY after all aggregates succeed.
-        # Conditional write prevents double-counting under concurrency.
         obs_item = {
             "pk": obs_key,
             "discipline": discipline,
@@ -254,10 +363,12 @@ def _dynamo_record_duration_structured(
             )
         except ClientError as exc:
             if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                return  # Concurrent write won — our aggregates are duplicated but OBS exists
+                return "unchanged"  # Concurrent write won
             raise
+        return "created"
     except _BotoError:
         logger.error("DynamoDB error recording structured duration for %s", discipline, exc_info=True)
+        return "error"
 
 
 def _build_aggregate_keys(
@@ -431,18 +542,19 @@ def record_duration_structured(
     classification: str | None = None,
     gender: str | None = None,
     per_heat_duration_minutes: float | None = None,
-) -> None:
+) -> RecordOutcome:
     """Insert one observed event duration with structured category info.
 
     Uses INSERT OR REPLACE with the natural key (competition_id, session_id,
     event_position) for idempotent upsert.
+
+    Returns "created", "updated", "unchanged", or "error".
     """
     if settings.dynamodb_table:
-        _dynamo_record_duration_structured(
+        return _dynamo_record_duration_structured(
             discipline, duration_minutes, classification, gender,
             per_heat_duration_minutes, competition_id, session_id, event_position,
         )
-        return
     try:
         with get_db() as conn:
             conn.execute(
@@ -457,11 +569,13 @@ def record_duration_structured(
                  discipline, duration_minutes, classification, gender,
                  per_heat_duration_minutes),
             )
+        return "created"
     except sqlite3.Error:
         logger.error(
             "SQLite error recording structured duration for %s (db=%s)",
             discipline, settings.db_path, exc_info=True,
         )
+        return "error"
 
 
 def get_learned_duration_cascading(

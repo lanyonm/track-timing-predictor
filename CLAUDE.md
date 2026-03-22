@@ -103,11 +103,11 @@ The app predicts per-event start times for track cycling competitions fetched fr
   - `AGGREGATE#<disc>#<class>` — discipline+classification (Level 3)
   - `AGGREGATE#<disc>#<class>#<gender>` — most specific (Level 4)
   - `OVERRIDE#<disc>` (through `OVERRIDE#<disc>#<class>#<gender>`) — manual overrides at each level
-  - `OBS#<comp_id>#<sess_id>#<pos>` — observation items for idempotent upsert (prevents double-counting)
+  - `OBS#<comp_id>#<sess_id>#<pos>` — observation items for idempotent upsert; stores field values to detect corrections on re-load
 - SQLite tables: `event_durations` accumulates observations (with `classification`, `gender`, `per_heat_duration_minutes` columns), `discipline_overrides` for manual overrides
 - `get_learned_duration()` returns the average when ≥ `min_learned_samples` (3) rows exist
 - `get_learned_duration_cascading(discipline, classification, gender)` queries 4 specificity levels: discipline+classification+gender → discipline+classification → discipline+gender → discipline → static default
-- `record_duration_structured()` writes with structured category info and idempotent upsert via natural key (competition_id, session_id, event_position)
+- `record_duration_structured()` returns `RecordOutcome` (`"created"`, `"updated"`, `"unchanged"`, `"error"`); DynamoDB path uses delta-based aggregate correction when re-loaded data differs from existing OBS# item; SQLite path uses `INSERT OR REPLACE`
 - Wall-clock learning (UPCOMING→COMPLETED transition) is a fallback, capped at 3× the static default to reject inflated values when start lists are published before the race
 
 **Discipline detection** (`disciplines.py`):
@@ -138,7 +138,7 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - Templates: `schedule.html` is the full page; `_schedule_body.html` is the HTMX partial returned by `/schedule/{id}/refresh`
 - Categorizer extraction order: special events → omnium part → ride number → round → classification → gender → discipline (most specific patterns matched first within each step)
 - Extraction test fixtures in `tests/fixtures/`: captured Jaxon schedule responses, result page HTML (bunch race with Finish Time, non-bunch with Generated timestamp), start-list HTML with heats
-- DynamoDB structured writes: aggregates updated BEFORE OBS# item written — ensures partial failures are retryable on next load (OBS# acts as the commit marker)
+- DynamoDB structured writes: aggregates updated BEFORE OBS# item written — ensures partial failures are retryable on next load (OBS# acts as the commit marker). Correction path computes deltas between old and new aggregate key sets (removed/added/shared) before overwriting the OBS# item
 - SQLite schema migration (`_migrate_schema`) adds `classification`, `gender`, `per_heat_duration_minutes` columns to existing databases via `ALTER TABLE ADD COLUMN`
 
 ## Active Technologies

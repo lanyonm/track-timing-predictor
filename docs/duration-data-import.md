@@ -142,7 +142,7 @@ python -m tools.load_durations --force data/competitions/*.json
 Before writing, each observation is checked against the expected duration for its discipline:
 
 - **Bounds check** — when `heat_count` is available, the expected duration is `heat_count * per_heat_duration + changeover`; otherwise the static `DEFAULT_DURATIONS[discipline]` is used. Durations outside [0.5x, 2.0x] of the expected value are rejected as outliers with a warning.
-- **Idempotent upsert** — uses the natural key `(competition_id, session_id, event_position)` so re-running the loader on the same file is safe. In SQLite, re-loading with corrected data overwrites the previous values.
+- **Idempotent upsert** — uses the natural key `(competition_id, session_id, event_position)` so re-running the loader on the same file is safe. In SQLite, `INSERT OR REPLACE` overwrites previous values. In DynamoDB, the loader compares old vs. new OBS# item fields — identical data is skipped (`"unchanged"`), while corrected data triggers delta-based aggregate corrections before overwriting the OBS# item (`"updated"`).
 
 ### Per-Heat Duration Computation
 
@@ -159,11 +159,13 @@ This feeds back into the prediction engine's heat-based estimates.
 The loader prints a summary for each file:
 
 ```
-  26008.json: 112 loaded, 17 out-of-bounds
-  26009.json: 74 loaded, 13 out-of-bounds
+  26008.json: 112 loaded, 0 updated, 0 unchanged, 17 out-of-bounds
+  26009.json: 74 loaded, 0 updated, 0 unchanged, 13 out-of-bounds
 
-Total: 186 loaded, 30 out-of-bounds, 0 warnings
+Total: 186 loaded, 0 updated, 0 unchanged, 30 out-of-bounds, 0 warnings
 ```
+
+On re-load with identical data, counts shift to `unchanged`. With corrected data, they appear as `updated`.
 
 ### Backend Selection
 
@@ -273,9 +275,9 @@ New item types added to the existing single-table design:
 | `AGGREGATE#<disc>#<class>` | `AGGREGATE#sprint_match#elite` | Level 3 running total |
 | `AGGREGATE#<disc>##<gender>` | `AGGREGATE#sprint_match##men` | Level 2 running total (double-hash separator) |
 | `AGGREGATE#<disc>` | `AGGREGATE#sprint_match` | Level 1 running total (existing) |
-| `OBS#<comp>#<sess>#<pos>` | `OBS#26008#1#0` | Observation marker for idempotent upsert |
+| `OBS#<comp>#<sess>#<pos>` | `OBS#26008#1#0` | Observation record; stores field values for correction detection on re-load |
 
-When recording an observation, the loader updates all applicable aggregate levels and then writes the OBS# item last (so partial failures on aggregates are retryable).
+When recording an observation, the loader updates all applicable aggregate levels and then writes the OBS# item last (so partial failures on aggregates are retryable). On re-load, existing OBS# fields are compared to detect corrections — if data differs, aggregate deltas are applied (removed keys decremented, added keys incremented, shared keys adjusted) before overwriting the OBS# item.
 
 ## Reference Competitions
 
@@ -296,7 +298,9 @@ These competitions were used during development and provide good coverage of nam
 
 ## Verifying Results
 
-After loading data, verify the learned averages:
+### SQLite
+
+After loading data locally, verify the learned averages:
 
 ```bash
 # Via the web app
@@ -322,3 +326,53 @@ result = get_learned_duration_cascading('sprint_match', 'elite', 'men')
 print(f'sprint_match/elite/men: {result:.1f} min' if result else 'No data')
 "
 ```
+
+To verify idempotent re-load behavior:
+
+```bash
+# First load — "loaded" counts
+python -m tools.load_durations data/competitions/26008.json
+
+# Re-load identical data — "unchanged" counts
+python -m tools.load_durations data/competitions/26008.json
+
+# Edit a duration in the JSON, re-load — "updated" counts
+python -m tools.load_durations data/competitions/26008.json
+```
+
+### DynamoDB
+
+Set the environment and run the loader:
+
+```bash
+export DYNAMODB_TABLE="your-table-name"
+export AWS_REGION="us-east-1"  # or your region
+
+# First load
+python -m tools.load_durations data/competitions/26008.json
+
+# Re-load identical data — should show "unchanged" counts
+python -m tools.load_durations data/competitions/26008.json
+```
+
+Inspect items directly with the AWS CLI:
+
+```bash
+# Check a specific OBS# item
+aws dynamodb get-item \
+  --table-name "$DYNAMODB_TABLE" \
+  --key '{"pk": {"S": "OBS#26008#1#0"}}'
+
+# Check an aggregate
+aws dynamodb get-item \
+  --table-name "$DYNAMODB_TABLE" \
+  --key '{"pk": {"S": "AGGREGATE#sprint_match"}}'
+
+# Scan all aggregates
+aws dynamodb scan \
+  --table-name "$DYNAMODB_TABLE" \
+  --filter-expression "begins_with(pk, :prefix)" \
+  --expression-attribute-values '{":prefix": {"S": "AGGREGATE#"}}'
+```
+
+To verify correction behavior, edit a duration value in a JSON report file and re-load — the output should show `updated` counts, and the corresponding `AGGREGATE#` items should reflect the corrected totals with unchanged counts.

@@ -61,7 +61,7 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
 
     Returns summary counts: loaded, skipped_duplicate, skipped_bounds, warnings.
     """
-    stats = {"loaded": 0, "skipped_bounds": 0, "warnings": 0}
+    stats = {"loaded": 0, "updated": 0, "unchanged": 0, "skipped_bounds": 0, "warnings": 0}
 
     for record in report.duration_observations:
         # Validate duration bounds
@@ -86,7 +86,7 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
         per_heat = _compute_per_heat_duration(record)
 
         try:
-            record_duration_structured(
+            outcome = record_duration_structured(
                 competition_id=record.competition_id,
                 session_id=record.session_id,
                 event_position=record.event_position,
@@ -97,7 +97,14 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
                 gender=record.gender,
                 per_heat_duration_minutes=per_heat,
             )
-            stats["loaded"] += 1
+            if outcome == "created":
+                stats["loaded"] += 1
+            elif outcome == "updated":
+                stats["updated"] += 1
+            elif outcome == "unchanged":
+                stats["unchanged"] += 1
+            else:
+                stats["warnings"] += 1
         except Exception:
             logger.error(
                 "Failed to record duration for %s (competition %d, session %d, pos %d)",
@@ -149,7 +156,7 @@ def main() -> None:
         deleted = deduplicate_event_durations()
         print(f"Removed {deleted} duplicate rows.\n")
 
-    total_stats = {"loaded": 0, "skipped_bounds": 0, "warnings": 0}
+    total_stats = {"loaded": 0, "updated": 0, "unchanged": 0, "skipped_bounds": 0, "warnings": 0}
 
     for filepath in args.files:
         if not filepath.exists():
@@ -167,9 +174,12 @@ def main() -> None:
         stats = load_report(report)
         for k in total_stats:
             total_stats[k] += stats[k]
-        print(f"  {filepath.name}: {stats['loaded']} loaded, {stats['skipped_bounds']} out-of-bounds")
+        print(f"  {filepath.name}: {stats['loaded']} loaded, "
+              f"{stats['updated']} updated, {stats['unchanged']} unchanged, "
+              f"{stats['skipped_bounds']} out-of-bounds")
 
     print(f"\nTotal: {total_stats['loaded']} loaded, "
+          f"{total_stats['updated']} updated, {total_stats['unchanged']} unchanged, "
           f"{total_stats['skipped_bounds']} out-of-bounds, "
           f"{total_stats['warnings']} warnings")
 
