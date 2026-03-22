@@ -496,7 +496,13 @@ def record_duration(
                 (competition_id, session_id, event_position, event_name, discipline, duration_minutes),
             )
     except sqlite3.Error:
-        logger.error("SQLite error recording duration for %s (db=%s)", discipline, settings.db_path, exc_info=True)
+        logger.error(
+            "SQLite error recording duration for %s (db=%s) "
+            "competition_id=%d session_id=%d event_position=%d event_name=%r",
+            discipline, settings.db_path,
+            competition_id, session_id, event_position, event_name,
+            exc_info=True,
+        )
 
 
 def get_learned_duration(discipline: str) -> float | None:

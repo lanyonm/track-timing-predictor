@@ -178,7 +178,7 @@ _DISCIPLINE_KEYWORDS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\btime\s+trial\b", re.IGNORECASE), "time_trial_generic"),
     # Sprint variants
     (re.compile(r"\bflying\s+200m\b", re.IGNORECASE), "sprint_qualifying"),
-    (re.compile(r"\bflying\s+mile\b", re.IGNORECASE), "sprint_qualifying"),
+    (re.compile(r"\bflying\s+mile\b", re.IGNORECASE), "scratch_race"),
     (re.compile(r"\bsprint\s+qualifying\b", re.IGNORECASE), "sprint_qualifying"),
     (re.compile(r"\bsprint\b", re.IGNORECASE), "sprint_match"),
     (re.compile(r"\b200m\b", re.IGNORECASE), "sprint_qualifying"),
@@ -192,7 +192,9 @@ _DISCIPLINE_KEYWORDS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bwheel\s+race\b", re.IGNORECASE), "exhibition"),
     (re.compile(r"\bkids\s+race\b", re.IGNORECASE), "exhibition"),
     (re.compile(r"\blongest\s+lap\b", re.IGNORECASE), "exhibition"),
-    # Omnium as discipline (when only "Omnium Qualifier 1" with no sub-discipline)
+    # Omnium qualifier is always a points race
+    (re.compile(r"\bomnium\s+qualifier\b", re.IGNORECASE), "points_race"),
+    # Omnium as discipline (when only "Omnium" with no sub-discipline)
     (re.compile(r"\bomnium\b", re.IGNORECASE), "unknown"),
 ]
 
