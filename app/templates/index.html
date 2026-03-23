@@ -4,7 +4,7 @@
 <section class="entry-form">
   <h2>Predict Event Start Times</h2>
   <p>Enter a <a href="https://tracktiming.live/" target="_blank">tracktiming.live</a> Event ID to see predicted start times for each event in the schedule.</p>
-  <form onsubmit="event.preventDefault(); window.location='/schedule/' + document.getElementById('event_id').value">
+  <form action="/schedule" method="get">
     <label for="event_id">Event ID</label>
     <input
       type="text"

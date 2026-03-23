@@ -58,9 +58,7 @@ def mock_fetchers(sample_event_data, start_list_html):
     with (
         patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_event_data),
         patch("app.main.fetch_refresh", new_callable=AsyncMock, return_value=sample_event_data),
-        patch("app.main.fetch_start_list_html", new_callable=AsyncMock, return_value=start_list_html),
-        patch("app.main.fetch_result_html", new_callable=AsyncMock, return_value=""),
-        patch("app.main.fetch_live_html", new_callable=AsyncMock, return_value=""),
+        patch("app.main.fetch_page_html", new_callable=AsyncMock, return_value=start_list_html),
     ):
         yield
 
@@ -166,3 +164,76 @@ class TestRacerNameRoutes:
         assert response.status_code == 200
         # The partial should contain schedule HTML (details/table structure)
         assert "<details" in response.text
+
+
+class TestHealthEndpoint:
+    """Tests for the /health endpoint (US6)."""
+
+    def test_health_returns_healthy_status(self):
+        """Health endpoint returns 200 with per-component healthy status."""
+        client = TestClient(app)
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert "components" in data
+        assert data["components"]["database"]["status"] == "healthy"
+
+    def test_health_returns_degraded_on_bad_db(self):
+        """Health endpoint returns 200 with degraded status when DB is unreachable."""
+        from app.config import settings
+        original = settings.db_path
+        settings.db_path = "/nonexistent/path/to/db.sqlite"
+        try:
+            client = TestClient(app)
+            response = client.get("/health")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "degraded"
+            assert data["components"]["database"]["status"] == "degraded"
+            assert "detail" in data["components"]["database"]
+        finally:
+            settings.db_path = original
+
+
+class TestScheduleRedirect:
+    """Tests for the GET /schedule redirect route (US1)."""
+
+    def test_redirect_with_valid_event_id(self):
+        """GET /schedule?event_id=26008 redirects to /schedule/26008."""
+        client = TestClient(app, follow_redirects=False)
+        response = client.get("/schedule?event_id=26008")
+        assert response.status_code == 303
+        assert response.headers["location"] == "/schedule/26008"
+
+    def test_redirect_missing_event_id(self):
+        """GET /schedule without event_id returns 422."""
+        client = TestClient(app, follow_redirects=False)
+        response = client.get("/schedule")
+        assert response.status_code == 422
+
+
+class TestCheckHealth:
+    """Unit tests for the check_health() function in database.py (constitution II compliance)."""
+
+    @pytest.mark.asyncio
+    async def test_check_health_sqlite_healthy(self):
+        """check_health returns healthy for a valid SQLite DB."""
+        from app.database import check_health
+        result = await check_health()
+        assert result["status"] == "healthy"
+
+    @pytest.mark.asyncio
+    async def test_check_health_sqlite_degraded(self):
+        """check_health returns degraded when SQLite DB path is invalid."""
+        from app.config import settings
+        from app.database import check_health
+        original = settings.db_path
+        settings.db_path = "/nonexistent/impossible/path.db"
+        try:
+            result = await check_health()
+            assert result["status"] == "degraded"
+            assert "detail" in result
+            assert "SQLite" in result["detail"]
+        finally:
+            settings.db_path = original

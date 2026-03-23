@@ -5,18 +5,20 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from pythonjsonlogger.json import JsonFormatter
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.config import settings
-from app.database import get_all_learned_durations, init_db
+from app.config import Settings, get_settings
+from app.database import check_health, get_all_learned_durations, init_db
 from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
-from app.fetcher import fetch_initial_layout, fetch_live_html, fetch_refresh, fetch_result_html, fetch_start_list_html
+from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
 from app.models import Session
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
 from mangum import Mangum
@@ -55,7 +57,14 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    settings = get_settings()
+    app.state.http_client = httpx.AsyncClient(
+        base_url=settings.tracktiming_base_url,
+        timeout=15.0,
+        limits=httpx.Limits(max_connections=50),
+    )
     yield
+    await app.state.http_client.aclose()
 
 
 app = FastAPI(title="Track Timing Predictor", lifespan=lifespan)
@@ -63,7 +72,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 
-async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> None:
+def get_http_client(request: Request) -> httpx.AsyncClient:
+    return request.app.state.http_client
+
+
+async def _fetch_live_heats(
+    client: httpx.AsyncClient,
+    competition_id: int, sessions: list[Session],
+) -> None:
     """
     Fetch the live results page for any event that has a live_url and parse
     the current heat number. Called on every refresh since the page changes
@@ -83,7 +99,7 @@ async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> Non
     async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str) -> None:
         async with sem:
             try:
-                html = await fetch_live_html(url)
+                html = await fetch_page_html(client, url)
             except Exception:
                 logger.warning("Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
                 return
@@ -97,7 +113,10 @@ async def _fetch_live_heats(competition_id: int, sessions: list[Session]) -> Non
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
-async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> None:
+async def _fetch_start_lists(
+    client: httpx.AsyncClient,
+    competition_id: int, sessions: list[Session],
+) -> None:
     """
     Concurrently fetch start list pages for all events that have a start_list_url
     and whose heat count or rider list has not yet been cached.
@@ -120,7 +139,7 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
     async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str) -> None:
         async with sem:
             try:
-                html = await fetch_start_list_html(url)
+                html = await fetch_page_html(client, url)
             except Exception:
                 logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
                 return
@@ -136,7 +155,10 @@ async def _fetch_start_lists(competition_id: int, sessions: list[Session]) -> No
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
-async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> None:
+async def _fetch_result_pages(
+    client: httpx.AsyncClient,
+    competition_id: int, sessions: list[Session],
+) -> None:
     """
     Fetch result pages for all completed events that don't yet have a Generated
     timestamp cached. Parses both the Generated timestamp (for generated-time
@@ -160,7 +182,7 @@ async def _fetch_result_pages(competition_id: int, sessions: list[Session]) -> N
     async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str) -> None:
         async with sem:
             try:
-                html = await fetch_result_html(url)
+                html = await fetch_page_html(client, url)
             except Exception:
                 logger.warning("Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
                 return
@@ -199,7 +221,13 @@ def _resolve_racer_name(request: Request, r: str | None) -> str | None:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    try:
+        db_status = await asyncio.wait_for(check_health(), timeout=5.0)
+    except asyncio.TimeoutError:
+        db_status = {"status": "degraded", "detail": "Health check timed out"}
+
+    overall = "healthy" if db_status["status"] == "healthy" else "degraded"
+    return {"status": overall, "components": {"database": db_status}}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -207,11 +235,23 @@ async def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
 
 
+@app.get("/schedule", response_class=RedirectResponse)
+async def schedule_redirect(event_id: int = Query(...)):
+    """No-JS fallback: redirect GET /schedule?event_id=X to /schedule/X."""
+    return RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
+
+
 @app.get("/schedule/{event_id}", response_class=HTMLResponse)
-async def get_schedule(request: Request, event_id: int, r: str | None = Query(None)):
+async def get_schedule(
+    request: Request,
+    event_id: int,
+    r: str | None = Query(None),
+    settings: Settings = Depends(get_settings),
+    client: httpx.AsyncClient = Depends(get_http_client),
+):
     """GET version of schedule so links and bookmarks work."""
     try:
-        jxn_data = await fetch_initial_layout(event_id)
+        jxn_data = await fetch_initial_layout(client, event_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id}: {e}")
 
@@ -223,9 +263,9 @@ async def get_schedule(request: Request, event_id: int, r: str | None = Query(No
         )
 
     await asyncio.gather(
-        _fetch_start_lists(event_id, sessions),
-        _fetch_result_pages(event_id, sessions),
-        _fetch_live_heats(event_id, sessions),
+        _fetch_start_lists(client, event_id, sessions),
+        _fetch_result_pages(client, event_id, sessions),
+        _fetch_live_heats(client, event_id, sessions),
     )
     now = datetime.now()
     use_learned = _use_learned(request)
@@ -271,14 +311,20 @@ async def get_schedule(request: Request, event_id: int, r: str | None = Query(No
 
 
 @app.get("/schedule/{event_id}/refresh", response_class=HTMLResponse)
-async def refresh_schedule(request: Request, event_id: int, r: str | None = Query(None)):
+async def refresh_schedule(
+    request: Request,
+    event_id: int,
+    r: str | None = Query(None),
+    settings: Settings = Depends(get_settings),
+    client: httpx.AsyncClient = Depends(get_http_client),
+):
     """
     HTMX polling endpoint. Called every N seconds to update the schedule.
     Returns only the schedule body partial for injection into the page.
     Also triggers the learning mechanism when event status transitions occur.
     """
     try:
-        jxn_data = await fetch_refresh(event_id)
+        jxn_data = await fetch_refresh(client, event_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id}: {e}")
 
@@ -287,13 +333,13 @@ async def refresh_schedule(request: Request, event_id: int, r: str | None = Quer
 
     await asyncio.gather(
         # Fetch any start lists not yet cached (e.g. newly published since initial load).
-        _fetch_start_lists(event_id, sessions),
+        _fetch_start_lists(client, event_id, sessions),
         # Fetch result pages for completed events not yet in the generated-time cache.
         # This populates Generated timestamps (for inter-event durations) and Finish
         # Times (for bunch-race observed durations), retroactively if needed.
-        _fetch_result_pages(event_id, sessions),
+        _fetch_result_pages(client, event_id, sessions),
         # Fetch live results page to get current heat number (changes each heat).
-        _fetch_live_heats(event_id, sessions),
+        _fetch_live_heats(client, event_id, sessions),
     )
 
     # Track status transitions for wall-clock fallback learning.
@@ -351,7 +397,7 @@ async def default_durations(request: Request):
 
 
 @app.get("/learned", response_class=HTMLResponse)
-async def learned_durations(request: Request):
+async def learned_durations(request: Request, settings: Settings = Depends(get_settings)):
     """Display the learned duration database for inspection."""
     durations = get_all_learned_durations()
     return templates.TemplateResponse(request, "learned.html", {
