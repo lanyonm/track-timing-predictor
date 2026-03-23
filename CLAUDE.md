@@ -40,6 +40,7 @@ Install dependencies: `pip install -r requirements.txt`
 |---|---|---|
 | `DB_PATH` | `timings.db` | SQLite database path (local dev only) |
 | `DYNAMODB_TABLE` | `""` | DynamoDB table name; enables DynamoDB backend when set |
+| `PALMARES_TABLE` | `""` | DynamoDB table name for palmares data; enables DynamoDB palmares backend when set |
 | `AWS_REGION` | `us-east-1` | AWS region for DynamoDB client |
 
 ## Taxonomy
@@ -81,6 +82,9 @@ The app predicts per-event start times for track cycling competitions fetched fr
 | GET | `/schedule/{event_id}/refresh` | HTMX partial for live polling; optional `?r=` param |
 | GET | `/settings/racer-name` | Set/clear racer name cookie; `?event_id=&name=` |
 | GET | `/settings/use-learned` | Toggle learned-durations cookie; `?event_id=&use_learned=on\|off` |
+| GET | `/palmares` | Palmares profile page; resolves racer from `r=` param, cookie, or `name` form submission |
+| GET | `/palmares/export` | CSV export of individual audit result data; requires `audit_url` and racer identity |
+| GET | `/palmares/remove` | Delete all palmares entries for a competition; cookie-only auth (403 for shared links) |
 | GET | `/defaults` | Display built-in default durations |
 | GET | `/learned` | Display learned duration database |
 | GET | `/health` | Health check; returns HTTP 200 with per-component status (healthy/degraded) |
@@ -114,6 +118,20 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - `get_learned_duration_cascading(discipline, classification, gender)` queries 4 specificity levels: discipline+classification+gender → discipline+classification → discipline+gender → discipline → static default
 - `record_duration_structured()` returns `RecordOutcome` (`"created"`, `"updated"`, `"unchanged"`, `"error"`); DynamoDB path uses delta-based aggregate correction when re-loaded data differs from existing OBS# item; SQLite path uses `INSERT OR REPLACE`
 - Wall-clock learning (UPCOMING→COMPLETED transition) is a fallback, capped at 3× the static default to reject inflated values when start lists are published before the race
+
+**Palmares module** (`palmares.py`):
+- Dual SQLite/DynamoDB backend for racer achievement storage (separate table from learning durations)
+- DynamoDB pk+sk design: `RACER#{name}` partition key, `COMP#{id}#S#{sid}#E#{pos}` sort key
+- SQLite table `palmares_entries` with UNIQUE constraint on `(racer_name, competition_id, session_id, event_position)`
+- Public API: `save_palmares_entries()`, `get_palmares()`, `count_competition_palmares()`, `delete_competition_palmares()`
+- Auto-collected during schedule views for identified racers with matched **timed events** that have audit URLs
+- **Timed events** are disciplines that produce per-lap/sector audit data: pursuits (`pursuit_4k`, `pursuit_3k`, `pursuit_2k`, `team_pursuit`), `team_sprint`, and time trials (`time_trial_500`, `time_trial_750`, `time_trial_kilo`, `time_trial_generic`). Defined in `_TIMED_DISCIPLINES` in `main.py`. Mass-start races, sprint matches, and sprint qualifying are excluded.
+
+**Audit parser** (`audit_parser.py`):
+- Parses tracktiming.live audit result HTML (`-AUDIT-R.htm`) for CSV export
+- Extracts rider names from `<p>` elements (strips bib prefix), heat assignments from `<h3>` headings
+- `filter_rider_data()` uses `normalize_rider_name()` for name matching
+- `format_csv()` outputs Heat, Dist, Time, Rank, Lap, Lap_Rank, Sect, Sect_Rank columns
 
 **Discipline detection** (`disciplines.py`):
 - Keyword list in `DISCIPLINE_KEYWORDS` matched against lowercase event names
@@ -159,3 +177,4 @@ The app predicts per-event start times for track cycling competitions fetched fr
 ## Recent Changes
 - 001-racer-schedule-lookup: Added Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing)
 - 002-duration-data-import: Added Python 3.11+ (same as existing app) + httpx (HTTP client, existing), beautifulsoup4 (HTML parsing, existing), boto3 (DynamoDB, existing), argparse (CLI, stdlib)
+- 004-racer-palmares: Added palmares (achievements) feature — auto-collects audit result links during schedule views, dedicated profile page with card layout, shareable links, per-event CSV export, per-competition removal. New modules: `palmares.py`, `audit_parser.py`, `palmares.html`. New DynamoDB table with pk+sk design.

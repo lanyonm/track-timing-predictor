@@ -242,7 +242,8 @@ tests/
 
 1. Integrate palmares saving into the schedule route handler in `app/main.py`:
    - After `predict_schedule()`, iterate `schedule.sessions[].event_predictions[]`
-   - For each prediction with `rider_match` and `event.audit_url` and not `event.is_special`: collect as `PalmaresEntry`
+   - For each prediction with `rider_match` and `event.audit_url` and not `event.is_special` and `event.discipline` in `_TIMED_DISCIPLINES`: collect as `PalmaresEntry`
+   - `_TIMED_DISCIPLINES` = pursuits (pursuit_4k, pursuit_3k, pursuit_2k, team_pursuit), team_sprint, and time trials (time_trial_500, time_trial_750, time_trial_kilo, time_trial_generic) — disciplines that produce per-lap/sector audit data
    - Call `save_palmares_entries()` with collected entries
    - Call `count_competition_palmares()` to get count for template
 2. Same integration for the `/schedule/{event_id}/refresh` route

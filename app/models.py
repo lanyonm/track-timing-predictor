@@ -128,6 +128,31 @@ class SchedulePrediction(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Palmares models
+# ---------------------------------------------------------------------------
+
+class PalmaresEntry(BaseModel):
+    """A single timed event in a racer's palmares."""
+    racer_name: str
+    competition_id: int
+    competition_name: str
+    competition_date: str | None = None
+    session_id: int
+    session_name: str
+    event_position: int
+    event_name: str
+    audit_url: str
+
+
+class PalmaresCompetition(BaseModel):
+    """Groups palmares entries by competition for template rendering."""
+    competition_id: int
+    competition_name: str
+    competition_date: str | None = None
+    entries: list[PalmaresEntry]
+
+
+# ---------------------------------------------------------------------------
 # Duration data import models
 # ---------------------------------------------------------------------------
 

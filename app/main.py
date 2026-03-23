@@ -6,23 +6,28 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 import httpx
-
-logger = logging.getLogger(__name__)
-
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from pythonjsonlogger.json import JsonFormatter
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from mangum import Mangum
+from pythonjsonlogger.json import JsonFormatter
 
+from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
 from app.config import Settings, get_settings
 from app.database import check_health, get_all_learned_durations, init_db
 from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
-from app.models import Session
+from app.models import PalmaresEntry, SchedulePrediction, Session
+from app.palmares import (
+    check_palmares_health,
+    count_competition_palmares,
+    delete_competition_palmares,
+    get_palmares,
+    init_palmares_db,
+    save_palmares_entries,
+)
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
-from mangum import Mangum
-
 from app.predictor import (
     get_generated_time,
     get_heat_count,
@@ -35,6 +40,8 @@ from app.predictor import (
     record_start_list_riders,
     update_status_cache,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
@@ -57,6 +64,7 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    init_palmares_db()
     settings = get_settings()
     app.state.http_client = httpx.AsyncClient(
         base_url=settings.tracktiming_base_url,
@@ -226,13 +234,84 @@ async def health():
     except asyncio.TimeoutError:
         db_status = {"status": "degraded", "detail": "Health check timed out"}
 
-    overall = "healthy" if db_status["status"] == "healthy" else "degraded"
-    return {"status": overall, "components": {"database": db_status}}
+    try:
+        palmares_status = await asyncio.wait_for(check_palmares_health(), timeout=5.0)
+    except asyncio.TimeoutError:
+        palmares_status = {"status": "degraded", "detail": "Palmares health check timed out"}
+
+    components = {"database": db_status, "palmares": palmares_status}
+    all_healthy = all(c["status"] == "healthy" for c in components.values())
+    return {"status": "healthy" if all_healthy else "degraded", "components": components}
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
+
+
+# Disciplines that produce per-lap/sector audit data (pursuits + time trials)
+_TIMED_DISCIPLINES = frozenset({
+    "pursuit_4k", "pursuit_3k", "pursuit_2k", "team_pursuit",
+    "team_sprint",
+    "time_trial_500", "time_trial_750", "time_trial_kilo", "time_trial_generic",
+})
+
+
+def _collect_palmares_entries(
+    schedule: SchedulePrediction,
+    competition_id: int,
+) -> list[PalmaresEntry]:
+    """Collect palmares entries from schedule predictions.
+
+    Filters for timed events (pursuits and time trials) where the racer
+    was matched, has an audit URL, and is not a special event.
+    """
+    if not schedule.racer_name:
+        return []
+
+    comp_name = f"Competition {competition_id}"
+    comp_date = datetime.now().date().isoformat()
+
+    entries = []
+    for sp in schedule.sessions:
+        for pred in sp.event_predictions:
+            if (pred.rider_match
+                    and pred.event.audit_url
+                    and not pred.event.is_special
+                    and pred.event.discipline in _TIMED_DISCIPLINES):
+                entries.append(PalmaresEntry(
+                    racer_name=schedule.racer_name,
+                    competition_id=competition_id,
+                    competition_name=comp_name,
+                    competition_date=comp_date,
+                    session_id=sp.session.session_id,
+                    session_name=sp.session.day,
+                    event_position=pred.event.position,
+                    event_name=pred.event.name,
+                    audit_url=pred.event.audit_url,
+                ))
+    return entries
+
+
+def _save_and_count_palmares(
+    schedule: SchedulePrediction,
+    competition_id: int,
+) -> int:
+    """Save matched palmares entries and return the count for the competition.
+
+    Returns 0 if no racer name is set or on error.
+    """
+    racer_name = schedule.racer_name
+    if not racer_name:
+        return 0
+    try:
+        entries = _collect_palmares_entries(schedule, competition_id)
+        if entries:
+            save_palmares_entries(entries)
+        return count_competition_palmares(racer_name, competition_id)
+    except Exception:
+        logger.warning("Palmares save failed", exc_info=True)
+        return 0
 
 
 @app.get("/schedule", response_class=RedirectResponse)
@@ -289,6 +368,8 @@ async def get_schedule(
     if racer_name:
         racer_encoded = _encode_racer_name(racer_name)
 
+    palmares_count = _save_and_count_palmares(schedule, event_id)
+
     response = templates.TemplateResponse(request, "schedule.html", {
         "schedule": schedule,
         "competition_id": event_id,
@@ -298,6 +379,7 @@ async def get_schedule(
         "use_learned": use_learned,
         "racer_name": racer_name,
         "racer_encoded": racer_encoded,
+        "palmares_count": palmares_count,
     })
 
     # FR-009: refresh cookie on every visit with a resolved name (rolling expiry)
@@ -348,11 +430,16 @@ async def refresh_schedule(
     racer_name = _resolve_racer_name(request, r)
     schedule = predict_schedule(event_id, sessions, now=now, racer_name=racer_name, use_learned=_use_learned(request))
 
+    palmares_count = _save_and_count_palmares(schedule, event_id)
+    racer_encoded = _encode_racer_name(racer_name) if racer_name else None
+
     return templates.TemplateResponse(request, "_schedule_body.html", {
         "schedule": schedule,
         "competition_id": event_id,
         "now": now,
         "base_url": settings.tracktiming_base_url,
+        "palmares_count": palmares_count,
+        "racer_encoded": racer_encoded,
     })
 
 
@@ -384,6 +471,105 @@ async def set_racer_name(event_id: int = Query(...), name: str = Query("")):
         response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
         response.delete_cookie(key="racer_name")
     return response
+
+
+@app.get("/palmares", response_class=HTMLResponse)
+async def palmares_page(
+    request: Request,
+    r: str | None = Query(None),
+    name: str | None = Query(None),
+    settings: Settings = Depends(get_settings),
+):
+    """Palmares profile page — shows racer achievements grouped by competition."""
+    # Handle name form submission: set cookie and redirect
+    if name and name.strip():
+        racer_name = name.strip()
+        encoded = _encode_racer_name(racer_name)
+        response = RedirectResponse(url=f"/palmares?r={encoded}", status_code=303)
+        response.set_cookie(
+            key="racer_name", value=racer_name,
+            httponly=True, secure=True, samesite="lax", max_age=31536000,
+        )
+        return response
+
+    racer_name = _resolve_racer_name(request, r)
+    cookie_name = request.cookies.get("racer_name")
+    is_owner = racer_name is not None and cookie_name == racer_name
+
+    if racer_name:
+        racer_encoded = _encode_racer_name(racer_name)
+        competitions = get_palmares(racer_name)
+        share_url = f"{request.url.scheme}://{request.url.netloc}/palmares?r={racer_encoded}"
+    else:
+        racer_encoded = None
+        competitions = []
+        share_url = None
+
+    return templates.TemplateResponse(request, "palmares.html", {
+        "racer_name": racer_name,
+        "racer_encoded": racer_encoded,
+        "competitions": competitions,
+        "is_owner": is_owner,
+        "share_url": share_url,
+        "base_url": settings.tracktiming_base_url,
+    })
+
+
+@app.get("/palmares/export")
+async def palmares_export(
+    request: Request,
+    audit_url: str = Query(...),
+    r: str | None = Query(None),
+    client: httpx.AsyncClient = Depends(get_http_client),
+):
+    """CSV export of individual audit result data for a specific event."""
+    racer_name = _resolve_racer_name(request, r)
+    if not racer_name:
+        raise HTTPException(status_code=400, detail="Racer identity required")
+
+    # SSRF protection
+    if "://" in audit_url or ".." in audit_url or not audit_url.startswith("results/"):
+        raise HTTPException(status_code=400, detail="Invalid audit URL")
+
+    try:
+        resp = await client.get(audit_url)
+        resp.raise_for_status()
+    except Exception:
+        return JSONResponse(
+            content={"error": "Could not load audit data from tracktiming.live"},
+            status_code=502,
+        )
+
+    riders = parse_audit_riders(resp.text)
+    filtered = filter_rider_data(riders, racer_name)
+    event_name = audit_url.split("/")[-1].replace("-AUDIT-R.htm", "")
+    csv_str = format_csv(filtered, event_name)
+
+    def _sanitize(s: str) -> str:
+        return s.replace('"', '_').replace('\n', '').replace('\r', '')
+    safe_event = _sanitize(event_name)
+    safe_racer = _sanitize(racer_name)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{safe_event}-{safe_racer}.csv"',
+    }
+    if not filtered:
+        headers["X-Palmares-Notice"] = "no-matching-data"
+
+    return Response(content=csv_str, media_type="text/csv", headers=headers)
+
+
+@app.get("/palmares/remove")
+async def palmares_remove(
+    request: Request,
+    competition_id: int = Query(...),
+):
+    """Delete all palmares entries for a competition. Cookie-only auth."""
+    cookie_name = request.cookies.get("racer_name")
+    if not cookie_name:
+        raise HTTPException(status_code=403, detail="Cookie-based identity required")
+
+    delete_competition_palmares(cookie_name, competition_id)
+    return RedirectResponse(url="/palmares", status_code=303)
 
 
 @app.get("/defaults", response_class=HTMLResponse)

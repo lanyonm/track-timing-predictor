@@ -52,6 +52,24 @@ class TrackTimingStack(Stack):
             removal_policy=RemovalPolicy.RETAIN if is_prod else RemovalPolicy.DESTROY,
         )
 
+        # DynamoDB — palmares table (pk + sk design for per-racer queries)
+        palmares_table = dynamodb.Table(
+            self,
+            "Palmares",
+            table_name=f"track-timing-palmares-{env_name}",
+            partition_key=dynamodb.Attribute(
+                name="pk", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="sk", type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
+                point_in_time_recovery_enabled=is_prod,
+            ),
+            removal_policy=RemovalPolicy.RETAIN if is_prod else RemovalPolicy.DESTROY,
+        )
+
         # Lambda — Docker image from ECR
         log_group = logs.LogGroup(
             self,
@@ -72,12 +90,14 @@ class TrackTimingStack(Stack):
             timeout=Duration.seconds(60),
             environment={
                 "DYNAMODB_TABLE": f"track-timing-{env_name}",
+                "PALMARES_TABLE": f"track-timing-palmares-{env_name}",
             },
             log_group=log_group,
         )
 
-        # Grant the Lambda function read/write access to the DynamoDB table
+        # Grant the Lambda function read/write access to DynamoDB tables
         table.grant_read_write_data(fn)
+        palmares_table.grant_read_write_data(fn)
 
         # Function URL — IAM auth; accessed via CloudFront OAC in prod,
         # directly (no auth required) in PR environments

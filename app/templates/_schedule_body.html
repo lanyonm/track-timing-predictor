@@ -4,6 +4,9 @@
 <div class="racer-message racer-message-info" role="status">{% if schedule.next_race.is_active %}Racing now: {{ schedule.next_race.event_name }}{% if schedule.next_race.heat_count and schedule.next_race.heat_count > 1 %}, Heat {{ schedule.next_race.heat }}{% endif %}{% else %}Your next race: {{ schedule.next_race.event_name }}{% if schedule.next_race.heat_count and schedule.next_race.heat_count > 1 %}, Heat {{ schedule.next_race.heat }}{% endif %}{% if schedule.next_race.predicted_start %} at {{ schedule.next_race.predicted_start.strftime('%H:%M') }}{% endif %}{% endif %}</div>
 {% endif %}
 {% endif %}
+{% if palmares_count is defined and palmares_count > 0 %}
+<div class="racer-message racer-message-info" role="status">{{ palmares_count }} of your timed events are in your <a href="/palmares{% if racer_encoded %}?r={{ racer_encoded }}{% endif %}">palmares</a></div>
+{% endif %}
 {% if schedule.racer_name and schedule.events_without_start_lists > 0 %}
 <div class="racer-message" role="status">{{ schedule.events_without_start_lists }} event{{ 's' if schedule.events_without_start_lists != 1 else '' }} do not yet have start lists</div>
 {% endif %}
