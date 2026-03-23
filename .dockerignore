@@ -9,3 +9,4 @@ specs/
 cdk/
 *.db
 .git/
+.coverage

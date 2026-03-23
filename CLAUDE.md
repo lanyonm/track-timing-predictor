@@ -153,6 +153,8 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - SQLite (local dev) + DynamoDB (production) — extended schema with classification + gender columns; JSON files for intermediate output (002-duration-data-import)
 - Python 3.11+ + FastAPI, httpx, Pydantic, pydantic-settings (new), Jinja2, BeautifulSoup, boto3, Mangum (003-constitution-compliance)
 - SQLite (local dev) / DynamoDB (production) — no schema changes (003-constitution-compliance)
+- Python 3.11+ + FastAPI, httpx, Pydantic, pydantic-settings, Jinja2, BeautifulSoup, boto3 (all existing — no new dependencies) (004-racer-palmares)
+- SQLite (local dev) + DynamoDB (production) — NEW separate table for palmares data (004-racer-palmares)
 
 ## Recent Changes
 - 001-racer-schedule-lookup: Added Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing)
