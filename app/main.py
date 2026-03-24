@@ -23,6 +23,7 @@ from app.palmares import (
     check_palmares_health,
     count_competition_palmares,
     delete_competition_palmares,
+    get_competition_name,
     get_palmares,
     init_palmares_db,
     save_palmares_entries,
@@ -386,11 +387,7 @@ async def get_schedule(
     # Use racer's custom competition name if they've set one via /palmares/rename
     competition_name = f"Competition {event_id}"
     if racer_name and palmares_count:
-        comps = get_palmares(racer_name)
-        for c in comps:
-            if c.competition_id == event_id:
-                competition_name = c.competition_name
-                break
+        competition_name = get_competition_name(racer_name, event_id) or competition_name
 
     response = templates.TemplateResponse(request, "schedule.html", {
         "schedule": schedule,
@@ -559,6 +556,7 @@ async def palmares_export(
         resp = await client.get(audit_url)
         resp.raise_for_status()
     except Exception:
+        logger.warning("Failed to fetch audit page: %s", audit_url, exc_info=True)
         return JSONResponse(
             content={"error": "Could not load audit data from tracktiming.live"},
             status_code=502,
@@ -594,7 +592,9 @@ async def palmares_remove(
     if not cookie_name:
         raise HTTPException(status_code=403, detail="Cookie-based identity required")
 
-    delete_competition_palmares(cookie_name, competition_id)
+    deleted = delete_competition_palmares(cookie_name, competition_id)
+    if deleted == 0:
+        logger.warning("Palmares remove returned 0 for racer=%s comp=%d", cookie_name, competition_id)
     return RedirectResponse(url="/palmares", status_code=303)
 
 
@@ -611,7 +611,9 @@ async def palmares_rename(
     if not name.strip():
         raise HTTPException(status_code=400, detail="Name is required")
 
-    update_competition_palmares(cookie_name, competition_id, name.strip())
+    updated = update_competition_palmares(cookie_name, competition_id, name.strip())
+    if updated == 0:
+        logger.warning("Palmares rename returned 0 for racer=%s comp=%d", cookie_name, competition_id)
     return RedirectResponse(url="/palmares", status_code=303)
 
 

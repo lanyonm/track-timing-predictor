@@ -517,6 +517,30 @@ class TestParseStartListRiders:
         # Diacritics in HTML table format
         assert heat2[1].normalized_tokens == frozenset({"fortin", "dionne", "leo"})
 
+    def test_team_event_format_extracts_riders_and_team_name(self):
+        """Team start lists use <br/> to separate team name + riders in one <h4>."""
+        html = """<table><tbody>
+        <tr><td><h4>Heat 1</h4></td><td><h4><strong>850</strong></h4></td>
+        <td><h4>MIDWEST SPRINT CLUB<br/>95 BAYZAEE Aram<br/>72 BONDY Jacob<br/>65 MOORE Charles</h4></td></tr>
+        <tr><td><h4>Heat 2</h4></td><td><h4><strong>851</strong></h4></td>
+        <td><h4>EDGE CYCLING<br/>4 ROBERTS Nicholas<br/>16 KOLLER Jonathan</h4></td></tr>
+        </tbody></table>"""
+        riders = parse_start_list_riders(html)
+        # Team names + individual riders extracted
+        names = [(r.name, r.team_name, r.heat) for r in riders]
+        # Heat 1: team name + 3 riders
+        assert ("MIDWEST SPRINT CLUB", None, 1) in names
+        assert ("BAYZAEE Aram", "MIDWEST SPRINT CLUB", 1) in names
+        assert ("BONDY Jacob", "MIDWEST SPRINT CLUB", 1) in names
+        assert ("MOORE Charles", "MIDWEST SPRINT CLUB", 1) in names
+        # Heat 2: team name + 2 riders
+        assert ("EDGE CYCLING", None, 2) in names
+        assert ("ROBERTS Nicholas", "EDGE CYCLING", 2) in names
+        # Individual riders have team_name set
+        aram = next(r for r in riders if r.name == "BAYZAEE Aram")
+        assert aram.team_name == "MIDWEST SPRINT CLUB"
+        assert aram.normalized_tokens == frozenset({"bayzaee", "aram"})
+
     def test_sprint_qualifying_format(self):
         """Sprint qualifying: heat label + bib + rider name in the same row."""
         html = """<table><tbody>

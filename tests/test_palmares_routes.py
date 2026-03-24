@@ -97,31 +97,36 @@ class TestPalmaresCollection:
 
 
 class TestCompetitionDate:
-    @pytest.mark.asyncio
-    async def test_palmares_date_uses_generated_timestamp(self, sample_jxn_data):
+    def test_palmares_date_uses_generated_timestamp(self):
         """Competition date should come from Generated timestamps, not datetime.now()."""
-        from datetime import datetime as dt
+        from datetime import datetime as dt, time
+        from app.main import _collect_palmares_entries
+        from app.models import (
+            Event, EventStatus, Prediction, RiderMatch,
+            SchedulePrediction, Session, SessionPrediction,
+        )
 
-        racer_name = "date test racer"
-        encoded = _encode(racer_name)
         fake_gen_time = dt(2026, 2, 27, 9, 49, 52)
+        event = Event(
+            position=3, name="U17 Women Pursuit Final",
+            discipline="pursuit_2k", status=EventStatus.COMPLETED,
+            is_special=False, audit_url="results/E26008/test-AUDIT-R.htm",
+        )
+        session = Session(session_id=1, day="Friday", scheduled_start=time(8, 15), events=[event])
+        pred = Prediction(
+            event=event, predicted_start=time(9, 35),
+            estimated_duration_minutes=6.0, is_adjusted=False,
+            cumulative_delay_minutes=0.0,
+            rider_match=RiderMatch(heat=1, heat_count=1),
+        )
+        sp = SessionPrediction(session=session, event_predictions=[pred], observed_delay_minutes=0.0)
+        schedule = SchedulePrediction(competition_id=26008, sessions=[sp], racer_name="date racer")
 
-        with patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data), \
-             patch("app.main._fetch_start_lists", new_callable=AsyncMock), \
-             patch("app.main._fetch_result_pages", new_callable=AsyncMock), \
-             patch("app.main._fetch_live_heats", new_callable=AsyncMock), \
-             patch("app.main.get_generated_time", return_value=fake_gen_time):
+        with patch("app.main.get_generated_time", return_value=fake_gen_time):
+            entries = _collect_palmares_entries(schedule, 26008)
 
-            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
-                response = await client.get(
-                    f"/schedule/26008?r={encoded}",
-                    cookies={"racer_name": racer_name},
-                )
-            assert response.status_code == 200
-
-        result = get_palmares(racer_name)
-        if result:
-            assert result[0].competition_date == "2026-02-27"
+        assert len(entries) == 1
+        assert entries[0].competition_date == "2026-02-27"
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +159,7 @@ class TestPalmaresPage:
         assert response.status_code == 200
         assert "Ontario Track Championships" in response.text
         assert "U17 Women Pursuit Final" in response.text
+        assert "palmares-remove" in response.text  # Owner sees remove button
 
     @pytest.mark.asyncio
     async def test_identified_no_entries(self):

@@ -87,7 +87,9 @@ def _save_entries_sqlite(entries: list[PalmaresEntry]) -> int:
                 if cursor.rowcount > 0:
                     inserted += 1
             except sqlite3.Error:
-                logger.error("SQLite error saving palmares entry", exc_info=True)
+                logger.error("SQLite error saving palmares entry for %s comp=%d pos=%d",
+                             entry.racer_name, entry.competition_id, entry.event_position,
+                             exc_info=True)
     return inserted
 
 
@@ -157,27 +159,41 @@ def _palmares_dynamo_table():
 
 
 def _save_entries_dynamo(entries: list[PalmaresEntry]) -> int:
-    """Batch write palmares entries to DynamoDB. Returns count written."""
+    """Insert palmares entries, skipping existing items. Returns count written.
+
+    Uses conditional put_item (not batch_writer) so existing items are
+    not overwritten — this preserves custom competition names set via
+    /palmares/rename.
+    """
     if not entries:
         return 0
     table = _palmares_dynamo_table()
     now = datetime.now(timezone.utc).isoformat()
-    with table.batch_writer() as batch:
-        for entry in entries:
-            item = {
-                "pk": f"RACER#{entry.racer_name}",
-                "sk": f"COMP#{entry.competition_id}#S#{entry.session_id}#E#{entry.event_position}",
-                "competition_name": entry.competition_name,
-                "competition_date": entry.competition_date or "",
-                "session_name": entry.session_name,
-                "event_name": entry.event_name,
-                "audit_url": entry.audit_url,
-                "created_at": now,
-            }
-            if entry.team_name:
-                item["team_name"] = entry.team_name
-            batch.put_item(Item=item)
-    return len(entries)
+    written = 0
+    for entry in entries:
+        item = {
+            "pk": f"RACER#{entry.racer_name}",
+            "sk": f"COMP#{entry.competition_id}#S#{entry.session_id}#E#{entry.event_position}",
+            "competition_name": entry.competition_name,
+            "competition_date": entry.competition_date or "",
+            "session_name": entry.session_name,
+            "event_name": entry.event_name,
+            "audit_url": entry.audit_url,
+            "created_at": now,
+        }
+        if entry.team_name:
+            item["team_name"] = entry.team_name
+        try:
+            table.put_item(
+                Item=item,
+                ConditionExpression="attribute_not_exists(pk)",
+            )
+            written += 1
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                continue  # Item already exists — skip (like INSERT OR IGNORE)
+            raise
+    return written
 
 
 def _get_palmares_dynamo(racer_name: str) -> list[PalmaresCompetition]:
@@ -198,21 +214,24 @@ def _get_palmares_dynamo(racer_name: str) -> list[PalmaresCompetition]:
     # Convert DynamoDB items to row-like dicts
     rows = []
     for item in items:
-        sk = item["sk"]
-        # Parse sk: COMP#{comp_id}#S#{session_id}#E#{position}
-        parts = sk.split("#")
-        rows.append({
-            "racer_name": racer_name,
-            "competition_id": int(parts[1]),
-            "competition_name": item.get("competition_name", ""),
-            "competition_date": item.get("competition_date") or None,
-            "session_id": int(parts[3]),
-            "session_name": item.get("session_name", ""),
-            "event_position": int(parts[5]),
-            "event_name": item.get("event_name", ""),
-            "audit_url": item.get("audit_url", ""),
-            "team_name": item.get("team_name") or None,
-        })
+        try:
+            sk = item["sk"]
+            # Parse sk: COMP#{comp_id}#S#{session_id}#E#{position}
+            parts = sk.split("#")
+            rows.append({
+                "racer_name": racer_name,
+                "competition_id": int(parts[1]),
+                "competition_name": item.get("competition_name", ""),
+                "competition_date": item.get("competition_date") or None,
+                "session_id": int(parts[3]),
+                "session_name": item.get("session_name", ""),
+                "event_position": int(parts[5]),
+                "event_name": item.get("event_name", ""),
+                "audit_url": item.get("audit_url", ""),
+                "team_name": item.get("team_name") or None,
+            })
+        except (IndexError, ValueError, KeyError):
+            logger.error("Malformed palmares DynamoDB item sk=%r, skipping", item.get("sk"))
 
     # Sort: reverse chronological by date/competition, then session/position ascending
     rows.sort(key=lambda r: (
@@ -346,6 +365,34 @@ def save_palmares_entries(entries: list[PalmaresEntry]) -> int:
         return 0
 
 
+def get_competition_name(racer_name: str, competition_id: int) -> str | None:
+    """Return the stored competition name, or None if no entries exist."""
+    try:
+        if settings.palmares_table:
+            from boto3.dynamodb.conditions import Key
+            table = _palmares_dynamo_table()
+            resp = table.query(
+                KeyConditionExpression=(
+                    Key("pk").eq(f"RACER#{racer_name}")
+                    & Key("sk").begins_with(f"COMP#{competition_id}#")
+                ),
+                ProjectionExpression="competition_name",
+                Limit=1,
+            )
+            items = resp.get("Items", [])
+            return items[0]["competition_name"] if items else None
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT competition_name FROM palmares_entries WHERE racer_name = ? AND competition_id = ? LIMIT 1",
+                (racer_name, competition_id),
+            ).fetchone()
+        return row["competition_name"] if row else None
+    except Exception as exc:
+        _raise_if_auth_error(exc)
+        logger.error("Failed to get competition name for %s comp=%d", racer_name, competition_id, exc_info=True)
+        return None
+
+
 def get_palmares(racer_name: str) -> list[PalmaresCompetition]:
     """Get all palmares entries grouped by competition, reverse chronological."""
     try:
@@ -412,4 +459,5 @@ async def check_palmares_health() -> dict[str, str]:
             await asyncio.to_thread(_check_sqlite)
         return {"status": "healthy"}
     except Exception:
+        logger.warning("Palmares health check failed (%s)", backend, exc_info=True)
         return {"status": "degraded", "detail": f"Palmares {backend} connection failed"}

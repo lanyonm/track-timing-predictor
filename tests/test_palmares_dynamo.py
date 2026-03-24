@@ -131,6 +131,29 @@ class TestDynamoTeamNameFields:
         assert result[0].entries[0].team_name is None
 
 
+class TestDynamoUpdateCompetition:
+    def test_update_name(self, dynamo_table):
+        entries = [
+            _make_entry(racer="update dyn", comp_id=60001, position=1, comp_name="Old"),
+            _make_entry(racer="update dyn", comp_id=60001, position=2, comp_name="Old"),
+        ]
+        palmares.save_palmares_entries(entries)
+        updated = palmares.update_competition_palmares("update dyn", 60001, "New Name")
+        assert updated == 2
+        result = palmares.get_palmares("update dyn")
+        assert result[0].competition_name == "New Name"
+
+    def test_resave_does_not_overwrite_renamed_competition(self, dynamo_table):
+        """Verify conditional put_item skips existing items (preserves custom names)."""
+        entries = [_make_entry(racer="overwrite dyn", comp_id=70001, position=1, comp_name="Original")]
+        palmares.save_palmares_entries(entries)
+        palmares.update_competition_palmares("overwrite dyn", 70001, "Custom Name")
+        # Re-save the same entry with original name — should be skipped
+        palmares.save_palmares_entries(entries)
+        result = palmares.get_palmares("overwrite dyn")
+        assert result[0].competition_name == "Custom Name"
+
+
 class TestDynamoGetPalmares:
     def test_empty_for_unknown(self, dynamo_table):
         assert palmares.get_palmares("nobody dyn") == []
