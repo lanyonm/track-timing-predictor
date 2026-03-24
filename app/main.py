@@ -26,6 +26,7 @@ from app.palmares import (
     get_palmares,
     init_palmares_db,
     save_palmares_entries,
+    update_competition_palmares,
 )
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
 from app.predictor import (
@@ -584,6 +585,23 @@ async def palmares_remove(
         raise HTTPException(status_code=403, detail="Cookie-based identity required")
 
     delete_competition_palmares(cookie_name, competition_id)
+    return RedirectResponse(url="/palmares", status_code=303)
+
+
+@app.get("/palmares/rename")
+async def palmares_rename(
+    request: Request,
+    competition_id: int = Query(...),
+    name: str = Query(""),
+):
+    """Update competition name. Cookie-only auth."""
+    cookie_name = request.cookies.get("racer_name")
+    if not cookie_name:
+        raise HTTPException(status_code=403, detail="Cookie-based identity required")
+    if not name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    update_competition_palmares(cookie_name, competition_id, name.strip())
     return RedirectResponse(url="/palmares", status_code=303)
 
 

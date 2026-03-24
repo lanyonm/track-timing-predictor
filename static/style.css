@@ -305,6 +305,15 @@ header { display: flex; align-items: center; justify-content: space-between; }
 .palmares-download.loading { pointer-events: none; opacity: 0.6; }
 .palmares-download.error { color: #dc3545; }
 
+.palmares-edit { font-size: 0.78rem; color: #999; text-decoration: none; margin-left: 0.5rem; }
+.palmares-edit:hover { color: #1a73e8; }
+
+.palmares-edit-form { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.4rem 0; margin-bottom: 0.5rem; }
+.palmares-edit-input { padding: 0.3rem 0.5rem; font-size: 0.9rem; border: 1px solid #bbb; border-radius: 4px; width: 250px; }
+.palmares-edit-save { padding: 0.3rem 0.8rem; font-size: 0.85rem; background: #1a1a2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+.palmares-edit-save:hover { background: #2e2e50; }
+.palmares-edit-cancel { font-size: 0.82rem; color: #999; }
+
 .palmares-remove {
   font-size: 0.8rem;
   color: #999;

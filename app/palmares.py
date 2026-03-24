@@ -120,6 +120,16 @@ def _count_competition_sqlite(racer_name: str, competition_id: int) -> int:
     return row["cnt"] if row else 0
 
 
+def _update_competition_sqlite(racer_name: str, competition_id: int, competition_name: str) -> int:
+    """Update competition name for all entries. Returns rows updated."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE palmares_entries SET competition_name = ? WHERE racer_name = ? AND competition_id = ?",
+            (competition_name, racer_name, competition_id),
+        )
+    return cursor.rowcount
+
+
 def _delete_competition_sqlite(racer_name: str, competition_id: int) -> int:
     """Delete all palmares entries for a competition. Returns count deleted."""
     with get_db() as conn:
@@ -227,6 +237,35 @@ def _count_competition_dynamo(racer_name: str, competition_id: int) -> int:
     return response.get("Count", 0)
 
 
+def _update_competition_dynamo(racer_name: str, competition_id: int, competition_name: str) -> int:
+    """Update competition name for all entries in DynamoDB."""
+    from boto3.dynamodb.conditions import Key
+    table = _palmares_dynamo_table()
+    pk = f"RACER#{racer_name}"
+    sk_prefix = f"COMP#{competition_id}#"
+
+    response = table.query(
+        KeyConditionExpression=Key("pk").eq(pk) & Key("sk").begins_with(sk_prefix),
+        ProjectionExpression="pk, sk",
+    )
+    items = response.get("Items", [])
+    while "LastEvaluatedKey" in response:
+        response = table.query(
+            KeyConditionExpression=Key("pk").eq(pk) & Key("sk").begins_with(sk_prefix),
+            ProjectionExpression="pk, sk",
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
+
+    for item in items:
+        table.update_item(
+            Key={"pk": item["pk"], "sk": item["sk"]},
+            UpdateExpression="SET competition_name = :n",
+            ExpressionAttributeValues={":n": competition_name},
+        )
+    return len(items)
+
+
 def _delete_competition_dynamo(racer_name: str, competition_id: int) -> int:
     """Delete all palmares entries for a competition from DynamoDB."""
     from boto3.dynamodb.conditions import Key
@@ -328,6 +367,19 @@ def count_competition_palmares(racer_name: str, competition_id: int) -> int:
     except Exception as exc:
         _raise_if_auth_error(exc)
         logger.error("Failed to count palmares for %s competition %d",
+                      racer_name, competition_id, exc_info=True)
+        return 0
+
+
+def update_competition_palmares(racer_name: str, competition_id: int, competition_name: str) -> int:
+    """Update competition name for all entries. Returns rows updated."""
+    try:
+        if settings.palmares_table:
+            return _update_competition_dynamo(racer_name, competition_id, competition_name)
+        return _update_competition_sqlite(racer_name, competition_id, competition_name)
+    except Exception as exc:
+        _raise_if_auth_error(exc)
+        logger.error("Failed to update palmares for %s competition %d",
                       racer_name, competition_id, exc_info=True)
         return 0
 

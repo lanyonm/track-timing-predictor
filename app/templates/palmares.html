@@ -16,14 +16,23 @@
     {% for comp in competitions %}
     <div class="palmares-card">
       <div class="palmares-card-header">
-        <span>
+        <span class="palmares-card-title" id="title-{{ comp.competition_id }}">
           <a href="/schedule/{{ comp.competition_id }}{% if racer_encoded %}?r={{ racer_encoded }}{% endif %}">{{ comp.competition_name }}</a>
           {% if comp.competition_date %}<span class="palmares-date">{{ comp.competition_date }}</span>{% endif %}
+          {% if is_owner %}<a href="#" class="palmares-edit" onclick="toggleEdit({{ comp.competition_id }}); return false;" title="Edit name">edit</a>{% endif %}
         </span>
         {% if is_owner %}
         <a href="/palmares/remove?competition_id={{ comp.competition_id }}" class="palmares-remove" onclick="return confirm('Remove this competition from your palmares?')">Remove</a>
         {% endif %}
       </div>
+      {% if is_owner %}
+      <form class="palmares-edit-form" id="edit-{{ comp.competition_id }}" action="/palmares/rename" method="get" hidden>
+        <input type="hidden" name="competition_id" value="{{ comp.competition_id }}">
+        <input type="text" name="name" value="{{ comp.competition_name }}" class="palmares-edit-input" required>
+        <button type="submit" class="palmares-edit-save">Save</button>
+        <a href="#" class="palmares-edit-cancel" onclick="toggleEdit({{ comp.competition_id }}); return false;">Cancel</a>
+      </form>
+      {% endif %}
       {% for entry in comp.entries %}
       <div class="palmares-event">
         <span class="palmares-event-name">{{ entry.event_name }}</span>
@@ -59,6 +68,20 @@
 {% endif %}
 
 <script>
+// Edit competition name
+function toggleEdit(compId) {
+  var title = document.getElementById('title-' + compId);
+  var form = document.getElementById('edit-' + compId);
+  if (form.hidden) {
+    title.hidden = true;
+    form.hidden = false;
+    form.querySelector('input[name="name"]').focus();
+  } else {
+    form.hidden = true;
+    title.hidden = false;
+  }
+}
+
 // Copy Link — US3
 (function() {
   var btn = document.getElementById('copy-link-btn');

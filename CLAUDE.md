@@ -83,7 +83,8 @@ The app predicts per-event start times for track cycling competitions fetched fr
 | GET | `/settings/racer-name` | Set/clear racer name cookie; `?event_id=&name=` |
 | GET | `/settings/use-learned` | Toggle learned-durations cookie; `?event_id=&use_learned=on\|off` |
 | GET | `/palmares` | Palmares profile page; resolves racer from `r=` param, cookie, or `name` form submission |
-| GET | `/palmares/export` | CSV export of individual audit result data; requires `audit_url` and racer identity |
+| GET | `/palmares/export` | CSV export of individual audit result data; requires `audit_url` and racer identity; optional `team_name` for team events |
+| GET | `/palmares/rename` | Update competition name; cookie-only auth; accepts `competition_id` and `name` |
 | GET | `/palmares/remove` | Delete all palmares entries for a competition; cookie-only auth (403 for shared links) |
 | GET | `/defaults` | Display built-in default durations |
 | GET | `/learned` | Display learned duration database |

@@ -379,6 +379,50 @@ class TestCSVExport:
         assert response.status_code == 200
         assert response.headers.get("x-palmares-notice") == "no-matching-data"
 
+class TestPalmaresRename:
+    @pytest.mark.asyncio
+    async def test_rename_updates_name(self):
+        racer_name = "rename test racer"
+        entries = [
+            PalmaresEntry(
+                racer_name=racer_name, competition_id=50001,
+                competition_name="Old Name", competition_date="2026-01-01",
+                session_id=1, session_name="Sat", event_position=1,
+                event_name="E1", audit_url="results/E50001/test-AUDIT-R.htm",
+            ),
+        ]
+        save_palmares_entries(entries)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL,
+            follow_redirects=False,
+        ) as client:
+            response = await client.get(
+                "/palmares/rename?competition_id=50001&name=Ontario+Track+Championships",
+                cookies={"racer_name": racer_name},
+            )
+        assert response.status_code == 303
+        result = get_palmares(racer_name)
+        comp = next(c for c in result if c.competition_id == 50001)
+        assert comp.competition_name == "Ontario Track Championships"
+
+    @pytest.mark.asyncio
+    async def test_rename_without_cookie_returns_403(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+            response = await client.get("/palmares/rename?competition_id=50001&name=Test")
+        assert response.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_rename_blank_name_returns_400(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+            response = await client.get(
+                "/palmares/rename?competition_id=50001&name=",
+                cookies={"racer_name": "someone"},
+            )
+        assert response.status_code == 400
+
+
+class TestCSVExportTeamName:
     @pytest.mark.asyncio
     async def test_export_uses_team_name_when_provided(self):
         encoded = _encode("some racer")

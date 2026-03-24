@@ -136,6 +136,7 @@ A racer viewing their palmares or a specific competition's events wants to expor
 
 - **FR-016**: System MUST derive the competition date from the earliest Generated timestamp on result pages, not from the current date. **Rationale**: Viewing a past competition was recording the current date instead of the actual competition date.
 - **FR-017**: System MUST extract individual rider names from team event start lists and match them for palmares collection. Team start lists pack team name + riders in a single `<h4>` separated by `<br/>` tags. The team name is stored per entry so CSV export can filter audit data by team name (since audit pages use team names, not individual names). **Rationale**: Team timed events were not being collected because the parser could not extract individual rider names from the concatenated format.
+- **FR-018**: System MUST provide an editable competition name on the palmares page (owner-only) via an inline text input. The default "Competition {id}" is not useful since the tracktiming.live API does not expose competition names. **Rationale**: Racers need to set meaningful competition names.
 
 ### Timed Event Definition
 
