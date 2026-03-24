@@ -29,7 +29,7 @@
         <span class="palmares-event-name">{{ entry.event_name }}</span>
         <span class="palmares-event-actions">
           <a href="{{ base_url }}/{{ entry.audit_url }}" target="_blank" class="evt-btn evt-btn-a">Audit</a>
-          <a class="palmares-download" data-audit-url="{{ entry.audit_url }}" title="Export CSV">&#11015;</a>
+          <a class="palmares-download" data-audit-url="{{ entry.audit_url }}"{% if entry.team_name %} data-team-name="{{ entry.team_name }}"{% endif %} title="Export CSV">&#11015;</a>
         </span>
       </div>
       {% endfor %}
@@ -93,13 +93,16 @@
       e.preventDefault();
       var el = this;
       var auditUrl = el.dataset.auditUrl;
+      var teamName = el.dataset.teamName;
       var racerParam = '{{ racer_encoded|default("", true) }}';
       if (!racerParam) return;
 
       el.classList.add('loading');
       el.textContent = '\u23F3';
 
-      fetch('/palmares/export?audit_url=' + encodeURIComponent(auditUrl) + '&r=' + racerParam)
+      var exportUrl = '/palmares/export?audit_url=' + encodeURIComponent(auditUrl) + '&r=' + racerParam;
+      if (teamName) exportUrl += '&team_name=' + encodeURIComponent(teamName);
+      fetch(exportUrl)
         .then(function(resp) {
           if (!resp.ok) throw new Error('Export failed');
           return resp.blob();

@@ -116,6 +116,21 @@ class TestDynamoDelete:
         assert result[0].competition_id == 30003
 
 
+class TestDynamoTeamNameFields:
+    def test_team_name_round_trip(self, dynamo_table):
+        entry = _make_entry(racer="team dyn racer", position=1)
+        entry = entry.model_copy(update={"team_name": "Ontario A"})
+        palmares.save_palmares_entries([entry])
+        result = palmares.get_palmares("team dyn racer")
+        assert result[0].entries[0].team_name == "Ontario A"
+
+    def test_individual_entry_no_team_name(self, dynamo_table):
+        entry = _make_entry(racer="indiv dyn racer", position=1)
+        palmares.save_palmares_entries([entry])
+        result = palmares.get_palmares("indiv dyn racer")
+        assert result[0].entries[0].team_name is None
+
+
 class TestDynamoGetPalmares:
     def test_empty_for_unknown(self, dynamo_table):
         assert palmares.get_palmares("nobody dyn") == []

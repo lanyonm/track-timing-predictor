@@ -167,6 +167,7 @@ def get_rider_match(
                 heat=rider.heat,
                 heat_count=hc,
                 heat_predicted_start=heat_predicted_start,
+                team_name=rider.team_name,
             )
 
     return None

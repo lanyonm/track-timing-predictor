@@ -62,6 +62,7 @@ class RiderEntry(BaseModel):
     name: str
     heat: int = Field(ge=1)
     normalized_tokens: frozenset[str] = frozenset()
+    team_name: str | None = None
 
     @model_validator(mode="after")
     def _compute_tokens(self) -> "RiderEntry":
@@ -75,6 +76,7 @@ class RiderMatch(BaseModel):
     heat: int = Field(ge=1)
     heat_count: int = Field(ge=1)
     heat_predicted_start: datetime | None = None
+    team_name: str | None = None
 
 
 class Prediction(BaseModel):
@@ -141,6 +143,7 @@ class PalmaresEntry(BaseModel):
     session_name: str
     event_position: int
     event_name: str
+    team_name: str | None = None  # Team name for team events (team pursuit, team sprint)
     audit_url: str
 
 

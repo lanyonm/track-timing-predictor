@@ -378,3 +378,24 @@ class TestCSVExport:
                 )
         assert response.status_code == 200
         assert response.headers.get("x-palmares-notice") == "no-matching-data"
+
+    @pytest.mark.asyncio
+    async def test_export_uses_team_name_when_provided(self):
+        encoded = _encode("some racer")
+        audit_url = "results/E26008/W1516-IP-2000-F-0-AUDIT-R.htm"
+
+        with open("tests/fixtures/audit-pursuit-26008.html") as f:
+            audit_html = f.read()
+
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.text = audit_html
+        mock_response.raise_for_status = lambda: None
+
+        with patch.object(app.state.http_client, "get", return_value=mock_response):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    f"/palmares/export?audit_url={audit_url}&r={encoded}&team_name=Ontario+A",
+                )
+        assert response.status_code == 200
+        assert "Ontario" in response.headers.get("content-disposition", "")

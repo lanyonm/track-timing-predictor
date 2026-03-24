@@ -102,6 +102,23 @@ class TestDeleteCompetition:
         assert result[0].competition_id == 30003
 
 
+class TestTeamNameFields:
+    def test_team_name_round_trip(self):
+        entry = _make_entry(racer="team fields racer", position=1,
+                            event_name="Team Pursuit Final")
+        entry = entry.model_copy(update={"team_name": "Ontario A"})
+        save_palmares_entries([entry])
+        result = get_palmares("team fields racer")
+        assert len(result) == 1
+        assert result[0].entries[0].team_name == "Ontario A"
+
+    def test_individual_entry_has_none_team_name(self):
+        entry = _make_entry(racer="individual fields racer", position=1)
+        save_palmares_entries([entry])
+        result = get_palmares("individual fields racer")
+        assert result[0].entries[0].team_name is None
+
+
 class TestGetPalmares:
     def test_empty_for_unknown_racer(self):
         result = get_palmares("unknown racer xyz")

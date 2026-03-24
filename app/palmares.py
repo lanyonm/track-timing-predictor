@@ -52,6 +52,15 @@ def init_palmares_db() -> None:
         return  # DynamoDB table managed by CDK
     with get_db() as conn:
         conn.executescript(_PALMARES_SCHEMA)
+        _migrate_palmares_schema(conn)
+
+
+def _migrate_palmares_schema(conn: sqlite3.Connection) -> None:
+    """Add team_name column if missing (for databases created before team event support)."""
+    cursor = conn.execute("PRAGMA table_info(palmares_entries)")
+    existing = {row[1] for row in cursor.fetchall()}
+    if "team_name" not in existing:
+        conn.execute("ALTER TABLE palmares_entries ADD COLUMN team_name TEXT DEFAULT NULL")
 
 
 def _save_entries_sqlite(entries: list[PalmaresEntry]) -> int:
@@ -66,12 +75,14 @@ def _save_entries_sqlite(entries: list[PalmaresEntry]) -> int:
                     """
                     INSERT OR IGNORE INTO palmares_entries
                         (racer_name, competition_id, competition_name, competition_date,
-                         session_id, session_name, event_position, event_name, audit_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         session_id, session_name, event_position, event_name, audit_url,
+                         team_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (entry.racer_name, entry.competition_id, entry.competition_name,
                      entry.competition_date, entry.session_id, entry.session_name,
-                     entry.event_position, entry.event_name, entry.audit_url),
+                     entry.event_position, entry.event_name, entry.audit_url,
+                     entry.team_name),
                 )
                 if cursor.rowcount > 0:
                     inserted += 1
@@ -86,7 +97,8 @@ def _get_palmares_sqlite(racer_name: str) -> list[PalmaresCompetition]:
         rows = conn.execute(
             """
             SELECT racer_name, competition_id, competition_name, competition_date,
-                   session_id, session_name, event_position, event_name, audit_url
+                   session_id, session_name, event_position, event_name, audit_url,
+                   team_name
             FROM palmares_entries
             WHERE racer_name = ?
             ORDER BY competition_date DESC, competition_id DESC,
@@ -142,7 +154,7 @@ def _save_entries_dynamo(entries: list[PalmaresEntry]) -> int:
     now = datetime.now(timezone.utc).isoformat()
     with table.batch_writer() as batch:
         for entry in entries:
-            batch.put_item(Item={
+            item = {
                 "pk": f"RACER#{entry.racer_name}",
                 "sk": f"COMP#{entry.competition_id}#S#{entry.session_id}#E#{entry.event_position}",
                 "competition_name": entry.competition_name,
@@ -151,7 +163,10 @@ def _save_entries_dynamo(entries: list[PalmaresEntry]) -> int:
                 "event_name": entry.event_name,
                 "audit_url": entry.audit_url,
                 "created_at": now,
-            })
+            }
+            if entry.team_name:
+                item["team_name"] = entry.team_name
+            batch.put_item(Item=item)
     return len(entries)
 
 
@@ -186,6 +201,7 @@ def _get_palmares_dynamo(racer_name: str) -> list[PalmaresCompetition]:
             "event_position": int(parts[5]),
             "event_name": item.get("event_name", ""),
             "audit_url": item.get("audit_url", ""),
+            "team_name": item.get("team_name") or None,
         })
 
     # Sort: reverse chronological by date/competition, then session/position ascending
@@ -250,6 +266,7 @@ def _group_by_competition(rows: list[dict]) -> list[PalmaresCompetition]:
     entry_fields = (
         "racer_name", "competition_id", "competition_name", "competition_date",
         "session_id", "session_name", "event_position", "event_name", "audit_url",
+        "team_name",
     )
     for row in rows:
         comp_id = row["competition_id"]

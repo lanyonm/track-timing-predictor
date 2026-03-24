@@ -300,6 +300,7 @@ def _collect_palmares_entries(
                     event_position=pred.event.position,
                     event_name=pred.event.name,
                     audit_url=pred.event.audit_url,
+                    team_name=pred.rider_match.team_name,
                 ))
     return entries
 
@@ -531,6 +532,7 @@ async def palmares_export(
     request: Request,
     audit_url: str = Query(...),
     r: str | None = Query(None),
+    team_name: str | None = Query(None),
     client: httpx.AsyncClient = Depends(get_http_client),
 ):
     """CSV export of individual audit result data for a specific event."""
@@ -551,17 +553,19 @@ async def palmares_export(
             status_code=502,
         )
 
+    # For team events, filter by team name instead of racer name
+    filter_name = team_name.strip() if team_name else racer_name
     riders = parse_audit_riders(resp.text)
-    filtered = filter_rider_data(riders, racer_name)
+    filtered = filter_rider_data(riders, filter_name)
     event_name = audit_url.split("/")[-1].replace("-AUDIT-R.htm", "")
     csv_str = format_csv(filtered, event_name)
 
     def _sanitize(s: str) -> str:
         return s.replace('"', '_').replace('\n', '').replace('\r', '')
     safe_event = _sanitize(event_name)
-    safe_racer = _sanitize(racer_name)
+    safe_name = _sanitize(filter_name)
     headers = {
-        "Content-Disposition": f'attachment; filename="{safe_event}-{safe_racer}.csv"',
+        "Content-Disposition": f'attachment; filename="{safe_event}-{safe_name}.csv"',
     }
     if not filtered:
         headers["X-Palmares-Notice"] = "no-matching-data"

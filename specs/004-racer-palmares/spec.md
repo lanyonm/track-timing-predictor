@@ -135,16 +135,22 @@ A racer viewing their palmares or a specific competition's events wants to expor
 #### Addendum (2026-03-23)
 
 - **FR-016**: System MUST derive the competition date from the earliest Generated timestamp on result pages, not from the current date. **Rationale**: Viewing a past competition was recording the current date instead of the actual competition date.
+- **FR-017**: System MUST extract individual rider names from team event start lists and match them for palmares collection. Team start lists pack team name + riders in a single `<h4>` separated by `<br/>` tags. The team name is stored per entry so CSV export can filter audit data by team name (since audit pages use team names, not individual names). **Rationale**: Team timed events were not being collected because the parser could not extract individual rider names from the concatenated format.
 
 ### Timed Event Definition
 
 A **timed event** is a discipline that produces per-lap and per-sector timing data on its audit result page. Only timed events are collected into the palmares. The timed disciplines are:
 
-- **Pursuits**: Individual Pursuit (2km, 3km, 4km variants), Team Pursuit
-- **Time Trials**: 500m, 750m, Kilo (1000m), generic
-- **Team Sprint**
+**Individual timed events** — rider name appears directly on start list:
+- Individual Pursuit (2km, 3km, 4km variants)
+- Time Trials (500m, 750m, Kilo/1000m, generic)
 
-Mass-start races (scratch, points, elimination, tempo, madison, keirin) and sprint match races are **not** timed events — they do not produce per-rider lap/sector audit data. Sprint qualifying (flying 200m) is also excluded.
+**Team timed events** — rider name appears within a team entry on start list, team name stored for CSV export:
+- Team Pursuit, Team Sprint
+
+**Excluded** — do not produce per-rider lap/sector audit data:
+- Mass-start races (scratch, points, elimination, tempo, madison, keirin)
+- Sprint events (qualifying flying 200m, match races)
 
 ### Key Entities
 
