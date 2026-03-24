@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     min_learned_samples: int = 3
     # DynamoDB backend — when set, learning data is stored in DynamoDB instead of SQLite
     dynamodb_table: str = ""
+    # Palmares DynamoDB table — when set, palmares data is stored in DynamoDB
+    palmares_table: str = ""
     aws_region: str = "us-east-1"
 
 

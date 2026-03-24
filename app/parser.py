@@ -102,11 +102,54 @@ def _is_rider_name(text: str) -> bool:
     return uppercase_count >= 2
 
 
+def _extract_names_from_h4(h4) -> list[tuple[str, str | None]]:
+    """Extract candidate rider names from an <h4> element.
+
+    Team event start lists pack team name + riders into a single <h4>
+    separated by <br/> tags::
+
+        <h4>TEAM NAME<br/>95 BAYZAEE Aram<br/>72 BONDY Jacob</h4>
+
+    When <br/> tags are present, the first segment is the team name and
+    subsequent segments are ``{bib} {LASTNAME} {Firstname}``. Returns
+    ``(name, team_name)`` tuples — riders get the team name, the team
+    name segment itself gets ``None``.
+
+    For non-team <h4> elements (no <br/> tags), returns the plain text
+    with ``team_name=None`` as a single-element list.
+    """
+    if h4.find("br"):
+        segments = []
+        for part in h4.stripped_strings:
+            part = part.strip()
+            if part:
+                segments.append(part)
+        if not segments:
+            return []
+        team = segments[0]
+        results: list[tuple[str, str | None]] = [(team, None)]
+        for seg in segments[1:]:
+            # Strip leading bib number: "95 BAYZAEE Aram" → "BAYZAEE Aram"
+            stripped = re.sub(r"^\d+\s+", "", seg)
+            if stripped:
+                results.append((stripped, team))
+        return results
+
+    text = h4.get_text(strip=True)
+    if (not text
+            or re.match(r"^Heat\s+\d+$", text)
+            or re.match(r"^\d+$", text)
+            or text == "\xa0"
+            or re.match(r"^Number of Riders", text)):
+        return []
+    return [(text, None)]
+
+
 def parse_start_list_riders(html: str) -> list[RiderEntry]:
     """
     Parse rider names and heat assignments from a start list page.
 
-    Start list pages are HTML tables with three layout patterns:
+    Start list pages are HTML tables with four layout patterns:
 
     Sprint qualifying (1 rider per heat):
       <td><h4>Heat 1</h4></td><td><h4><Strong>212</Strong></h4></td><td><h4>NAME</h4></td>
@@ -119,6 +162,11 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
       No "Heat N" labels — all riders listed together.
       Rider rows:      <td><h4><Strong>101</Strong></h4></td><td>...</td><td><h4>NAME</h4></td>
       These riders are assigned heat=1.
+
+    Team events (team pursuit, team sprint):
+      Heat header row as above, then a single <h4> with <br/>-separated content:
+      <h4>TEAM NAME<br/>95 RIDER1<br/>72 RIDER2<br/>65 RIDER3</h4>
+      Individual rider names are extracted alongside the team name.
 
     Returns an empty list if no riders are found.
     """
@@ -138,39 +186,28 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
         if heat_match:
             current_heat = int(heat_match.group(1))
 
-            # Sprint qualifying format: Heat label + bib + name in the same row
-            # Look for a rider name among the h4 tags in this row
-            h4_tags = row.find_all("h4")
-            for h4 in h4_tags:
-                text = h4.get_text(strip=True)
-                # Skip "Heat N" labels, bib numbers, and empty text
-                if re.match(r"^Heat\s+\d+$", text):
-                    continue
-                if re.match(r"^\d+$", text):
-                    continue
-                if not text:
-                    continue
-                if _is_rider_name(text):
-                    tokens = normalize_rider_name(text)
-                    riders.append(RiderEntry(name=text, heat=current_heat, normalized_tokens=tokens))
-                    break
+            # Extract names from h4 tags in this row (handles both
+            # sprint qualifying single-rider and team multi-rider formats)
+            for h4 in row.find_all("h4"):
+                for name, team in _extract_names_from_h4(h4):
+                    if _is_rider_name(name):
+                        tokens = normalize_rider_name(name)
+                        riders.append(RiderEntry(
+                            name=name, heat=current_heat,
+                            normalized_tokens=tokens, team_name=team,
+                        ))
         else:
             # Rider row: either within a multi-rider heat (current_heat > 0)
             # or a bunch race with no heat labels (current_heat == 0 → heat 1)
             heat = current_heat or 1
-            h4_tags = row.find_all("h4")
-            for h4 in h4_tags:
-                text = h4.get_text(strip=True)
-                if re.match(r"^\d+$", text):
-                    continue
-                if not text or text == "\xa0":
-                    continue
-                if re.match(r"^Number of Riders", text):
-                    continue
-                if _is_rider_name(text):
-                    tokens = normalize_rider_name(text)
-                    riders.append(RiderEntry(name=text, heat=heat, normalized_tokens=tokens))
-                    break
+            for h4 in row.find_all("h4"):
+                for name, team in _extract_names_from_h4(h4):
+                    if _is_rider_name(name):
+                        tokens = normalize_rider_name(name)
+                        riders.append(RiderEntry(
+                            name=name, heat=heat,
+                            normalized_tokens=tokens, team_name=team,
+                        ))
 
     if not riders and soup.find("tr"):
         logger.warning("parse_start_list_riders found 0 riders in HTML with %d rows", len(soup.find_all("tr")))

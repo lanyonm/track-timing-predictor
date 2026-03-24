@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}{% if racer_name %}Palmares for {{ racer_name }}{% else %}Palmares{% endif %} — Track Timing Predictor{% endblock %}
+{% block content %}
+
+{% if racer_name %}
+  <h2>Palmares for {{ racer_name }}</h2>
+
+  {% if competitions %}
+    {# Share section — US3 #}
+    <div class="palmares-share">
+      <button id="copy-link-btn" class="copy-btn" data-url="{{ share_url }}">Copy Link</button>
+      <span id="copy-feedback" class="copy-feedback" hidden>Copied!</span>
+      <p class="palmares-share-desc">Anyone with this link can see your event history.</p>
+    </div>
+
+    {% for comp in competitions %}
+    <div class="palmares-card">
+      <div class="palmares-card-header">
+        <span class="palmares-card-title" id="title-{{ comp.competition_id }}">
+          <a href="/schedule/{{ comp.competition_id }}{% if racer_encoded %}?r={{ racer_encoded }}{% endif %}">{{ comp.competition_name }}</a>
+          {% if comp.competition_date %}<span class="palmares-date">{{ comp.competition_date }}</span>{% endif %}
+          {% if is_owner %}<a href="#" class="palmares-edit" onclick="toggleEdit({{ comp.competition_id }}); return false;" title="Edit name">edit</a>{% endif %}
+        </span>
+        {% if is_owner %}
+        <a href="/palmares/remove?competition_id={{ comp.competition_id }}" class="palmares-remove" onclick="return confirm('Remove this competition from your palmares?')">Remove</a>
+        {% endif %}
+      </div>
+      {% if is_owner %}
+      <form class="palmares-edit-form" id="edit-{{ comp.competition_id }}" action="/palmares/rename" method="get" hidden>
+        <input type="hidden" name="competition_id" value="{{ comp.competition_id }}">
+        <input type="text" name="name" value="{{ comp.competition_name }}" class="palmares-edit-input" required>
+        <button type="submit" class="palmares-edit-save">Save</button>
+        <a href="#" class="palmares-edit-cancel" onclick="toggleEdit({{ comp.competition_id }}); return false;">Cancel</a>
+      </form>
+      {% endif %}
+      {% for entry in comp.entries %}
+      <div class="palmares-event">
+        <span class="palmares-event-name">{{ entry.event_name }}</span>
+        <span class="palmares-event-actions">
+          <a href="{{ base_url }}/{{ entry.audit_url }}" target="_blank" class="evt-btn evt-btn-a">Audit</a>
+          <a class="palmares-download" data-audit-url="{{ entry.audit_url }}"{% if entry.team_name %} data-team-name="{{ entry.team_name }}"{% endif %} title="Export CSV">&#11015;</a>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+  {% else %}
+    {# Empty state #}
+    <div class="palmares-empty">
+      <p><strong>No achievements yet</strong></p>
+      <p>View a competition schedule while your name is set, and your timed events with audit results will appear here automatically.</p>
+      <p><a href="/">View a competition</a></p>
+    </div>
+  {% endif %}
+
+{% else %}
+  {# Unidentified visitor — name form #}
+  <h2>Palmares</h2>
+  <div class="palmares-name-form">
+    <p>Enter your name to view your achievements</p>
+    <form action="/palmares" method="get">
+      <label for="palmares-name">Your full name as shown on the start list:</label>
+      <input type="text" id="palmares-name" name="name" required placeholder="First Last">
+      <button type="submit">View Palmares</button>
+    </form>
+  </div>
+{% endif %}
+
+<script>
+// Edit competition name
+function toggleEdit(compId) {
+  var title = document.getElementById('title-' + compId);
+  var form = document.getElementById('edit-' + compId);
+  if (form.hidden) {
+    title.hidden = true;
+    form.hidden = false;
+    form.querySelector('input[name="name"]').focus();
+  } else {
+    form.hidden = true;
+    title.hidden = false;
+  }
+}
+
+// Copy Link — US3
+(function() {
+  var btn = document.getElementById('copy-link-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function() {
+    var url = btn.dataset.url;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function() {
+        showFeedback();
+      });
+    } else {
+      var input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+      showFeedback();
+    }
+  });
+  function showFeedback() {
+    var fb = document.getElementById('copy-feedback');
+    fb.hidden = false;
+    setTimeout(function() { fb.hidden = true; }, 2000);
+  }
+})();
+
+// CSV Download — US4
+(function() {
+  document.querySelectorAll('.palmares-download').forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      e.preventDefault();
+      var el = this;
+      var auditUrl = el.dataset.auditUrl;
+      var teamName = el.dataset.teamName;
+      var racerParam = '{{ racer_encoded|default("", true) }}';
+      if (!racerParam) return;
+
+      el.classList.add('loading');
+      el.textContent = '\u23F3';
+
+      var exportUrl = '/palmares/export?audit_url=' + encodeURIComponent(auditUrl) + '&r=' + racerParam;
+      if (teamName) exportUrl += '&team_name=' + encodeURIComponent(teamName);
+      fetch(exportUrl)
+        .then(function(resp) {
+          if (!resp.ok) throw new Error('Export failed');
+          return resp.blob();
+        })
+        .then(function(blob) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = auditUrl.split('/').pop().replace('-AUDIT-R.htm', '') + '.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+          el.classList.remove('loading');
+          el.textContent = '\u2B07';
+        })
+        .catch(function() {
+          el.classList.remove('loading');
+          el.classList.add('error');
+          el.textContent = '\u26A0';
+          el.title = 'Could not load audit data';
+          setTimeout(function() {
+            el.classList.remove('error');
+            el.textContent = '\u2B07';
+            el.title = 'Export CSV';
+          }, 10000);
+        });
+    });
+  });
+})();
+</script>
+
+{% endblock %}

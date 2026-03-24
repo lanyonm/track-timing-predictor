@@ -62,6 +62,7 @@ class RiderEntry(BaseModel):
     name: str
     heat: int = Field(ge=1)
     normalized_tokens: frozenset[str] = frozenset()
+    team_name: str | None = None
 
     @model_validator(mode="after")
     def _compute_tokens(self) -> "RiderEntry":
@@ -75,6 +76,7 @@ class RiderMatch(BaseModel):
     heat: int = Field(ge=1)
     heat_count: int = Field(ge=1)
     heat_predicted_start: datetime | None = None
+    team_name: str | None = None
 
 
 class Prediction(BaseModel):
@@ -125,6 +127,32 @@ class SchedulePrediction(BaseModel):
     events_without_start_lists: int = 0
     total_events: int = 0
     next_race: NextRace | None = None
+
+
+# ---------------------------------------------------------------------------
+# Palmares models
+# ---------------------------------------------------------------------------
+
+class PalmaresEntry(BaseModel):
+    """A single timed event in a racer's palmares."""
+    racer_name: str
+    competition_id: int
+    competition_name: str
+    competition_date: str | None = None
+    session_id: int
+    session_name: str
+    event_position: int
+    event_name: str
+    team_name: str | None = None  # Team name for team events (team pursuit, team sprint)
+    audit_url: str
+
+
+class PalmaresCompetition(BaseModel):
+    """Groups palmares entries by competition for template rendering."""
+    competition_id: int
+    competition_name: str
+    competition_date: str | None = None
+    entries: list[PalmaresEntry]
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ timings.db
 .playwright-mcp/
 cdk.out/
 data/
+.coverage
 
 # Speckit plugin installed files (reinstall via: specify init / plugin install)
 .specify/scripts/

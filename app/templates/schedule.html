@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Competition {{ competition_id }} — Track Timing Predictor{% endblock %}
+{% block title %}{{ competition_name }} — Track Timing Predictor{% endblock %}
 {% block content %}
 <section>
   <div class="schedule-header">
-    <h2>Competition {{ competition_id }}</h2>
+    <h2>{{ competition_name }}</h2>
     <a href="https://tracktiming.live/eventpage.php?EventId={{ competition_id }}" target="_blank" class="source-link">View on tracktiming.live</a>
   </div>
   <p class="meta meta-bar">

@@ -4,6 +4,7 @@ import pytest
 
 from app.config import settings
 from app.database import init_db
+from app.palmares import init_palmares_db
 from app.main import app
 
 
@@ -19,9 +20,12 @@ def test_db(tmp_path_factory):
     db_path = str(tmp_path_factory.mktemp("db") / "test.db")
     original_db_path = settings.db_path
     original_dynamodb_table = settings.dynamodb_table
+    original_palmares_table = settings.palmares_table
     settings.db_path = db_path
     settings.dynamodb_table = ""  # Force SQLite backend for tests
+    settings.palmares_table = ""  # Force SQLite backend for palmares tests
     init_db()
+    init_palmares_db()
 
     # Provide a shared HTTP client on app.state for routes that use Depends(get_http_client)
     app.state.http_client = httpx.AsyncClient(
@@ -39,3 +43,4 @@ def test_db(tmp_path_factory):
         pass  # No event loop available during teardown
     settings.db_path = original_db_path
     settings.dynamodb_table = original_dynamodb_table
+    settings.palmares_table = original_palmares_table
