@@ -132,6 +132,10 @@ A racer viewing their palmares or a specific competition's events wants to expor
 - **FR-014**: System MUST display the total count of this competition's timed events in the racer's palmares within the existing racer info area on the schedule page, with a link to the palmares page (e.g., "N of your timed events are in your palmares"). The count updates on each HTMX refresh as new audit results become available. The wording must distinguish timed events with audit results from the racer's total event count.
 - **FR-015**: System MUST provide a per-competition "remove" action on each competition card on the palmares page, visible only to users accessing via racer name cookie (not via shared `r=` link). Clicking the action shows a confirmation prompt before deleting all palmares entries for that competition. The action is hidden for shared link viewers.
 
+#### Addendum (2026-03-23)
+
+- **FR-016**: System MUST derive the competition date from the earliest Generated timestamp on result pages, not from the current date. **Rationale**: Viewing a past competition was recording the current date instead of the actual competition date.
+
 ### Timed Event Definition
 
 A **timed event** is a discipline that produces per-lap and per-sector timing data on its audit result page. Only timed events are collected into the palmares. The timed disciplines are:

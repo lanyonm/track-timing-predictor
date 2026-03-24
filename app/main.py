@@ -270,7 +270,18 @@ def _collect_palmares_entries(
         return []
 
     comp_name = f"Competition {competition_id}"
-    comp_date = datetime.now().date().isoformat()
+
+    # Derive competition date from earliest Generated timestamp on result pages.
+    # Every event with an audit URL has a result page with a Generated timestamp,
+    # so comp_date will be set whenever entries are collected.
+    comp_date = None
+    for sp in schedule.sessions:
+        for pred in sp.event_predictions:
+            gen_time = get_generated_time(competition_id, sp.session.session_id, pred.event.position)
+            if gen_time is not None:
+                d = gen_time.date().isoformat()
+                if comp_date is None or d < comp_date:
+                    comp_date = d
 
     entries = []
     for sp in schedule.sessions:

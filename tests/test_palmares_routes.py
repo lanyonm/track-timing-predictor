@@ -96,6 +96,34 @@ class TestPalmaresCollection:
             assert response.status_code == 200
 
 
+class TestCompetitionDate:
+    @pytest.mark.asyncio
+    async def test_palmares_date_uses_generated_timestamp(self, sample_jxn_data):
+        """Competition date should come from Generated timestamps, not datetime.now()."""
+        from datetime import datetime as dt
+
+        racer_name = "date test racer"
+        encoded = _encode(racer_name)
+        fake_gen_time = dt(2026, 2, 27, 9, 49, 52)
+
+        with patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data), \
+             patch("app.main._fetch_start_lists", new_callable=AsyncMock), \
+             patch("app.main._fetch_result_pages", new_callable=AsyncMock), \
+             patch("app.main._fetch_live_heats", new_callable=AsyncMock), \
+             patch("app.main.get_generated_time", return_value=fake_gen_time):
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    f"/schedule/26008?r={encoded}",
+                    cookies={"racer_name": racer_name},
+                )
+            assert response.status_code == 200
+
+        result = get_palmares(racer_name)
+        if result:
+            assert result[0].competition_date == "2026-02-27"
+
+
 # ---------------------------------------------------------------------------
 # US2: Palmares Page
 # ---------------------------------------------------------------------------

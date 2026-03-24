@@ -125,6 +125,7 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - SQLite table `palmares_entries` with UNIQUE constraint on `(racer_name, competition_id, session_id, event_position)`
 - Public API: `save_palmares_entries()`, `get_palmares()`, `count_competition_palmares()`, `delete_competition_palmares()`
 - Auto-collected during schedule views for identified racers with matched **timed events** that have audit URLs
+- Competition date derived from earliest Generated timestamp on result pages (not `datetime.now()`)
 - **Timed events** are disciplines that produce per-lap/sector audit data: pursuits (`pursuit_4k`, `pursuit_3k`, `pursuit_2k`, `team_pursuit`), `team_sprint`, and time trials (`time_trial_500`, `time_trial_750`, `time_trial_kilo`, `time_trial_generic`). Defined in `_TIMED_DISCIPLINES` in `main.py`. Mass-start races, sprint matches, and sprint qualifying are excluded.
 
 **Audit parser** (`audit_parser.py`):
