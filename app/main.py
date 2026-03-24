@@ -383,9 +383,19 @@ async def get_schedule(
 
     palmares_count = _save_and_count_palmares(schedule, event_id)
 
+    # Use racer's custom competition name if they've set one via /palmares/rename
+    competition_name = f"Competition {event_id}"
+    if racer_name and palmares_count:
+        comps = get_palmares(racer_name)
+        for c in comps:
+            if c.competition_id == event_id:
+                competition_name = c.competition_name
+                break
+
     response = templates.TemplateResponse(request, "schedule.html", {
         "schedule": schedule,
         "competition_id": event_id,
+        "competition_name": competition_name,
         "now": now,
         "refresh_seconds": settings.refresh_interval_seconds,
         "base_url": settings.tracktiming_base_url,
