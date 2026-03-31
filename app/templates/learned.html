@@ -1,33 +1,43 @@
 {% extends "base.html" %}
 {% block title %}Learned Durations — Track Timing Predictor{% endblock %}
 {% block content %}
-<section>
-  <h2>Learned Durations</h2>
-  <p>These averages are computed from observed events and override the built-in defaults once {{ min_samples }} or more samples are collected.</p>
+<div class="max-w-3xl mx-auto space-y-4">
+  <h2 class="text-2xl font-semibold tracking-tight">Learned Durations</h2>
+  <p class="text-sm opacity-70">These averages are computed from observed events and override the built-in defaults once {{ min_samples }} or more samples are collected.</p>
+
   {% if durations %}
-  <table>
-    <thead>
-      <tr>
-        <th>Discipline</th>
-        <th>Avg Duration (min)</th>
-        <th>Samples</th>
-        <th>Used?</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for discipline, (avg, count) in durations.items() %}
-      <tr>
-        <td>{{ discipline }}</td>
-        <td>{{ avg | round(1) }}</td>
-        <td>{{ count }}</td>
-        <td>{% if count >= min_samples %}Yes{% else %}Not yet (need {{ min_samples }}){% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  <div class="card bg-base-100 shadow-md overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Discipline</th>
+            <th>Avg Duration (min)</th>
+            <th>Samples</th>
+            <th>Used?</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for discipline, (avg, count) in durations.items() %}
+          <tr>
+            <td>{{ discipline }}</td>
+            <td>{{ avg | round(1) }}</td>
+            <td>{{ count }}</td>
+            <td class="text-sm{% if count < min_samples %} opacity-50{% endif %}">{% if count >= min_samples %}Yes{% else %}Not yet (need {{ min_samples }}){% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
   {% else %}
-  <p class="no-data">No learned durations yet. They will accumulate as you use the app during live events.</p>
+  <div class="card bg-base-100 border border-dashed border-base-300">
+    <div class="card-body items-center text-center py-10">
+      <p class="text-sm opacity-60">No learned durations yet. They will accumulate as you use the app during live events.</p>
+    </div>
+  </div>
   {% endif %}
-  <p><a href="/">&larr; Back</a></p>
-</section>
+
+  <p><a href="/" class="link link-hover text-sm">&larr; Back</a></p>
+</div>
 {% endblock %}
