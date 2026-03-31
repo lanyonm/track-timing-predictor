@@ -1,27 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Default Durations — Track Timing Predictor{% endblock %}
 {% block content %}
-<section>
-  <h2>Default Durations</h2>
-  <p>These built-in estimates are used when no observed data or learned averages are available. Learned averages override them once enough samples accumulate.</p>
-  <table class="defaults-table">
-    <thead>
-      <tr>
-        <th>Discipline</th>
-        <th>Default Duration (min)</th>
-        <th>Per-Heat Duration (min)</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for row in rows %}
-      <tr>
-        <td>{{ row.discipline | replace("_", " ") | title }}</td>
-        <td>{{ row.default }}</td>
-        <td>{% if row.per_heat is not none %}{{ row.per_heat }}{% else %}&mdash;{% endif %}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  <p><a href="/">&larr; Back</a></p>
-</section>
+<div class="max-w-3xl mx-auto space-y-4">
+  <h2 class="text-2xl font-semibold tracking-tight">Default Durations</h2>
+  <p class="text-sm opacity-70">These built-in estimates are used when no observed data or learned averages are available. Learned averages override them once enough samples accumulate.</p>
+
+  <div class="card bg-base-100 shadow-md overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Discipline</th>
+            <th>Default Duration (min)</th>
+            <th>Per-Heat Duration (min)</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row.discipline | replace("_", " ") | title }}</td>
+            <td>{{ row.default }}</td>
+            <td>{% if row.per_heat is not none %}{{ row.per_heat }}{% else %}&mdash;{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p><a href="/" class="link link-hover text-sm">&larr; Back</a></p>
+</div>
 {% endblock %}

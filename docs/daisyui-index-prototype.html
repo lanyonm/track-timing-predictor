@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Track Timing Predictor — daisyUI prototype</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-base-200">
+
+  <!-- ── Navbar ──────────────────────────────────────────────── -->
+  <div class="navbar bg-base-100 sticky top-0 z-50 border-b border-base-300 shadow-sm">
+    <div class="max-w-screen-xl mx-auto w-full flex justify-between px-4">
+      <a href="#" class="text-sm font-semibold tracking-tight">Track Timing Predictor</a>
+      <nav class="flex items-center gap-3">
+        <a href="daisyui-palmares-prototype.html" class="text-sm opacity-70 hover:opacity-100 transition-opacity">Palmares</a>
+        <!-- Theme toggle (FR-008) -->
+        <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle">
+          <input type="checkbox" id="theme-toggle" onchange="toggleTheme(this.checked)">
+          <svg class="swap-off h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>
+          <svg class="swap-on h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Z"/></svg>
+        </label>
+      </nav>
+    </div>
+  </div>
+
+  <!-- ── Main ────────────────────────────────────────────────── -->
+  <main class="max-w-screen-xl mx-auto px-4 py-10">
+    <div class="max-w-md mx-auto">
+
+      <!-- Card -->
+      <div class="card bg-base-100 shadow-md">
+        <div class="card-body">
+          <h2 class="card-title text-xl">Predict Event Start Times</h2>
+          <p class="text-sm opacity-70">
+            Enter a
+            <a href="https://tracktiming.live/" target="_blank" class="link link-hover">tracktiming.live</a>
+            Event ID to see predicted start times for each event in the schedule.
+          </p>
+
+          <form action="/schedule" method="get" class="mt-4 space-y-4">
+            <div class="form-control w-full">
+              <label class="label" for="event_id">
+                <span class="label-text font-medium">Event ID</span>
+              </label>
+              <input
+                type="text"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                id="event_id"
+                name="event_id"
+                placeholder="e.g. 26008"
+                required
+                class="input input-bordered w-full"
+              >
+            </div>
+            <!-- FR-015: loading state demo -->
+            <button type="button" id="load-btn" onclick="demoLoading()" class="btn btn-primary w-full">
+              <span id="load-spinner" class="loading loading-spinner loading-sm hidden"></span>
+              <span id="load-text">Load Schedule</span>
+            </button>
+          </form>
+
+          <div class="divider my-2"></div>
+
+          <p class="text-center text-xs opacity-50">
+            <a href="daisyui-defaults-prototype.html" class="link link-hover">View default durations</a>
+            <span class="mx-2">&middot;</span>
+            <a href="daisyui-learned-prototype.html" class="link link-hover">View learned durations</a>
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // Theme toggle with cookie persistence (FR-008)
+    function toggleTheme(isDark) {
+      var theme = isDark ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+      document.cookie = 'theme=' + theme + ';path=/;max-age=31536000;SameSite=Lax';
+    }
+    (function() {
+      var match = document.cookie.match(/theme=(light|dark)/);
+      if (match) {
+        document.documentElement.setAttribute('data-theme', match[1]);
+        document.getElementById('theme-toggle').checked = match[1] === 'dark';
+      } else {
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+        document.getElementById('theme-toggle').checked = prefersDark;
+      }
+    })();
+
+    // FR-015: Demo loading state on submit button (small inline spinner)
+    function demoLoading() {
+      var btn = document.getElementById('load-btn');
+      var spinner = document.getElementById('load-spinner');
+      var text = document.getElementById('load-text');
+      btn.disabled = true;
+      spinner.classList.remove('hidden');
+      text.textContent = 'Loading\u2026';
+      setTimeout(function() {
+        btn.disabled = false;
+        spinner.classList.add('hidden');
+        text.textContent = 'Load Schedule';
+      }, 2000);
+    }
+  </script>
+
+</body>
+</html>

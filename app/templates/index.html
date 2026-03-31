@@ -1,22 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Track Timing Predictor{% endblock %}
 {% block content %}
-<section class="entry-form">
-  <h2>Predict Event Start Times</h2>
-  <p>Enter a <a href="https://tracktiming.live/" target="_blank">tracktiming.live</a> Event ID to see predicted start times for each event in the schedule.</p>
-  <form action="/schedule" method="get">
-    <label for="event_id">Event ID</label>
-    <input
-      type="text"
-      inputmode="numeric"
-      pattern="[0-9]*"
-      id="event_id"
-      name="event_id"
-      placeholder="e.g. 26008"
-      required
-    >
-    <button type="submit">Load Schedule</button>
-  </form>
-  <p class="meta"><a href="/defaults">View default durations</a> &nbsp;·&nbsp; <a href="/learned">View learned durations</a></p>
-</section>
+<div class="max-w-md mx-auto py-4">
+  <div class="card bg-base-100 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title text-xl">Predict Event Start Times</h2>
+      <p class="text-sm opacity-70">
+        Enter a
+        <a href="https://tracktiming.live/" target="_blank" class="link link-hover">tracktiming.live</a>
+        Event ID to see predicted start times for each event in the schedule.
+      </p>
+
+      <form action="/schedule" method="get" class="mt-4 space-y-4" onsubmit="var b=document.getElementById('load-btn'),s=document.getElementById('load-spinner'),t=document.getElementById('load-text');b.disabled=true;s.classList.remove('hidden');t.textContent='Loading\u2026';">
+        <div class="form-control w-full">
+          <label class="label" for="event_id">
+            <span class="label-text font-medium">Event ID</span>
+          </label>
+          <input
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            id="event_id"
+            name="event_id"
+            placeholder="e.g. 26008"
+            required
+            class="input input-bordered w-full"
+          >
+        </div>
+        <button type="submit" id="load-btn" class="btn btn-primary w-full">
+          <span id="load-spinner" class="loading loading-spinner loading-sm hidden"></span>
+          <span id="load-text">Load Schedule</span>
+        </button>
+      </form>
+
+      <div class="divider my-2"></div>
+
+      <p class="text-center text-xs opacity-50">
+        <a href="/defaults" class="link link-hover">View default durations</a>
+        <span class="mx-2">&middot;</span>
+        <a href="/learned" class="link link-hover">View learned durations</a>
+      </p>
+    </div>
+  </div>
+</div>
 {% endblock %}

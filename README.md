@@ -21,6 +21,38 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 
 The duration column in the UI shows the source of each estimate: **obs.** (from a result-page Finish Time), **N heats** (from a start list), or **est.** (default/learned fallback).
 
+## Taxonomy
+
+The app organises track cycling data in a four-level hierarchy:
+
+| Level | Term | Definition |
+|-------|------|------------|
+| 1 | **Competition** | A tracktiming.live event identified by an integer ID (the external API calls this `EventId`) |
+| 2 | **Session** | A day's racing block within a competition (e.g. "Friday 08:15") |
+| 3 | **Event** | An individual race/discipline entry within a session (e.g. "Elite Men Sprint Qualifying") |
+| 4 | **Heat** | One sequential ride within a multi-heat event (e.g. Heat 3 of 8 in sprint qualifying) |
+
+## Racer highlight
+
+Enter your name in the text field on the schedule page to highlight every event you're racing in. The app fuzzy-matches the name you enter against start lists fetched from tracktiming.live.
+
+When a match is found:
+
+- **Matched rows** are visually highlighted in the schedule table
+- A **summary banner** shows how many events matched (e.g. "Found 3 events for 'Jane Smith'")
+- Your **next upcoming race** is called out with its predicted start time (or "Racing now" if active)
+- For multi-heat events, your specific **heat number** and **predicted heat start time** are shown
+- Sessions containing your pending events **auto-expand**; completed sessions collapse
+
+**How names are resolved:**
+
+1. **URL parameter** (`?r=`) — a URL-safe Base64-encoded name, useful for shareable links and bookmarks
+2. **Cookie** — if no `r=` param is present, the app falls back to a `racer_name` cookie (set when you submit the form, persists for one year)
+
+The `r=` parameter is passed through to the HTMX refresh endpoint so highlighting persists across auto-refreshes.
+
+**If start lists aren't published yet**, the app shows a message indicating how many events are still missing start lists. Check back closer to the competition start.
+
 ## Setup
 
 ```bash
@@ -48,27 +80,6 @@ Event IDs can be found in the URL of any event on tracktiming.live:
 | `/schedule/{id}` | Predicted schedule for an event |
 | `/learned` | View accumulated duration observations |
 
-## Racer highlight
-
-Enter your name in the text field on the schedule page to highlight every event you're racing in. The app fuzzy-matches the name you enter against start lists fetched from tracktiming.live.
-
-When a match is found:
-
-- **Matched rows** are visually highlighted in the schedule table
-- A **summary banner** shows how many events matched (e.g. "Found 3 events for 'Jane Smith'")
-- Your **next upcoming race** is called out with its predicted start time (or "Racing now" if active)
-- For multi-heat events, your specific **heat number** and **predicted heat start time** are shown
-- Sessions containing your pending events **auto-expand**; completed sessions collapse
-
-**How names are resolved:**
-
-1. **URL parameter** (`?r=`) — a URL-safe Base64-encoded name, useful for shareable links and bookmarks
-2. **Cookie** — if no `r=` param is present, the app falls back to a `racer_name` cookie (set when you submit the form, persists for one year)
-
-The `r=` parameter is passed through to the HTMX refresh endpoint so highlighting persists across auto-refreshes.
-
-**If start lists aren't published yet**, the app shows a message indicating how many events are still missing start lists. Check back closer to the competition start.
-
 ## Project layout
 
 ```
@@ -90,17 +101,6 @@ data/
 static/
 └── style.css
 ```
-
-## Taxonomy
-
-The app organises track cycling data in a four-level hierarchy:
-
-| Level | Term | Definition |
-|-------|------|------------|
-| 1 | **Competition** | A tracktiming.live event identified by an integer ID (the external API calls this `EventId`) |
-| 2 | **Session** | A day's racing block within a competition (e.g. "Friday 08:15") |
-| 3 | **Event** | An individual race/discipline entry within a session (e.g. "Elite Men Sprint Qualifying") |
-| 4 | **Heat** | One sequential ride within a multi-heat event (e.g. Heat 3 of 8 in sprint qualifying) |
 
 ## How durations are estimated
 

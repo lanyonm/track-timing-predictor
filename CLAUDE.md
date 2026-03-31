@@ -165,6 +165,9 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - Extraction test fixtures in `tests/fixtures/`: captured Jaxon schedule responses, result page HTML (bunch race with Finish Time, non-bunch with Generated timestamp), start-list HTML with heats
 - DynamoDB structured writes: aggregates updated BEFORE OBS# item written — ensures partial failures are retryable on next load (OBS# acts as the commit marker). Correction path computes deltas between old and new aggregate key sets (removed/added/shared) before overwriting the OBS# item
 - SQLite schema migration (`_migrate_schema`) adds `classification`, `gender`, `per_heat_duration_minutes` columns to existing databases via `ALTER TABLE ADD COLUMN`
+- Templates use DaisyUI v4 component classes (CDN-loaded) + Tailwind CSS utility classes; `static/style.css` contains only app-specific overrides (< 50 lines): status row opacity/strikethrough, mobile card transform at 768px, export button states, HTMX indicator
+- `theme` cookie (`light`/`dark`, 1-year max-age, `SameSite=Lax`) persists the user's theme preference; client-side JS sets `data-theme` on `<html>` with `prefers-color-scheme` fallback when no cookie exists
+- Schedule table transforms to card layout at `max-width: 768px` via CSS in `static/style.css` (`.schedule-table` class); uses DaisyUI CSS variables (`oklch(var(--b1))`, etc.) for theme-aware colors
 
 ## Active Technologies
 - Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing) (001-racer-schedule-lookup)
@@ -175,6 +178,8 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - SQLite (local dev) / DynamoDB (production) — no schema changes (003-constitution-compliance)
 - Python 3.11+ + FastAPI, httpx, Pydantic, pydantic-settings, Jinja2, BeautifulSoup, boto3 (all existing — no new dependencies) (004-racer-palmares)
 - SQLite (local dev) + DynamoDB (production) — NEW separate table for palmares data (004-racer-palmares)
+- Python 3.11+ (no changes) + FastAPI, Jinja2, HTMX (existing); DaisyUI v4 + Tailwind CSS (CDN, client-side only) (005-daisyui-frontend-upgrade)
+- N/A — no data model changes (one new client-side cookie for theme) (005-daisyui-frontend-upgrade)
 
 ## Recent Changes
 - 001-racer-schedule-lookup: Added Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing)
