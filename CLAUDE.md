@@ -175,6 +175,8 @@ The app predicts per-event start times for track cycling competitions fetched fr
 - SQLite (local dev) / DynamoDB (production) — no schema changes (003-constitution-compliance)
 - Python 3.11+ + FastAPI, httpx, Pydantic, pydantic-settings, Jinja2, BeautifulSoup, boto3 (all existing — no new dependencies) (004-racer-palmares)
 - SQLite (local dev) + DynamoDB (production) — NEW separate table for palmares data (004-racer-palmares)
+- Python 3.11+ (no changes) + FastAPI, Jinja2, HTMX (existing); DaisyUI v4 + Tailwind CSS (CDN, client-side only) (005-daisyui-frontend-upgrade)
+- N/A — no data model changes (one new client-side cookie for theme) (005-daisyui-frontend-upgrade)
 
 ## Recent Changes
 - 001-racer-schedule-lookup: Added Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing)

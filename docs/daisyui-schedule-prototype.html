@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2025 State Track Championships — daisyUI prototype</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.min.css" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* App-specific overrides (target: < 50 lines) */
+    tr.status-completed td { opacity: 0.45; }
+    tr.status-completed:not(.special) td:first-child { text-decoration: line-through; }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+
+    /* Mobile card transform — 768px catches the intermediate zone where
+       action buttons stack inside narrow table cells */
+    @media (max-width: 768px) {
+      .schedule-table thead { display: none; }
+      .schedule-table tbody { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.35rem; }
+      .schedule-table tr { display: flex; flex-wrap: wrap; border-radius: 0.5rem; border: 1px solid oklch(var(--b3)); overflow: hidden; background: oklch(var(--b1)); }
+      .schedule-table td { display: block; border: none; padding: 0; }
+      .schedule-table td:nth-child(1) { order: 1; flex: 0 0 100%; font-weight: 700; padding: 0.5rem 0.7rem 0.15rem; }
+      .schedule-table td.time-col { order: 2; font-size: 0.82rem; font-weight: 700; padding: 0 0 0.3rem 0.7rem; }
+      .schedule-table td.dur-col { order: 2; font-size: 0.78rem; opacity: 0.6; padding: 0 0.7rem 0.3rem 0.3rem; }
+      .schedule-table td.dur-col::before { content: "·"; margin-right: 4px; }
+      .schedule-table td.status-col { order: 3; flex: 0 0 100%; padding: 0.15rem 0.6rem 0.4rem; display: flex; gap: 4px; flex-wrap: wrap; }
+      .schedule-table tr.active-row { border-left: 4px solid oklch(var(--wa)); }
+      .schedule-table tr.racer-row { border-left: 4px solid oklch(var(--in)); }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-base-200">
+
+  <!-- ── Navbar ──────────────────────────────────────────────── -->
+  <div class="navbar bg-base-100 sticky top-0 z-50 border-b border-base-300 shadow-sm">
+    <div class="max-w-screen-xl mx-auto w-full flex justify-between px-4">
+      <a href="daisyui-index-prototype.html" class="text-sm font-semibold tracking-tight">Track Timing Predictor</a>
+      <nav class="flex items-center gap-3">
+        <a href="daisyui-palmares-prototype.html" class="text-sm opacity-70 hover:opacity-100 transition-opacity">Palmares</a>
+        <!-- Theme toggle -->
+        <label class="swap swap-rotate btn btn-ghost btn-sm btn-circle">
+          <input type="checkbox" id="theme-toggle" onchange="toggleTheme(this.checked)">
+          <svg class="swap-off h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>
+          <svg class="swap-on h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Z"/></svg>
+        </label>
+      </nav>
+    </div>
+  </div>
+
+  <!-- ── Main ────────────────────────────────────────────────── -->
+  <main class="max-w-screen-xl mx-auto px-4 py-6">
+    <div class="max-w-4xl mx-auto space-y-4">
+
+      <!-- Schedule header -->
+      <div class="flex items-baseline gap-3 flex-wrap">
+        <h2 class="text-2xl font-semibold tracking-tight">2025 State Track Championships</h2>
+        <a href="#" class="link link-hover text-sm opacity-50">View on tracktiming.live</a>
+      </div>
+
+      <!-- Meta bar -->
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm opacity-60">
+        <span>Last updated: <span class="font-medium">14:32:05</span></span>
+        <span>Auto-refreshes every 30s</span>
+        <a href="daisyui-defaults-prototype.html" class="link link-hover">View default durations</a>
+        <a href="daisyui-learned-prototype.html" class="link link-hover">View learned durations</a>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" class="toggle toggle-sm toggle-primary" checked>
+          <span class="font-medium">Use learned durations</span>
+        </label>
+      </div>
+
+      <!-- Racer name form -->
+      <div class="flex flex-wrap items-center gap-2">
+        <input type="text" value="Jane Smith" placeholder="Your name to highlight your events" class="input input-bordered flex-1 min-w-[200px]">
+        <button class="btn btn-primary">Highlight</button>
+        <a href="#" class="link link-hover text-sm opacity-50">Clear</a>
+      </div>
+
+      <!-- Racer info messages (info = positive match, base = neutral/warning) -->
+      <div class="alert border border-info/20 bg-info/5 text-sm py-2">
+        <span>Found 3 events for "Jane Smith"</span>
+      </div>
+      <div class="alert border border-info/20 bg-info/5 text-sm py-2">
+        <span>Your next race: Elite Women Individual Pursuit, Heat 2 at 15:10</span>
+      </div>
+      <div class="alert border border-info/20 bg-info/5 text-sm py-2">
+        <span>2 of your timed events are in your <a href="daisyui-palmares-prototype.html" class="link">palmares</a></span>
+      </div>
+      <!-- Warning-style messages (no match, no start lists) -->
+      <div class="alert border border-warning/20 bg-warning/5 text-sm py-2">
+        <span>1 event does not yet have start lists</span>
+      </div>
+
+      <!-- ── Session 1 (open, running behind) ──────────────── -->
+      <div class="collapse collapse-arrow bg-base-100 shadow-md border border-base-300">
+        <input type="checkbox" checked>
+        <div class="collapse-title font-semibold flex items-center gap-2 pr-12">
+          <span class="flex-1">Friday &mdash; Scheduled 08:15</span>
+          <span class="badge badge-outline border-error/40 text-error/80 font-semibold px-3 py-2.5">+12m behind</span>
+        </div>
+        <div class="collapse-content p-0">
+          <!-- Refresh indicator -->
+          <div class="flex items-center gap-2 px-4 py-1.5 border-t border-base-300 text-xs opacity-50">
+            <span class="loading loading-spinner loading-xs"></span>
+            Refreshing&hellip;
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm schedule-table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Predicted Start</th>
+                  <th>Est. Duration</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Completed event -->
+                <tr class="status-completed">
+                  <td>Elite Men Scratch Race</td>
+                  <td class="time-col tabular-nums font-semibold">08:15</td>
+                  <td class="dur-col text-sm opacity-70">12.5m <span class="text-xs opacity-50">obs.</span></td>
+                  <td class="status-col">
+                    <a href="#" class="btn btn-xs btn-outline border-success/30 text-success/70">Results</a>
+                    <a href="#" class="btn btn-xs btn-outline border-warning/30 text-warning/70">Audit</a>
+                  </td>
+                </tr>
+                <!-- Completed event (racer match) -->
+                <tr class="status-completed racer-row bg-info/5">
+                  <td>Elite Women 500m Time Trial <span class="badge badge-outline border-info/40 text-info/80 text-xs font-bold ml-1 px-2 py-1">Racing</span></td>
+                  <td class="time-col tabular-nums font-semibold">08:28</td>
+                  <td class="dur-col text-sm opacity-70">18.3m <span class="text-xs opacity-50">obs.</span></td>
+                  <td class="status-col">
+                    <a href="#" class="btn btn-xs btn-outline border-success/30 text-success/70">Results</a>
+                    <a href="#" class="btn btn-xs btn-outline border-warning/30 text-warning/70">Audit</a>
+                  </td>
+                </tr>
+                <!-- Completed special event -->
+                <tr class="status-completed special">
+                  <td>Break</td>
+                  <td class="time-col tabular-nums font-semibold">08:46</td>
+                  <td class="dur-col text-sm opacity-70">10.0m <span class="text-xs opacity-50">est.</span></td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+                <!-- Active event -->
+                <tr class="active-row bg-warning/10">
+                  <td class="font-bold">Elite Men Keirin &mdash; Round 1</td>
+                  <td class="time-col tabular-nums font-semibold">08:56</td>
+                  <td class="dur-col text-sm opacity-70">
+                    15.0m <span class="text-xs opacity-50">heat 2/4</span>
+                  </td>
+                  <td class="status-col">
+                    <a href="#" class="btn btn-xs btn-outline border-error/30 text-error/80 font-bold">Live</a>
+                    <a href="#" class="btn btn-xs btn-outline border-info/30 text-info/70">Start List</a>
+                  </td>
+                </tr>
+                <!-- Upcoming event (racer match) -->
+                <tr class="racer-row bg-info/5">
+                  <td>
+                    Elite Women Individual Pursuit
+                    <span class="badge badge-outline border-info/40 text-info/80 text-xs font-bold ml-1 px-2 py-1">Heat 2</span>
+                    <span class="block text-xs font-semibold text-info/70 mt-0.5">Your heat: 15:10</span>
+                  </td>
+                  <td class="time-col tabular-nums font-semibold">09:11</td>
+                  <td class="dur-col text-sm opacity-70">25.0m <span class="text-xs opacity-50">6 heats</span></td>
+                  <td class="status-col">
+                    <a href="#" class="btn btn-xs btn-outline border-info/30 text-info/70">Start List</a>
+                  </td>
+                </tr>
+                <!-- Upcoming event -->
+                <tr class="bg-success/5">
+                  <td class="font-medium">Elite Men Points Race</td>
+                  <td class="time-col tabular-nums font-semibold">09:36</td>
+                  <td class="dur-col text-sm opacity-70">20.0m <span class="text-xs opacity-50">est.</span></td>
+                  <td class="status-col">
+                    <a href="#" class="btn btn-xs btn-outline border-info/30 text-info/70">Start List</a>
+                  </td>
+                </tr>
+                <!-- Upcoming event -->
+                <tr class="bg-success/5">
+                  <td class="font-medium">Elite Women Team Sprint</td>
+                  <td class="time-col tabular-nums font-semibold">09:56</td>
+                  <td class="dur-col text-sm opacity-70">12.0m <span class="text-xs opacity-50">3 heats</span></td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+                <!-- Not ready event -->
+                <tr class="opacity-50">
+                  <td>Junior Men Scratch Race</td>
+                  <td class="time-col tabular-nums font-semibold">10:08</td>
+                  <td class="dur-col text-sm opacity-70">10.0m <span class="text-xs opacity-50">est.</span></td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+                <!-- Special event -->
+                <tr class="opacity-50">
+                  <td>Medal Ceremonies</td>
+                  <td class="time-col tabular-nums font-semibold">10:18</td>
+                  <td class="dur-col text-sm opacity-70">15.0m <span class="text-xs opacity-50">est.</span></td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+                <tr class="opacity-50">
+                  <td>End of Session</td>
+                  <td class="time-col tabular-nums font-semibold">10:33</td>
+                  <td class="dur-col text-sm opacity-70">0.0m</td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Session 2 (collapsed, ahead of schedule) ────── -->
+      <div class="collapse collapse-arrow bg-base-100 shadow-md border border-base-300">
+        <input type="checkbox">
+        <div class="collapse-title font-semibold flex items-center gap-2 pr-12">
+          <span class="flex-1">Saturday &mdash; Scheduled 09:00</span>
+          <span class="badge badge-outline border-success/40 text-success/80 font-semibold px-3 py-2.5">-3m early</span>
+        </div>
+        <div class="collapse-content p-0">
+          <div class="overflow-x-auto">
+            <table class="table table-sm schedule-table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Predicted Start</th>
+                  <th>Est. Duration</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="bg-success/5">
+                  <td class="font-medium">Elite Men Team Pursuit</td>
+                  <td class="time-col tabular-nums font-semibold">09:00</td>
+                  <td class="dur-col text-sm opacity-70">30.0m <span class="text-xs opacity-50">8 heats</span></td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+                <tr class="racer-row bg-info/5">
+                  <td class="font-medium">Elite Women Kilo Time Trial <span class="badge badge-outline border-info/40 text-info/80 text-xs font-bold ml-1 px-2 py-1">Racing</span></td>
+                  <td class="time-col tabular-nums font-semibold">09:30</td>
+                  <td class="dur-col text-sm opacity-70">15.0m <span class="text-xs opacity-50">est.</span></td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+                <tr class="opacity-50">
+                  <td>End of Session</td>
+                  <td class="time-col tabular-nums font-semibold">09:45</td>
+                  <td class="dur-col text-sm opacity-70">0.0m</td>
+                  <td class="status-col">&mdash;</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // Theme toggle with cookie persistence
+    function toggleTheme(isDark) {
+      var theme = isDark ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+      document.cookie = 'theme=' + theme + ';path=/;max-age=31536000;SameSite=Lax';
+    }
+    (function() {
+      var match = document.cookie.match(/theme=(light|dark)/);
+      if (match) {
+        document.documentElement.setAttribute('data-theme', match[1]);
+        document.getElementById('theme-toggle').checked = match[1] === 'dark';
+      } else {
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+        document.getElementById('theme-toggle').checked = prefersDark;
+      }
+    })();
+  </script>
+
+</body>
+</html>
