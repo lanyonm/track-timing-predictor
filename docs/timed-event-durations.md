@@ -14,7 +14,7 @@ This document explains how the predictor estimates schedule slot durations for i
 
 ### Distance by Category
 
-All pursuits at the national/provincial level follow standard UCI distances:
+All pursuits at the national/provincial level follow standard UCI distances. These are what the name-based classifiers assume when an event has no links yet; once it has any URL, the distance comes from the URL's `-IP-<metres>-` token. Real competitions don't always follow the table: at 26008 and 26009 Junior Women rode 3 km and U17 Men 2 km, and at 26037 (masters worlds, age-group names) women 35–49 rode 3 km and men 50+ rode 2 km.
 
 | Category | Distance |
 |---|---|

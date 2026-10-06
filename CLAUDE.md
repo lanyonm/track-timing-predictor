@@ -114,6 +114,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 **Disciplines:** two classifiers exist.
 - `disciplines.detect_discipline` is an ordered keyword list (`DISCIPLINE_KEYWORDS`, more specific phrases first). The live app uses it; `disciplines.py` also holds `DEFAULT_DURATIONS`, `PER_HEAT_DURATIONS` and changeovers.
 - `categorizer.categorize_event` is a bilingual strip-and-match parser. It extracts special event → omnium part → ride number → round → classification → gender → discipline, then maps pursuits to `pursuit_4k`/`3k`/`2k`, and returns `(EventCategory, unresolved_text)`. Only `tools/` use it.
+- Individual pursuit distance: both classifiers' name-based guess is overridden by `disciplines.pursuit_discipline_from_urls` whenever the event has any URL, since upstream page names encode the distance (`W4044-IP-3000-Q-0-R.htm`). `parser.parse_schedule` and `tools.extract_competition` apply it. Names alone guess wrong for masters age groups, Junior Women, U17 Men and French names.
 
 **Palmares** (`palmares.py`; DynamoDB when `PALMARES_TABLE` is set, otherwise SQLite `palmares_entries`):
 - Collected automatically on schedule views when a racer is identified and matched to a timed event that has an audit URL.

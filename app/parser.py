@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup, Tag
 
 logger = logging.getLogger(__name__)
 
-from app.disciplines import detect_discipline, SPECIAL_EVENT_NAMES
+from app.disciplines import detect_discipline, pursuit_discipline_from_urls, SPECIAL_EVENT_NAMES
 from app.models import Event, EventStatus, RiderEntry, Session, normalize_rider_name
 
 
@@ -329,6 +329,10 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
             is_special = name.lower() in SPECIAL_EVENT_NAMES
             discipline = detect_discipline(name)
             status, result_url, start_list_url, audit_url, live_url = _parse_row(row)
+            if discipline.startswith("pursuit_"):
+                discipline = pursuit_discipline_from_urls(
+                    result_url, start_list_url, audit_url, live_url,
+                ) or discipline
 
             events.append(Event(
                 position=position,
