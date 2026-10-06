@@ -108,6 +108,30 @@ def record_generated_time(
     _generated_times[(competition_id, session_id, position)] = generated_at
 
 
+def latest_live_generated_time(
+    competition_id: int,
+    sessions: list[Session],
+) -> datetime | None:
+    """Newest cached Generated timestamp among sessions that are in progress.
+
+    A session is in progress when it has both completed and pending non-special
+    events. Finished sessions are ignored so that yesterday's results can't skew
+    the venue offset inferred by ``clock.venue_now``.
+    """
+    latest = None
+    for s in sessions:
+        real = [e for e in s.events if not e.is_special]
+        if not any(e.status == EventStatus.COMPLETED for e in real):
+            continue
+        if all(e.status == EventStatus.COMPLETED for e in real):
+            continue
+        for e in s.events:
+            t = _generated_times.get((competition_id, s.session_id, e.position))
+            if t is not None and (latest is None or t > latest):
+                latest = t
+    return latest
+
+
 def get_generated_time(
     competition_id: int,
     session_id: int,

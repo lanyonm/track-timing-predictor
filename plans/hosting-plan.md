@@ -190,7 +190,7 @@ when `DYNAMODB_TABLE` is not set.
 | `PALMARES_TABLE` | `""` (SQLite mode) | Palmares DynamoDB table name; enables DynamoDB palmares backend |
 | `AWS_REGION` | `us-east-1` | AWS region for DynamoDB client |
 | `DB_PATH` | `timings.db` | SQLite database path (local dev only) |
-| `VENUE_TZ` | `America/Toronto` | Venue timezone for live delay; the Lambda clock is UTC (not set by CDK, so the default applies) |
+| `VENUE_TZ` | `America/Toronto` | Fallback venue timezone; the Lambda clock is UTC and the live offset is inferred from result pages (not set by CDK, so the default applies) |
 
 `PYTHONUNBUFFERED=1` is set in the Dockerfile for immediate log output.
 

@@ -243,12 +243,6 @@ class TestCheckHealth:
 class TestVenueLocalClock:
     """Routes must compute "now" in the venue's timezone, not the server's (UTC on Lambda)."""
 
-    @pytest.fixture(autouse=True)
-    def frozen_utc(self):
-        from tests.test_clock import _FrozenDatetime
-        with patch("app.clock.datetime", _FrozenDatetime):
-            yield
-
     def _captured_now(self, client, path):
         import app.main as main_module
         with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
@@ -256,12 +250,53 @@ class TestVenueLocalClock:
         assert resp.status_code == 200
         return resp, spy.call_args.kwargs["now"]
 
-    def test_schedule_predicts_with_venue_local_now(self, client):
+    @pytest.fixture
+    def frozen_toronto_morning(self):
+        from tests.test_clock import FROZEN_UTC, frozen_datetime
+        with patch("app.clock.datetime", frozen_datetime(FROZEN_UTC)):
+            yield
+
+    def test_schedule_falls_back_to_venue_tz(self, client, frozen_toronto_morning):
+        # sample-event-output.json has no session in progress, so VENUE_TZ applies.
         resp, now = self._captured_now(client, "/schedule/26008")
         assert now == datetime(2024, 6, 1, 8, 15)
         assert 'id="last-updated" class="font-medium">08:15:00<' in resp.text
 
-    def test_refresh_predicts_with_venue_local_now(self, client):
+    def test_refresh_falls_back_to_venue_tz(self, client, frozen_toronto_morning):
         resp, now = self._captured_now(client, "/schedule/26008/refresh")
         assert now == datetime(2024, 6, 1, 8, 15)
         assert 'data-generated-at="08:15:00"' in resp.text
+
+
+class TestVenueOffsetInferredFromResults:
+    """26037 ran on UTC+1, captured mid-session at 12:43:11 UTC (13:43:11 venue time)."""
+
+    @pytest.fixture(autouse=True)
+    def live_26037(self):
+        from datetime import timezone
+        from tests.test_clock import frozen_datetime
+        schedule = json.loads((FIXTURE_DIR / "schedule-26037-live.json").read_text())
+        results_dir = FIXTURE_DIR / "26037-results"
+
+        async def page(client, url):
+            # Tuesday morning result pages as captured; everything else is empty.
+            path = results_dir / url.rsplit("/", 1)[-1]
+            return path.read_text() if path.exists() else ""
+
+        captured = datetime(2026, 10, 6, 12, 43, 11, tzinfo=timezone.utc)
+        with (
+            patch("app.clock.datetime", frozen_datetime(captured)),
+            patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=schedule),
+            patch("app.main.fetch_refresh", new_callable=AsyncMock, return_value=schedule),
+            patch("app.main.fetch_page_html", new=page),
+        ):
+            yield
+
+    @pytest.mark.parametrize("path", ["/schedule/26037", "/schedule/26037/refresh"])
+    def test_now_uses_inferred_offset(self, client, path):
+        import app.main as main_module
+        with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
+            resp = client.get(path)
+        assert resp.status_code == 200
+        assert spy.call_args.kwargs["now"] == datetime(2026, 10, 6, 13, 43, 11)
+        assert "13:43:11" in resp.text

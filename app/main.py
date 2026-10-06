@@ -34,6 +34,7 @@ from app.predictor import (
     get_generated_time,
     get_heat_count,
     has_start_list_riders,
+    latest_live_generated_time,
     predict_schedule,
     record_generated_time,
     record_heat_count,
@@ -360,7 +361,7 @@ async def get_schedule(
         _fetch_result_pages(client, event_id, sessions),
         _fetch_live_heats(client, event_id, sessions),
     )
-    now = venue_now()
+    now = venue_now(latest_live_generated_time(event_id, sessions))
     use_learned = _use_learned(request)
     racer_name = _resolve_racer_name(request, r)
     schedule = predict_schedule(event_id, sessions, now=now, racer_name=racer_name, use_learned=use_learned)
@@ -430,7 +431,6 @@ async def refresh_schedule(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id}: {e}")
 
-    now = venue_now()
     sessions = parse_schedule(jxn_data)
 
     await asyncio.gather(
@@ -443,6 +443,8 @@ async def refresh_schedule(
         # Fetch live results page to get current heat number (changes each heat).
         _fetch_live_heats(client, event_id, sessions),
     )
+
+    now = venue_now(latest_live_generated_time(event_id, sessions))
 
     # Track status transitions for wall-clock fallback learning.
     update_status_cache(event_id, sessions, now)
