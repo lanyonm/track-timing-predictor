@@ -3,7 +3,6 @@ import base64
 import binascii
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -14,6 +13,7 @@ from mangum import Mangum
 from pythonjsonlogger.json import JsonFormatter
 
 from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
+from app.clock import venue_now
 from app.config import Settings, get_settings
 from app.database import check_health, get_all_learned_durations, init_db
 from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
@@ -34,6 +34,7 @@ from app.predictor import (
     get_generated_time,
     get_heat_count,
     has_start_list_riders,
+    latest_live_generated_time,
     predict_schedule,
     record_generated_time,
     record_heat_count,
@@ -360,7 +361,7 @@ async def get_schedule(
         _fetch_result_pages(client, event_id, sessions),
         _fetch_live_heats(client, event_id, sessions),
     )
-    now = datetime.now()
+    now = venue_now(latest_live_generated_time(event_id, sessions))
     use_learned = _use_learned(request)
     racer_name = _resolve_racer_name(request, r)
     schedule = predict_schedule(event_id, sessions, now=now, racer_name=racer_name, use_learned=use_learned)
@@ -430,7 +431,6 @@ async def refresh_schedule(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id}: {e}")
 
-    now = datetime.now()
     sessions = parse_schedule(jxn_data)
 
     await asyncio.gather(
@@ -443,6 +443,8 @@ async def refresh_schedule(
         # Fetch live results page to get current heat number (changes each heat).
         _fetch_live_heats(client, event_id, sessions),
     )
+
+    now = venue_now(latest_live_generated_time(event_id, sessions))
 
     # Track status transitions for wall-clock fallback learning.
     update_status_cache(event_id, sessions, now)

@@ -11,6 +11,7 @@ from app.parser import parse_schedule
 from app.predictor import (
     _add_minutes,
     _compute_delay,
+    latest_live_generated_time,
     predict_schedule,
     predict_session,
     record_generated_time,
@@ -860,3 +861,54 @@ class TestPredictSchedule:
             assert times_in_minutes == sorted(times_in_minutes), (
                 f"Times not sorted in session {sp.session.day}"
             )
+
+
+# ── latest_live_generated_time ─────────────────────────────────────────────────
+
+
+class TestLatestLiveGeneratedTime:
+    COMP = 7001
+    C, U = EventStatus.COMPLETED, EventStatus.UPCOMING
+
+    def _session(self, session_id: int, statuses: list[EventStatus]) -> Session:
+        return Session(
+            session_id=session_id,
+            day="Tuesday",
+            scheduled_start=time(10, 0),
+            events=[_make_event(i, s) for i, s in enumerate(statuses)],
+        )
+
+    def test_newest_timestamp_of_in_progress_session(self):
+        live = self._session(1, [self.C, self.C, self.U])
+        record_generated_time(self.COMP, 1, 0, datetime(2026, 10, 6, 10, 30))
+        record_generated_time(self.COMP, 1, 1, datetime(2026, 10, 6, 10, 55))
+        assert latest_live_generated_time(self.COMP, [live]) == datetime(2026, 10, 6, 10, 55)
+
+    def test_finished_session_ignored(self):
+        done = self._session(2, [self.C, self.C])
+        record_generated_time(self.COMP, 2, 1, datetime(2026, 10, 5, 18, 0))
+        assert latest_live_generated_time(self.COMP, [done]) is None
+
+    def test_unstarted_session_ignored(self):
+        assert latest_live_generated_time(self.COMP, [self._session(3, [self.U, self.U])]) is None
+
+
+class TestFinishedSessionWithPendingSpecial:
+    """A session whose races are all done is finished, even if End of Session is still NOT_READY."""
+
+    def _session(self) -> Session:
+        events = [_make_event(i, EventStatus.COMPLETED) for i in range(3)]
+        events.append(Event(
+            position=3, name="End of Session", discipline="end_of_session",
+            status=EventStatus.NOT_READY, is_special=True,
+        ))
+        return Session(session_id=1, day="Monday", scheduled_start=time(10, 0), events=events)
+
+    def test_no_delay(self):
+        # 50 min after the scheduled start: inside the delay window if the session counted as live.
+        sp = predict_session(7002, self._session(), now=datetime(2026, 10, 6, 10, 50))
+        assert sp.observed_delay_minutes == 0.0
+
+    def test_no_active_event(self):
+        sp = predict_session(7002, self._session(), now=datetime(2026, 10, 6, 13, 47))
+        assert not any(p.is_active for p in sp.event_predictions)

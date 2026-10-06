@@ -108,6 +108,30 @@ def record_generated_time(
     _generated_times[(competition_id, session_id, position)] = generated_at
 
 
+def latest_live_generated_time(
+    competition_id: int,
+    sessions: list[Session],
+) -> datetime | None:
+    """Newest cached Generated timestamp among sessions that are in progress.
+
+    A session is in progress when it has both completed and pending non-special
+    events. Finished sessions are ignored so that yesterday's results can't skew
+    the venue offset inferred by ``clock.venue_now``.
+    """
+    latest = None
+    for s in sessions:
+        real = [e for e in s.events if not e.is_special]
+        if not any(e.status == EventStatus.COMPLETED for e in real):
+            continue
+        if all(e.status == EventStatus.COMPLETED for e in real):
+            continue
+        for e in s.events:
+            t = _generated_times.get((competition_id, s.session_id, e.position))
+            if t is not None and (latest is None or t > latest):
+                latest = t
+    return latest
+
+
 def get_generated_time(
     competition_id: int,
     session_id: int,
@@ -323,8 +347,12 @@ def predict_session(
             break
 
     # Only compute delay when the session is actively in progress:
-    # some events are done and at least one event is still pending.
-    has_pending = any(e.status != EventStatus.COMPLETED for e in session.events)
+    # some events are done and at least one race is still pending. Special
+    # events don't count, so a finished session whose End of Session row is
+    # still NOT_READY isn't treated as live (matches SessionPrediction.is_complete).
+    has_pending = any(
+        e.status != EventStatus.COMPLETED for e in session.events if not e.is_special
+    )
     delay_minutes = 0.0
     if now is not None and completed_count > 0 and has_pending:
         delay_minutes = _compute_delay(session, durations, completed_count, now)
