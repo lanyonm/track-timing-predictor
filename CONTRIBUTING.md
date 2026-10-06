@@ -17,16 +17,20 @@ git clone https://github.com/lanyonm/track-timing-predictor.git
 cd track-timing-predictor
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+pytest
 uvicorn app.main:app --reload
 ```
+
+Python 3.11 is required.
 
 ## Making changes
 
 1. Fork the repository and create a branch from `main`
-2. Make your changes
-3. Test against a live or recent tracktiming.live event
-4. Open a pull request with a clear description of what changed and why
+2. Make your changes, with tests (parsing changes need a captured fixture in `tests/fixtures/`)
+3. Update any documentation the change affects (`README.md`, `CLAUDE.md`, `plans/hosting-plan.md`, `docs/`)
+4. Run `pytest` and test against a live or recent tracktiming.live event
+5. Open a pull request with a clear description of what changed and why
 
 ## Areas where contributions are especially welcome
 

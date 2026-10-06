@@ -156,8 +156,8 @@ The predictor uses keyword-phrase matching on the lowercased event name. Keyword
 
 ---
 
-## Caveats and Future Work
+## Caveats
 
-- **Limited sample**: Finish times will be expanded as more events are researched. The learning mechanism will further improve predictions as live events are observed. The tier averages and slot estimates will be updated as additional data is added.
-- **Rider count matters for elimination**: Duration scales with the number of starters. A future improvement could parse the start list page for rider count and scale accordingly.
-- **Distance in event names**: tracktiming.live schedule event names do not include distance (e.g. "Elite/Junior Men Scratch Race / Omni I"). If a future data source includes distance, speed-based calculation could replace the tier lookup.
+- **Limited sample**: the tier averages and slot estimates come from the finish times listed above. Once results are posted, observed Finish Times replace these estimates for live predictions.
+- **Rider count is not used**: elimination race duration scales with the number of starters, but the estimate does not use the start list's rider count.
+- **Distance in event names**: tracktiming.live schedule event names do not include distance (e.g. "Elite/Junior Men Scratch Race / Omni I"), so durations come from the tier lookup rather than a speed-based calculation.

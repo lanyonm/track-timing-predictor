@@ -2,186 +2,143 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation rule
+
+**Every code change must update the affected documentation in the same commit.** This file, `README.md`, `plans/hosting-plan.md`, and `docs/*.md` describe the code *as it is now*, not as planned. If a change alters a route, env var, cookie, module responsibility, data model, CLI flag, deploy step or anything else stated in these docs, update the statement.
+
 ## Commands
 
+Python 3.11 (matches the Lambda base image and CI).
+
 ```bash
-# Run the app
-source .venv/bin/activate
-uvicorn app.main:app --reload
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt        # runtime + pytest, pytest-asyncio, pytest-cov, moto
 
-# Run all tests
-pytest
+uvicorn app.main:app --reload              # http://localhost:8000, try EventId 26008
 
-# Run a single test file
-pytest tests/test_predictor.py
-
-# Run a single test class or function
-pytest tests/test_predictor.py::TestComputeDelay
+pytest                                     # all tests (SQLite temp DB, no network, no AWS)
 pytest tests/test_predictor.py::TestComputeDelay::test_positive_delay_when_behind
 
-# Extract competition data from tracktiming.live
-python -m tools.extract_competition 26008
-
-# Load extracted data into the learning database
-python -m tools.load_durations data/competitions/26008.json
-
-# Batch extract + load
-for id in 25022 25026 25027 25028 25031 26001 26002 26008 26009 26010; do
-    python -m tools.extract_competition "$id"
-done
-python -m tools.load_durations data/competitions/*.json
+python -m tools.extract_competition 26008                 # → data/competitions/26008.json (gitignored)
+python -m tools.load_durations data/competitions/*.json   # → learning DB; --force skips the dedup prompt
 ```
 
-Install dependencies: `pip install -r requirements.txt`
+No linter, formatter or type checker is configured.
 
-**Environment variables:**
+**Environment variables** (`app/config.py`, `pydantic_settings`, no prefix):
 
 | Variable | Default | Description |
 |---|---|---|
-| `DB_PATH` | `timings.db` | SQLite database path (local dev only) |
-| `DYNAMODB_TABLE` | `""` | DynamoDB table name; enables DynamoDB backend when set |
-| `PALMARES_TABLE` | `""` | DynamoDB table name for palmares data; enables DynamoDB palmares backend when set |
-| `AWS_REGION` | `us-east-1` | AWS region for DynamoDB client |
+| `TRACKTIMING_BASE_URL` | `https://tracktiming.live` | Upstream base URL for the shared httpx client |
+| `DB_PATH` | `timings.db` | SQLite path (used when `DYNAMODB_TABLE` is empty) |
+| `DYNAMODB_TABLE` | `""` | Enables the DynamoDB learning backend when set |
+| `PALMARES_TABLE` | `""` | Enables the DynamoDB palmares backend when set |
+| `AWS_REGION` | `us-east-1` | DynamoDB region |
+| `REFRESH_INTERVAL_SECONDS` | `30` | HTMX polling interval passed to templates |
+| `MIN_LEARNED_SAMPLES` | `3` | Samples required before a learned average is used |
 
 ## Taxonomy
 
-| Level | Term | Definition |
-|---|---|---|
-| 1 | **Competition** | A tracktiming.live competition identified by an integer `competition_id` (the external API calls this `EventId`) |
-| 2 | **Session** | A day's racing block within a competition (`Session` model) |
-| 3 | **Event** | An individual race/discipline entry within a session (`Event` model) |
-| 4 | **Heat** | One sequential ride within a multi-heat event (`heat_count`, `active_heat`) |
+Competition (`competition_id`, upstream `EventId`) → Session (a day's block, `Session` model) → Event (one race, `Event` model) → Heat (`heat_count`, `active_heat`).
 
-**Note:** Route URLs and HTML form fields still use `event_id` (bound to `/schedule/{event_id}`) to avoid breaking bookmarks and match the upstream tracktiming.live `EventId` parameter. Python code and templates use `competition_id`.
+Route URLs and form fields use `event_id` (e.g. `/schedule/{event_id}`) to keep bookmarks working and match upstream `EventId`. Python code and templates use `competition_id`.
 
 ## Architecture
 
-The app predicts per-event start times for track cycling competitions fetched from tracktiming.live.
+FastAPI app that predicts per-event start times for track cycling competitions on tracktiming.live.
 
-**Deployment:** Lambda + Function URL (Docker image from ECR). Mangum adapts FastAPI to the Lambda handler. Local dev uses uvicorn. See `plans/hosting-plan.md` for full infrastructure details. **All routes must be GET** — CloudFront OAC with Lambda Function URLs doesn't support POST request bodies (SigV4 payload signature mismatch causes 403s).
+**Deployment:** AWS Lambda (Docker image from ECR, `Dockerfile`) behind a Function URL, adapted with Mangum (`handler` in `app/main.py`). Prod sits behind CloudFront at `ttp.lanyonm.org`, which uses OAC to sign requests to an `AWS_IAM` Function URL. Infra is CDK in `cdk/`; details are in `plans/hosting-plan.md`. **All routes must be GET.** CloudFront OAC can't sign POST bodies to Function URLs (403).
 
-**Configuration:** `app/config.py` uses `pydantic_settings.BaseSettings` for validated configuration with automatic environment variable loading. A `get_settings()` function provides the settings instance via FastAPI `Depends()`.
+**CI/CD** (`.github/workflows/`):
+- `test.yml`: pytest with coverage on pushes and PRs to `main`; updates the coverage badge gist on `main`.
+- `pr-environment.yml`: for same-repo PRs, builds the image and deploys `TrackTimingStack-pr-<N>` with a public Function URL, comments the URL on the PR, and destroys the stack on close.
+- `deploy.yml`: on push to `main`, builds the image (SHA tag + `prod-latest`) and runs `cdk deploy` for prod. It does not wait for `test.yml`.
 
-**HTTP client:** A shared `httpx.AsyncClient` is created in the FastAPI lifespan (with `max_connections=50`) and stored on `app.state.http_client`. Route handlers receive it via `Depends(get_http_client)`. Fetcher functions accept the client and base URL as parameters.
+**Configuration:** `app/config.py` exposes a module-level `settings` singleton and `get_settings()` for `Depends()`.
 
-**Request flow:**
-1. `main.py` receives a tracktiming.live EventId via form or URL
-2. `fetcher.py` POSTs to the Jaxon API using the shared `httpx.AsyncClient` to get schedule HTML
-3. `parser.py` parses the HTML into `Session`/`Event` models
-4. `main.py` concurrently fetches start lists, result pages, and live heat pages
-5. `predictor.py` computes predicted start times and returns a `SchedulePrediction`
-6. Jinja2 renders the schedule; HTMX polls `/schedule/{id}/refresh` every 30s for live updates
+**HTTP client:** the FastAPI `lifespan` creates an `httpx.AsyncClient` (`max_connections=50`, 15 s timeout) on `app.state.http_client`. Routes get it via `Depends(get_http_client)`. Under Mangum the lifespan runs per invocation, so on Lambda the client is not reused across requests.
+
+**Request flow (`/schedule/{event_id}`):**
+1. `fetcher.fetch_initial_layout` POSTs to the Jaxon endpoint (refresh uses `fetch_refresh`).
+2. `parser.parse_schedule` turns the HTML into `Session`/`Event` models.
+3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches.
+4. `predictor.predict_schedule` builds a `SchedulePrediction`.
+5. Jinja2 renders `schedule.html`; HTMX polls `/schedule/{id}/refresh`, which returns `_schedule_body.html`.
+
+**tracktiming.live API** (unversioned and undocumented, so parse defensively):
+- `POST eventpage.php?EventId={id}` with form body `jxnfun=getInitialPageLayout&jxnr=1` (initial) or `jxnfun=refreshPage&...` (refresh); the response is JSON with a `jxnobj` array.
+- The schedule HTML is either a top-level `id="scheduleview"` object or nested in `id="dynarea"` (the live API). The parser handles both.
+- Status comes from the event's row buttons (no `disabled` class): `btn-success` means COMPLETED (href is the result page), `btn-primary` means UPCOMING (href is the start list), `btn-info` is the audit page, and `btn-danger` is the live timing page. Anything else is NOT_READY.
+- The session summary looks like `"Schedule - Friday - 08:15"`; times are venue-local and naive.
 
 **Routes:**
 
-| Method | Path | Description |
-|---|---|---|
-| GET | `/` | Landing page with EventId form (works without JavaScript) |
-| GET | `/schedule` | No-JS fallback redirect; `?event_id=X` → `/schedule/X` (303) |
-| GET | `/schedule/{event_id}` | Schedule view; optional `?r=` Base64-encoded racer name |
-| GET | `/schedule/{event_id}/refresh` | HTMX partial for live polling; optional `?r=` param |
-| GET | `/settings/racer-name` | Set/clear racer name cookie; `?event_id=&name=` |
-| GET | `/settings/use-learned` | Toggle learned-durations cookie; `?event_id=&use_learned=on\|off` |
-| GET | `/palmares` | Palmares profile page; resolves racer from `r=` param, cookie, or `name` form submission |
-| GET | `/palmares/export` | CSV export of individual audit result data; requires `audit_url` and racer identity; optional `team_name` for team events |
-| GET | `/palmares/rename` | Update competition name; cookie-only auth; accepts `competition_id` and `name` |
-| GET | `/palmares/remove` | Delete all palmares entries for a competition; cookie-only auth (403 for shared links) |
-| GET | `/defaults` | Display built-in default durations |
-| GET | `/learned` | Display learned duration database |
-| GET | `/health` | Health check; returns HTTP 200 with per-component status (healthy/degraded) |
+| Path | Description |
+|---|---|
+| `/` | Landing page with EventId form (works without JS) |
+| `/schedule` | No-JS form target; `?event_id=X` → 303 to `/schedule/X` |
+| `/schedule/{event_id}` | Schedule view; optional `?r=` (URL-safe Base64 racer name) |
+| `/schedule/{event_id}/refresh` | HTMX partial; optional `?r=` |
+| `/settings/racer-name` | Set/clear `racer_name` cookie; `?event_id=&name=` |
+| `/settings/use-learned` | Toggle `use_learned` cookie; `?event_id=&use_learned=on\|off` |
+| `/palmares` | Palmares page; `name=` sets the cookie and 303s to `?r=`; otherwise the racer comes from `r=`, then the cookie |
+| `/palmares/export` | CSV of one rider's (or team's) audit data; `audit_url` must start with `results/` |
+| `/palmares/rename` | Rename a competition; requires `racer_name` cookie |
+| `/palmares/remove` | Delete a competition's entries; requires `racer_name` cookie (403 otherwise) |
+| `/defaults` | Built-in default durations |
+| `/learned` | Learned duration averages |
+| `/health` | Always 200; per-component `healthy`/`degraded` |
 
-**In-memory caches in `predictor.py`** (keyed by `(competition_id, session_id, position)`):
-- `_status_cache` — tracks event status transitions for the learning fallback
-- `_observed_durations` — Finish Time + changeover from result pages (most accurate)
-- `_heat_counts` — heat counts parsed from start-list pages
-- `_live_heats` — current heat number from live results pages
-- `_generated_times` — Generated timestamps from result pages
+**Cookies:** `racer_name` (raw name, 1 year, HttpOnly, Secure, Lax); `use_learned` (`"true"` when on; off by default); `theme` (`light`/`dark`, set client-side, 1 year).
 
-**Note:** On Lambda, these caches persist within a warm execution environment but reset on cold starts and are not shared across concurrent invocations. This may cause more frequent re-fetching and slightly less accurate predictions during cold starts.
+**In-memory caches** (`predictor.py`, keyed by `(competition_id, session_id, position)`, unbounded, per Lambda container): `_status_cache` (status transitions for wall-clock learning), `_observed_durations`, `_heat_counts`, `_live_heats`, `_generated_times`, `_start_list_riders`.
 
-**Duration source priority** (highest to lowest accuracy):
-1. Observed: result-page Finish Time + changeover (bunch races)
-2. Generated: difference between consecutive result-page Generated timestamps
-3. Heat count: `heat_count × per_heat_duration + changeover`
-4. Default: learned average from database (if ≥3 samples) or `DEFAULT_DURATIONS` fallback
+**Duration source priority** (`predictor.predict_session`):
+1. Observed: result-page Finish Time + changeover (bunch races).
+2. Generated: difference between consecutive result-page Generated timestamps, kept if within 0.5×–2.0× of expected.
+3. Heat count: `heat_count × per_heat_duration + changeover`.
+4. Fallback: if the `use_learned` cookie is on, the discipline-level learned average (`get_learned_duration`, ≥ `MIN_LEARNED_SAMPLES`); otherwise `DEFAULT_DURATIONS`.
 
-**Learning mechanism** (`database.py`):
-- Dual backend: DynamoDB in production (`DYNAMODB_TABLE` set), SQLite for local dev
-- DynamoDB single-table design (pk-only, no sort key):
-  - `AGGREGATE#<disc>` — broadest running total (Level 1, existing)
-  - `AGGREGATE#<disc>##<gender>` — discipline+gender (Level 2, double-hash separates from Level 3)
-  - `AGGREGATE#<disc>#<class>` — discipline+classification (Level 3)
-  - `AGGREGATE#<disc>#<class>#<gender>` — most specific (Level 4)
-  - `OVERRIDE#<disc>` (through `OVERRIDE#<disc>#<class>#<gender>`) — manual overrides at each level
-  - `OBS#<comp_id>#<sess_id>#<pos>` — observation items for idempotent upsert; stores field values to detect corrections on re-load
-- SQLite tables: `event_durations` accumulates observations (with `classification`, `gender`, `per_heat_duration_minutes` columns), `discipline_overrides` for manual overrides
-- `get_learned_duration()` returns the average when ≥ `min_learned_samples` (3) rows exist
-- `get_learned_duration_cascading(discipline, classification, gender)` queries 4 specificity levels: discipline+classification+gender → discipline+classification → discipline+gender → discipline → static default
-- `record_duration_structured()` returns `RecordOutcome` (`"created"`, `"updated"`, `"unchanged"`, `"error"`); DynamoDB path uses delta-based aggregate correction when re-loaded data differs from existing OBS# item; SQLite path uses `INSERT OR REPLACE`
-- Wall-clock learning (UPCOMING→COMPLETED transition) is a fallback, capped at 3× the static default to reject inflated values when start lists are published before the race
+The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 
-**Palmares module** (`palmares.py`):
-- Dual SQLite/DynamoDB backend for racer achievement storage (separate table from learning durations)
-- DynamoDB pk+sk design: `RACER#{name}` partition key, `COMP#{id}#S#{sid}#E#{pos}` sort key
-- SQLite table `palmares_entries` with UNIQUE constraint on `(racer_name, competition_id, session_id, event_position)`
-- Public API: `save_palmares_entries()`, `get_palmares()`, `count_competition_palmares()`, `delete_competition_palmares()`
-- Auto-collected during schedule views for identified racers with matched **timed events** that have audit URLs
-- Competition date derived from earliest Generated timestamp on result pages (not `datetime.now()`)
-- **Timed events** are disciplines that produce per-lap/sector audit data: individual pursuits (`pursuit_4k`, `pursuit_3k`, `pursuit_2k`), team events (`team_pursuit`, `team_sprint`), and time trials (`time_trial_500`, `time_trial_750`, `time_trial_kilo`, `time_trial_generic`). Defined in `_TIMED_DISCIPLINES` in `main.py`. Team event start lists pack team name + riders in `<h4>` with `<br/>` separators — `_extract_names_from_h4` in `parser.py` splits these to extract individual riders. Team name stored per entry (`team_name` field) for CSV export since audit pages use team names.
+**Live delay** (`predictor._compute_delay`): applied only while a session has both completed and pending events. It is clamped to [−30, +120] min and returns 0 once `actual_elapsed > total_est + 60 min`, so post-event views show scheduled times. "Now" is the server's naive local clock, which is UTC on Lambda.
 
-**Audit parser** (`audit_parser.py`):
-- Parses tracktiming.live audit result HTML (`-AUDIT-R.htm`) for CSV export
-- Extracts rider names from `<p>` elements (strips bib prefix), heat assignments from `<h3>` headings
-- `filter_rider_data()` uses `normalize_rider_name()` for name matching
-- `format_csv()` outputs Heat, Dist, Time, Rank, Lap, Lap_Rank, Sect, Sect_Rank columns
+**Learning** (`database.py`; DynamoDB when `DYNAMODB_TABLE` is set, otherwise SQLite):
+- *Live app writes* go through `record_duration()`, from result-page observations and the UPCOMING→COMPLETED wall-clock fallback (capped at 3× static default). These writes are not idempotent.
+- *Loader writes* go through `record_duration_structured()` (returns `RecordOutcome`: created/updated/unchanged/error), with classification, gender and per-heat duration. They're idempotent: SQLite uses `INSERT OR REPLACE`; DynamoDB uses an `OBS#<comp>#<sess>#<pos>` item as a commit marker written after the `AGGREGATE#...` updates, with delta correction on re-load.
+- *Reads:* the app uses only `get_learned_duration(discipline)` (overrides first, then the average). `get_learned_duration_cascading(discipline, classification, gender)` exists and is tested, but nothing in the app calls it.
+- The DynamoDB key layout (`AGGREGATE#` levels, `OVERRIDE#`, `OBS#`) is documented in the comment block near the top of the DynamoDB section in `database.py` (~line 165). SQLite tables are `event_durations` (with `_migrate_schema` adding columns to old DBs) and `discipline_overrides`.
 
-**Discipline detection** (`disciplines.py`):
-- Keyword list in `DISCIPLINE_KEYWORDS` matched against lowercase event names
-- Order matters — more specific phrases must appear before less specific ones (e.g. `"elite men individual pursuit"` before `"individual pursuit"`)
+**Disciplines:** two classifiers exist.
+- `disciplines.detect_discipline` is an ordered keyword list (`DISCIPLINE_KEYWORDS`, more specific phrases first). The live app uses it; `disciplines.py` also holds `DEFAULT_DURATIONS`, `PER_HEAT_DURATIONS` and changeovers.
+- `categorizer.categorize_event` is a bilingual strip-and-match parser. It extracts special event → omnium part → ride number → round → classification → gender → discipline, then maps pursuits to `pursuit_4k`/`3k`/`2k`, and returns `(EventCategory, unresolved_text)`. Only `tools/` use it.
 
-**Event name categorizer** (`categorizer.py`):
-- Compositional strip-and-match parser extracting: special events, omnium part, ride number, round, classification (age/license/compound/para), gender (English + French), discipline (bilingual keyword table)
-- Post-extraction mapping resolves distance-variant discipline keys (e.g., pursuit → pursuit_4k/3k/2k based on classification + gender)
-- Returns `(EventCategory, unresolved_text)` tuple
+**Palmares** (`palmares.py`; DynamoDB when `PALMARES_TABLE` is set, otherwise SQLite `palmares_entries`):
+- Collected automatically on schedule views when a racer is identified and matched to a timed event that has an audit URL.
+- Timed disciplines are listed in `_TIMED_DISCIPLINES` in `main.py`: pursuits, `team_pursuit`, `team_sprint` and time trials.
+- Team start lists pack the team name and riders into `<h4>` separated by `<br/>`; `parser._extract_names_from_h4` splits them, and `team_name` is stored because audit pages use team names.
+- The competition date is the earliest result-page Generated timestamp.
+- Public API: `save_palmares_entries`, `get_palmares`, `count_competition_palmares`, `update_competition_palmares`, `delete_competition_palmares`.
+- Entries are keyed by the raw racer name string. The DynamoDB keys are `RACER#{name}` and `COMP#{id}#S#{sid}#E#{pos}`.
+- `audit_parser.py` parses `-AUDIT-R.htm` pages (riders from `<p>`, heats from `<h3>`), filters with `normalize_rider_name`, and `format_csv` emits Heat, Dist, Time, Rank, Lap, Lap_Rank, Sect, Sect_Rank.
 
-**CLI import tools** (`tools/` package, invoked via `python -m`):
-- `python -m tools.extract_competition <competition_id>` — fetches schedule/result/start-list pages, extracts durations, writes JSON to `data/competitions/<id>.json`
-- `python -m tools.load_durations <file>...` — reads JSON reports, validates duration bounds (0.5×–2.0× static default), writes to learning DB with structured categories
-- `data/competitions/` output directory is gitignored
-
-**Live delay adjustment** (`predictor.py::_compute_delay`):
-- Only applied when session is in-progress (has both completed and pending events)
-- Clamped to [−30, +120] minutes
-- Returns 0 when `actual_elapsed > total_est + 60min` so post-event viewing shows scheduled times
+**Frontend:** Jinja2 templates in `app/templates/` (`base.html`, `index.html`, `schedule.html` + `_schedule_body.html`, `palmares.html`, `defaults.html`, `learned.html`). DaisyUI v4 + Tailwind (Play CDN) + HTMX 1.9 are loaded from CDNs in `base.html`. `static/style.css` holds only app-specific overrides; the schedule table becomes cards below 768px (`.schedule-table`).
 
 ## Key Patterns
 
-- Tests use `conftest.py` to redirect SQLite to a temp file and force SQLite mode (prevents production DB contamination)
-- `sample-event-output.json` is a captured Jaxon API response used as a test fixture
-- `is_special` events (Break, End of Session, Medal Ceremonies, Warm-up) are excluded from `is_complete` checks and their COMPLETED status is deferred until the next event starts
-- `end_of_session` discipline contributes 0 minutes to the cumulative timeline
-- Templates: `schedule.html` is the full page; `_schedule_body.html` is the HTMX partial returned by `/schedule/{id}/refresh`
-- Categorizer extraction order: special events → omnium part → ride number → round → classification → gender → discipline (most specific patterns matched first within each step)
-- Extraction test fixtures in `tests/fixtures/`: captured Jaxon schedule responses, result page HTML (bunch race with Finish Time, non-bunch with Generated timestamp), start-list HTML with heats
-- DynamoDB structured writes: aggregates updated BEFORE OBS# item written — ensures partial failures are retryable on next load (OBS# acts as the commit marker). Correction path computes deltas between old and new aggregate key sets (removed/added/shared) before overwriting the OBS# item
-- SQLite schema migration (`_migrate_schema`) adds `classification`, `gender`, `per_heat_duration_minutes` columns to existing databases via `ALTER TABLE ADD COLUMN`
-- Templates use DaisyUI v4 component classes (CDN-loaded) + Tailwind CSS utility classes; `static/style.css` contains only app-specific overrides (< 50 lines): status row opacity/strikethrough, mobile card transform at 768px, export button states, HTMX indicator
-- `theme` cookie (`light`/`dark`, 1-year max-age, `SameSite=Lax`) persists the user's theme preference; client-side JS sets `data-theme` on `<html>` with `prefers-color-scheme` fallback when no cookie exists
-- Schedule table transforms to card layout at `max-width: 768px` via CSS in `static/style.css` (`.schedule-table` class); uses DaisyUI CSS variables (`oklch(var(--b1))`, etc.) for theme-aware colors
+- `tests/conftest.py` points SQLite at a session-scoped temp file and blanks `DYNAMODB_TABLE`/`PALMARES_TABLE`. DynamoDB tests use `moto`.
+- Parsers are tested against captured upstream HTML/JSON in `tests/fixtures/` (including `sample-event-output.json`). New parsing of upstream formats needs a captured fixture (constitution, Principle II).
+- Special events (`SPECIAL_EVENT_NAMES` in `disciplines.py`: break, pause, end of session, medal ceremonies, medal ceremony) set `is_special`. They're excluded from `is_complete` checks, and their COMPLETED status is deferred until the next event starts. `end_of_session` contributes 0 minutes.
 
-## Active Technologies
-- Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing) (001-racer-schedule-lookup)
-- In-memory caches (existing pattern) — no database changes (001-racer-schedule-lookup)
-- Python 3.11+ (same as existing app) + httpx (HTTP client, existing), beautifulsoup4 (HTML parsing, existing), boto3 (DynamoDB, existing), argparse (CLI, stdlib) (002-duration-data-import)
-- SQLite (local dev) + DynamoDB (production) — extended schema with classification + gender columns; JSON files for intermediate output (002-duration-data-import)
-- Python 3.11+ + FastAPI, httpx, Pydantic, pydantic-settings (new), Jinja2, BeautifulSoup, boto3, Mangum (003-constitution-compliance)
-- SQLite (local dev) / DynamoDB (production) — no schema changes (003-constitution-compliance)
-- Python 3.11+ + FastAPI, httpx, Pydantic, pydantic-settings, Jinja2, BeautifulSoup, boto3 (all existing — no new dependencies) (004-racer-palmares)
-- SQLite (local dev) + DynamoDB (production) — NEW separate table for palmares data (004-racer-palmares)
-- Python 3.11+ (no changes) + FastAPI, Jinja2, HTMX (existing); DaisyUI v4 + Tailwind CSS (CDN, client-side only) (005-daisyui-frontend-upgrade)
-- N/A — no data model changes (one new client-side cookie for theme) (005-daisyui-frontend-upgrade)
+## Repository map
 
-## Recent Changes
-- 001-racer-schedule-lookup: Added Python 3.11+ + FastAPI, Pydantic, httpx, Jinja2, BeautifulSoup (all existing)
-- 002-duration-data-import: Added Python 3.11+ (same as existing app) + httpx (HTTP client, existing), beautifulsoup4 (HTML parsing, existing), boto3 (DynamoDB, existing), argparse (CLI, stdlib)
-- 004-racer-palmares: Added palmares (achievements) feature — auto-collects audit result links during schedule views, dedicated profile page with card layout, shareable links, per-event CSV export, per-competition removal. New modules: `palmares.py`, `audit_parser.py`, `palmares.html`. New DynamoDB table with pk+sk design.
+- `app/`: application. `tools/`: CLI importers. `tests/`: pytest suite plus `fixtures/`. `cdk/`: infrastructure. `static/`: CSS.
+- `specs/NNN-name/`: speckit feature artifacts (spec, plan, tasks, research, contracts). 001–005 are complete and historical; read them for rationale, not current behaviour.
+- `.specify/`: speckit config. `memory/constitution.md` holds the project principles that govern design trade-offs; `templates/overrides/` adds project-specific plan and task rules. The `/speckit.*` commands live in `.claude/commands/`.
+- `plans/`: pre-speckit design notes. `hosting-plan.md` is the current infrastructure reference; `data-pipeline*.md` and `dynamo-import-reload.md` are historical.
+- `docs/`: `duration-data-import.md` (extract/load tooling reference), per-discipline duration rationale (`sprint-`, `mass-start-race-`, `timed-event-durations.md`), and historical HTML UI prototypes (`daisyui-*`, `*-mockup.html`).
+
+## Conventions
+
+- Feature branches: speckit features use `NNN-short-name`; other work uses a descriptive branch name.
+- `/speckit.plan` runs `.specify/scripts/bash/update-agent-context.sh`, which appends "Active Technologies" and "Recent Changes" sections to this file. Delete them afterwards; this file stays current-state only.

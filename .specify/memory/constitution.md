@@ -1,19 +1,21 @@
 <!--
-Sync Impact Report (2026-03-14)
-- Version change: 1.0.0 → 1.1.0
+Sync Impact Report (2026-10-06)
+- Version change: 1.5.0 → 1.6.0
 - Modified principles:
-  - III. Separation of Concerns & Architectural Consistency — expanded
-    with FastAPI-specific guidance (Pydantic BaseSettings, dependency
-    injection, shared async HTTP client lifecycle)
-- Modified sections:
-  - External Data Sources — added shared httpx.AsyncClient requirement
-  - Development Workflow — added GET-only route constraint
-- Templates requiring updates:
-  - .specify/templates/plan-template.md — ✅ no changes needed
-  - .specify/templates/spec-template.md — ✅ no changes needed
-  - .specify/templates/tasks-template.md — ✅ no changes needed
-  - .specify/templates/checklist-template.md — ✅ no changes needed
-- No command files exist to update.
+  - VIII. Security & Data Minimization — added explicit exception for
+    publicly published racer names (palmares storage, racer_name cookie,
+    r= parameter).
+- Amendment history:
+  - 1.6.0 (2026-10-06): racer-name exception to VIII
+  - 1.5.0 (2026-03-19): research review on plan-assumption changes
+  - 1.4.0 (2026-03-18): behaviour-affecting deviations found during
+    implementation must be backported to spec/design artifacts
+  - 1.3.0 (2026-03-18): parsers MUST be tested against captured real-world
+    fixtures (II); format assertions need a committed fixture
+  - 1.2.0 (2026-03-15): implementation tasks must fit one context window
+  - 1.1.0 (2026-03-14): FastAPI guidance (BaseSettings, DI, shared httpx
+    client), GET-only routes
+- Templates requiring updates: none
 - Follow-up TODOs: none
 -->
 
@@ -133,6 +135,13 @@ trade-off.
 - New features MUST be evaluated for whether they introduce PII
   handling; if so, that is a blocking concern requiring explicit
   justification.
+- **Exception — racer names:** a racer's name as published in
+  tracktiming.live start lists and results is public competition data,
+  not user PII. The app MAY store it (palmares entries, keyed by name)
+  and hold it in the `racer_name` cookie and `r=` parameter, solely to
+  highlight that racer's events and record their published results. No
+  other data about the racer or the viewer (contact details, accounts,
+  analytics identifiers) may be attached to it.
 
 ## External Data Sources
 
@@ -199,4 +208,4 @@ trade-off.
 - CLAUDE.md is the runtime development guidance file; the constitution
   governs design principles and trade-off evaluation.
 
-**Version**: 1.5.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-03-19
+**Version**: 1.6.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-10-06

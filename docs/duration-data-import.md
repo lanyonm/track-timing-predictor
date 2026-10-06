@@ -235,16 +235,14 @@ After extraction, pursuit disciplines are resolved to a specific distance varian
 
 ## Cascading Learned Duration Fallback
 
-The extended learning database supports granular averages via a cascading query:
+The extended learning database supports granular averages via `get_learned_duration_cascading()`. The live predictor does not call it yet; it reads only the Level 1 (discipline-only) average via `get_learned_duration()`, and only when the user enables learned durations. The cascade is:
 
 1. **Level 4** — discipline + classification + gender (e.g. sprint_match for elite men)
 2. **Level 3** — discipline + classification (e.g. sprint_match for elite, any gender)
 3. **Level 2** — discipline + gender (e.g. sprint_match for men, any classification)
 4. **Level 1** — discipline only (e.g. all sprint_match observations)
 
-The first level with 3 or more samples is used. If no level qualifies, the system falls through to the static `DEFAULT_DURATIONS` constant.
-
-This means a U17 women's pursuit will use the U17-women-specific average if enough data exists, but gracefully falls back to broader averages when data is sparse.
+The first level with 3 or more samples (or a manual override) is used. If no level qualifies, the function returns `None` and the caller falls back to the static `DEFAULT_DURATIONS` constant.
 
 ## Database Schema Changes
 

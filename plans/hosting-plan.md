@@ -12,7 +12,7 @@ GitHub Actions (CI/CD)
         │     ├── ECR repository
         │     └── GitHub Actions OIDC role
         └── TrackTimingStack-{env} (per-environment)
-              ├── DynamoDB table
+              ├── DynamoDB tables (durations + palmares)
               ├── Lambda function (Docker image)
               ├── Function URL (IAM auth in prod, public in PR envs)
               ├── CloudWatch log group
@@ -55,20 +55,26 @@ critical caches could be externalized to DynamoDB.
 
 ### Storage: DynamoDB
 
-Learned event durations are stored in DynamoDB (replacing SQLite for
-production). The table uses a single-table design with partition key `pk`:
+Each environment has two on-demand tables.
+
+**Durations** (`track-timing-{env}`, `DYNAMODB_TABLE`): learned event durations,
+single-table design with partition key `pk` only:
 
 | Item type | pk format | Attributes |
 |---|---|---|
-| Aggregate duration | `AGGREGATE#<discipline>` | `total_minutes` (N), `count` (N) |
-| Manual override | `OVERRIDE#<discipline>` | `duration_minutes` (N) |
+| Aggregate duration | `AGGREGATE#<disc>`, `AGGREGATE#<disc>##<gender>`, `AGGREGATE#<disc>#<class>`, `AGGREGATE#<disc>#<class>#<gender>` | `total_minutes` (N), `count` (N) |
+| Manual override | `OVERRIDE#<disc>` (same four levels) | `duration_minutes` (N) |
+| Observation | `OBS#<comp_id>#<sess_id>#<pos>` | loaded field values; commit marker for idempotent re-load |
+
+**Palmares** (`track-timing-palmares-{env}`, `PALMARES_TABLE`): racer results,
+partition key `pk` = `RACER#{name}`, sort key `sk` = `COMP#{id}#S#{sid}#E#{pos}`.
 
 - Billing: on-demand (PAY_PER_REQUEST)
 - Prod removal policy: RETAIN (data survives stack deletion)
 - PR env removal policy: DESTROY
 
-The app dispatches to DynamoDB when `DYNAMODB_TABLE` is set, otherwise falls
-back to SQLite for local development.
+The app dispatches to DynamoDB when `DYNAMODB_TABLE` / `PALMARES_TABLE` are
+set, otherwise falls back to SQLite for local development.
 
 ### Container Registry: ECR
 
@@ -115,28 +121,31 @@ The `track-timing-github-actions` role uses OIDC federation (no long-lived
 credentials). It is scoped to the `lanyonm/track-timing-predictor` repository
 via the `sub` claim condition.
 
-The role currently has `AdministratorAccess` to allow CDK to create and manage
-arbitrary CloudFormation resources (IAM roles, Lambda functions, DynamoDB
-tables, log groups, etc.). CDK's IAM synthesis creates multiple roles and
-policies that are difficult to predict in advance.
+Trust: the `sub` claim may match any branch (`ref:refs/heads/*`) or any
+same-repo pull request.
 
-**Accepted risk:** This is overly permissive. The OIDC subject condition limits
-who can assume the role, but a compromised workflow could escalate privileges
-within the account. A future improvement would replace this with a scoped
-policy covering: CloudFormation, Lambda, DynamoDB, ECR, IAM (create/delete
-roles with a path prefix), CloudWatch Logs, and STS.
+The role's inline `CdkDeployPolicy` grants only:
+- `sts:AssumeRole` on the CDK bootstrap roles (`cdk-hnb659fds-*`)
+- read-only CloudFormation describe calls
+- ECR auth plus push/pull on the `track-timing-predictor` repository
+- `ssm:GetParameter` on the CDK bootstrap version parameter
+
+CloudFormation changes are executed by the CDK bootstrap execution role, which
+has the bootstrap default (`AdministratorAccess`). Anyone who can run a workflow
+on a branch of this repo can therefore deploy arbitrary infrastructure.
 
 ### Lambda Execution Role
 
 CDK auto-generates the Lambda execution role with:
 - `AWSLambdaBasicExecutionRole` (CloudWatch Logs)
-- DynamoDB read/write scoped to the environment's table
+- DynamoDB read/write scoped to the environment's two tables
 
 ## CI/CD
 
 ### Production Deploy (`.github/workflows/deploy.yml`)
 
-Triggered on push to `main`:
+Triggered on push to `main` (independently of the test workflow; a failing
+test run does not block the deploy):
 1. Assume OIDC role
 2. Build Docker image, push to ECR with SHA tag + `prod-latest`
 3. `cdk deploy TrackTimingBase TrackTimingStack-prod --context image_tag=<sha>`
@@ -146,9 +155,10 @@ change and updates the Lambda function.
 
 ### PR Environments (`.github/workflows/pr-environment.yml`)
 
-Triggered on PR open/sync/close against `main`:
+Triggered on PR open/sync/close against `main`, for PRs from branches in this
+repository only (fork PRs are skipped on deploy):
 - **open/synchronize:** Build image, push with SHA tag, deploy ephemeral
-  `TrackTimingStack-pr-<N>` stack
+  `TrackTimingStack-pr-<N>` stack, comment the Function URL on the PR
 - **close:** `cdk destroy TrackTimingStack-pr-<N>` tears down all resources
 
 PR stacks use DESTROY removal policies so DynamoDB tables and log groups are
@@ -156,15 +166,16 @@ cleaned up automatically.
 
 ### Tests (`.github/workflows/test.yml`)
 
-Triggered on push/PR to `main`. Runs `pytest` with `requirements-dev.txt`
-(includes pytest; excludes production-only deps from the test matrix).
+Triggered on push/PR to `main`. Installs `requirements-dev.txt` and runs
+`pytest` with coverage; on `main` it publishes the coverage percentage to a gist
+for the README badge (`GIST_TOKEN` secret).
 
 ## Local Development
 
 Local dev continues to use uvicorn + SQLite:
 ```bash
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 uvicorn app.main:app --reload
 ```
 
@@ -176,6 +187,7 @@ when `DYNAMODB_TABLE` is not set.
 | Variable | Default | Description |
 |---|---|---|
 | `DYNAMODB_TABLE` | `""` (SQLite mode) | DynamoDB table name; enables DynamoDB backend |
+| `PALMARES_TABLE` | `""` (SQLite mode) | Palmares DynamoDB table name; enables DynamoDB palmares backend |
 | `AWS_REGION` | `us-east-1` | AWS region for DynamoDB client |
 | `DB_PATH` | `timings.db` | SQLite database path (local dev only) |
 
@@ -226,9 +238,9 @@ DNS is managed at Name.com (not Route53). Two CNAME records are required:
    `ttp` → the `DistributionDomain` output value
 6. Build and push the first Docker image (via CI on merge to main, or manually)
 
-## Future Considerations
+## Not Configured
 
-- **Rate limiting / WAF:** The CloudFront distribution is publicly accessible
-  without throttling. A WAF WebACL could add rate limiting if needed.
-- **Cache externalization:** If Lambda cold starts degrade prediction quality,
-  move critical caches (heat counts, observed durations) to DynamoDB with TTL.
+- **Rate limiting / WAF:** none. The CloudFront distribution and PR Function URLs
+  are publicly reachable without throttling, and the Lambda has no reserved
+  concurrency limit.
+- **Shared caches:** prediction caches are per Lambda container (see above).
