@@ -346,8 +346,9 @@ async def get_schedule(
     """GET version of schedule so links and bookmarks work."""
     try:
         jxn_data = await fetch_initial_layout(client, event_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id}: {e}")
+    except Exception:
+        logger.warning("Failed to fetch event %d", event_id, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id} from tracktiming.live.")
 
     sessions = parse_schedule(jxn_data)
     if not sessions:
@@ -428,8 +429,9 @@ async def refresh_schedule(
     """
     try:
         jxn_data = await fetch_refresh(client, event_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id}: {e}")
+    except Exception:
+        logger.warning("Failed to refresh event %d", event_id, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id} from tracktiming.live.")
 
     sessions = parse_schedule(jxn_data)
 
