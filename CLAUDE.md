@@ -127,7 +127,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 
 ## Key Patterns
 
-- `tests/conftest.py` points SQLite at a session-scoped temp file and blanks `DYNAMODB_TABLE`/`PALMARES_TABLE`. DynamoDB tests use `moto`.
+- `tests/conftest.py` points SQLite at a session-scoped temp file, blanks `DYNAMODB_TABLE`/`PALMARES_TABLE`, and empties the learned-duration tables before each test. DynamoDB tests use `moto`.
 - Parsers are tested against captured upstream HTML/JSON in `tests/fixtures/` (including `sample-event-output.json`). New parsing of upstream formats needs a captured fixture (constitution, Principle II).
 - Special events (`SPECIAL_EVENT_NAMES` in `disciplines.py`: break, pause, end of session, medal ceremonies, medal ceremony) set `is_special`. They're excluded from `is_complete` checks, and their COMPLETED status is deferred until the next event starts. `end_of_session` contributes 0 minutes.
 

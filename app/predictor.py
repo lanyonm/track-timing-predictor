@@ -202,7 +202,7 @@ def get_observed_duration(competition_id: int, session_id: int, position: int) -
     return _observed_durations.get((competition_id, session_id, position))
 
 
-def _get_duration(discipline: str, use_learned: bool = True) -> float:
+def _get_duration(discipline: str, use_learned: bool = False) -> float:
     """Return learned duration if available and enabled, otherwise use the default."""
     if use_learned:
         learned = get_learned_duration(discipline)
@@ -265,7 +265,7 @@ def predict_session(
     session: Session,
     now: datetime | None = None,
     racer_name: str | None = None,
-    use_learned: bool = True,
+    use_learned: bool = False,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -476,7 +476,7 @@ def predict_schedule(
     sessions: list[Session],
     now: datetime | None = None,
     racer_name: str | None = None,
-    use_learned: bool = True,
+    use_learned: bool = False,
 ) -> SchedulePrediction:
     session_predictions = []
     total_events_without_start_lists = 0

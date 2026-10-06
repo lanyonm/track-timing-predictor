@@ -3,7 +3,7 @@ import httpx
 import pytest
 
 from app.config import settings
-from app.database import init_db
+from app.database import get_db, init_db
 from app.palmares import init_palmares_db
 from app.main import app
 
@@ -44,3 +44,13 @@ def test_db(tmp_path_factory):
     settings.db_path = original_db_path
     settings.dynamodb_table = original_dynamodb_table
     settings.palmares_table = original_palmares_table
+
+
+@pytest.fixture(autouse=True)
+def clean_learned_durations():
+    """Empty the learned-duration tables before each test so rows written by one
+    test (e.g. the loader tests) can't change another test's predictions."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM event_durations")
+        conn.execute("DELETE FROM discipline_overrides")
+    yield

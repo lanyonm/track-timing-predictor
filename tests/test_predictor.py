@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.disciplines import CHANGEOVER_MINUTES, PER_HEAT_DURATIONS
+from app.disciplines import CHANGEOVER_MINUTES, DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
 from app.predictor import (
@@ -912,3 +912,32 @@ class TestFinishedSessionWithPendingSpecial:
     def test_no_active_event(self):
         sp = predict_session(7002, self._session(), now=datetime(2026, 10, 6, 13, 47))
         assert not any(p.is_active for p in sp.event_predictions)
+
+
+class TestUseLearnedDefault:
+    """Learned durations are opt-in in the app; the predictor's defaults must match."""
+
+    def _session(self) -> Session:
+        return Session(
+            session_id=1, day="Friday", scheduled_start=time(8, 0),
+            events=[_make_event(0, EventStatus.UPCOMING), _make_event(1, EventStatus.UPCOMING)],
+        )
+
+    @pytest.fixture
+    def learned_scratch_race(self):
+        from app.database import record_duration_structured
+        for pos in range(5):
+            record_duration_structured(7003, 1, pos, "Scratch", "scratch_race", 99.0)
+
+    def test_default_ignores_learned(self, learned_scratch_race):
+        sp = predict_session(7003, self._session())
+        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), DEFAULT_DURATIONS["scratch_race"])
+
+    def test_opt_in_uses_learned(self, learned_scratch_race):
+        sp = predict_session(7003, self._session(), use_learned=True)
+        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), 99.0)
+
+    def test_schedule_default_ignores_learned(self, learned_scratch_race):
+        sched = predict_schedule(7003, [self._session()])
+        start = sched.sessions[0].event_predictions[1].predicted_start
+        assert start == _add_minutes(time(8, 0), DEFAULT_DURATIONS["scratch_race"])
