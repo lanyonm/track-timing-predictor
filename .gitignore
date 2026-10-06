@@ -13,8 +13,15 @@ timings.db
 cdk.out/
 data/
 .coverage
+coverage.json
+cdk-outputs.json
+.pytest_cache/
+.ruff_cache/
 
 # Speckit plugin installed files (reinstall via: specify init / plugin install)
 .specify/scripts/
 .specify/templates/*
 !.specify/templates/overrides/
+
+# Reference result-book PDFs (third-party, local only)
+docs/result-books/

@@ -10,3 +10,15 @@ cdk/
 *.db
 .git/
 .coverage
+.claude/
+.specify/
+.github/
+.playwright-mcp/
+cdk.out/
+data/
+.pytest_cache/
+.ruff_cache/
+.env
+coverage.json
+cdk-outputs.json
+*.md
