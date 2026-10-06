@@ -37,6 +37,7 @@ No linter, formatter or type checker is configured.
 | `REFRESH_INTERVAL_SECONDS` | `30` | HTMX polling interval passed to templates |
 | `MIN_LEARNED_SAMPLES` | `3` | Samples required before a learned average is used |
 | `VENUE_TZ` | `America/Toronto` | Fallback IANA timezone for "now" when no live session has results; validated at startup |
+| `PUBLIC_BASE_URL` | `""` | Origin for the palmares share link; prod CDK sets `https://ttp.lanyonm.org`, empty uses the request host |
 
 ## Taxonomy
 
@@ -96,7 +97,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 **Duration source priority** (`predictor.predict_session`):
 1. Observed: result-page Finish Time + changeover (bunch races).
-2. Generated: difference between consecutive result-page Generated timestamps, kept if within 0.5×–2.0× of expected.
+2. Generated: difference between an event's result-page Generated timestamp and the previous event's, kept if within 0.5×–2.0× of that event's expected duration. Generated marks an event's end, so the gap belongs to the later event. `predictor.generated_gap_duration` does this for both the app and `tools.extract_competition`.
 3. Heat count: `heat_count × per_heat_duration + changeover`.
 4. Fallback: if the `use_learned` cookie is on, the discipline-level learned average (`get_learned_duration`, ≥ `MIN_LEARNED_SAMPLES`); otherwise `DEFAULT_DURATIONS`.
 
@@ -105,7 +106,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 **Live delay** (`predictor._compute_delay`): applied only while a session has both completed events and pending non-special events (a NOT_READY End of Session doesn't keep a finished session live). The same condition gates the active-event flag. It is clamped to [−30, +120] min and returns 0 once `actual_elapsed > total_est + 60 min`, so post-event views show scheduled times. "Now" comes from `clock.venue_now()`, naive to match the schedule. Upstream exposes no timezone, so the venue's UTC offset is inferred from the newest Generated timestamp in an in-progress session (`predictor.latest_live_generated_time`): Generated ≤ venue-local now, so (Generated − UTC now − 2 min skew allowance) rounded up to the whole hour is the offset while that result is under ~58 min old. Results older than that (a long break) give an offset an hour low, and half-hour zones aren't supported. With no live session, or an offset outside UTC−12..+14, it falls back to `VENUE_TZ`. Both schedule routes use it, and the "Last updated" label shows it (the refresh partial carries it in `#schedule-generated-at`).
 
 **Learning** (`database.py`; DynamoDB when `DYNAMODB_TABLE` is set, otherwise SQLite):
-- *Live app writes* go through `record_duration()`, from result-page observations and the UPCOMING→COMPLETED wall-clock fallback (capped at 3× static default). These writes are not idempotent.
+- *Live app writes* go through `record_live_duration(..., source)`: `"observed"` from result-page Finish Times, `"wall_clock"` from the UPCOMING→COMPLETED fallback (capped at 3× static default). They're idempotent per `(competition, session, position)` and keep any existing record, except that an observed value replaces a wall-clock one. Loader records (no `source`) are never replaced. DynamoDB reuses the structured `OBS#` path with a `source` attribute; SQLite stores it in a `source` column.
 - *Loader writes* go through `record_duration_structured()` (returns `RecordOutcome`: created/updated/unchanged/error), with classification, gender and per-heat duration. They're idempotent: SQLite uses `INSERT OR REPLACE`; DynamoDB uses an `OBS#<comp>#<sess>#<pos>` item as a commit marker written after the `AGGREGATE#...` updates, with delta correction on re-load.
 - *Reads:* the app uses only `get_learned_duration(discipline)` (overrides first, then the average). `get_learned_duration_cascading(discipline, classification, gender)` exists and is tested, but nothing in the app calls it.
 - The DynamoDB key layout (`AGGREGATE#` levels, `OVERRIDE#`, `OBS#`) is documented in the comment block near the top of the DynamoDB section in `database.py` (~line 165). SQLite tables are `event_durations` (with `_migrate_schema` adding columns to old DBs) and `discipline_overrides`.
@@ -127,7 +128,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 
 ## Key Patterns
 
-- `tests/conftest.py` points SQLite at a session-scoped temp file and blanks `DYNAMODB_TABLE`/`PALMARES_TABLE`. DynamoDB tests use `moto`.
+- `tests/conftest.py` points SQLite at a session-scoped temp file, blanks `DYNAMODB_TABLE`/`PALMARES_TABLE`, and empties the learned-duration tables before each test. DynamoDB tests use `moto`.
 - Parsers are tested against captured upstream HTML/JSON in `tests/fixtures/` (including `sample-event-output.json`). New parsing of upstream formats needs a captured fixture (constitution, Principle II).
 - Special events (`SPECIAL_EVENT_NAMES` in `disciplines.py`: break, pause, end of session, medal ceremonies, medal ceremony) set `is_special`. They're excluded from `is_complete` checks, and their COMPLETED status is deferred until the next event starts. `end_of_session` contributes 0 minutes.
 

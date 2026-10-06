@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app.disciplines import CHANGEOVER_MINUTES, PER_HEAT_DURATIONS
+from app.disciplines import CHANGEOVER_MINUTES, DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
 from app.predictor import (
@@ -647,11 +647,12 @@ class TestGeneratedTimeDuration:
     """
     Consecutive result-page Generated timestamps are differenced to produce
     actual inter-event slot durations, replacing estimates for all disciplines.
+    Generated marks the end of an event, so each gap belongs to the later event.
 
     Session: starts 08:00 with three events (positions 10, 11, 12).
     Generated times:  pos 10 → 08:10, pos 11 → 08:22, pos 12 → 08:35.
-    Expected durations: pos 10 = 12 min, pos 11 = 13 min, pos 12 = default
-    (no subsequent event to diff against).
+    Expected durations: pos 10 = default (no previous event to diff against),
+    pos 11 = 12 min, pos 12 = 13 min.
     """
 
     EVENT_ID = 55555
@@ -676,50 +677,51 @@ class TestGeneratedTimeDuration:
         record_generated_time(self.EVENT_ID, 55, 11, datetime(2026, 1, 1, 8, 22, 0))
         record_generated_time(self.EVENT_ID, 55, 12, datetime(2026, 1, 1, 8, 35, 0))
 
-    def test_generated_duration_used_for_first_event(self):
-        """pos 10 duration = generated(11) - generated(10) = 12 min."""
+    def test_first_event_falls_back_to_default(self):
+        """pos 10 has no previous generated time → uses default (scratch_race = 12 min)."""
         self._setup()
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
         assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(12.0)
+        assert sp.event_predictions[0].is_observed is False
 
     def test_generated_duration_used_for_middle_event(self):
-        """pos 11 duration = generated(12) - generated(11) = 13 min."""
+        """pos 11 duration = generated(11) - generated(10) = 12 min."""
         self._setup()
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
-        assert sp.event_predictions[1].estimated_duration_minutes == pytest.approx(13.0)
+        assert sp.event_predictions[1].estimated_duration_minutes == pytest.approx(12.0)
 
-    def test_last_event_falls_back_to_default(self):
-        """pos 12 has no successor generated time → uses default (keirin = 6.5 min)."""
+    def test_generated_duration_used_for_last_event(self):
+        """pos 12 duration = generated(12) - generated(11) = 13 min."""
         self._setup()
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
-        assert sp.event_predictions[2].estimated_duration_minutes == pytest.approx(6.5)
+        assert sp.event_predictions[2].estimated_duration_minutes == pytest.approx(13.0)
 
     def test_generated_duration_marked_as_observed(self):
         """Generated-time derived durations are flagged is_observed=True."""
         self._setup()
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
-        assert sp.event_predictions[0].is_observed is True
+        assert sp.event_predictions[0].is_observed is False
         assert sp.event_predictions[1].is_observed is True
-        assert sp.event_predictions[2].is_observed is False
+        assert sp.event_predictions[2].is_observed is True
 
     def test_generated_duration_shifts_subsequent_predictions(self):
-        """Accurate duration for event 0 propagates to event 1's predicted start."""
+        """Accurate duration for event 1 propagates to event 2's predicted start."""
         self._setup()
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
-        # Event 1 starts at 08:00 + 12 min = 08:12
-        assert sp.event_predictions[1].predicted_start == time(8, 12)
+        # Event 2 starts at 08:00 + 12 (default) + 12 (generated) = 08:24
+        assert sp.event_predictions[2].predicted_start == time(8, 24)
 
     def test_observed_takes_priority_over_generated(self):
         """Finish-Time observed duration overrides the generated-time derived one."""
         from app.predictor import record_observed_duration
         self._setup()
         # Record an observed duration of 9.0 min for pos 10 (overrides 12-min generated)
-        record_observed_duration(self.EVENT_ID, 55, 10, 7.0, "scratch_race")
+        record_observed_duration(self.EVENT_ID, 55, 10, 7.0, "scratch_race", "E10")
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
         # scratch_race changeover = 2.0 → slot = 7.0 + 2.0 = 9.0
@@ -727,14 +729,14 @@ class TestGeneratedTimeDuration:
 
     def test_implausible_gap_falls_back_to_default(self):
         """A generated-time gap > 2× the expected slot duration is discarded."""
-        # Override pos 11 to be 3 hours after pos 10 (implausible for scratch_race ~12 min)
+        # Override pos 11 to be 3 hours after pos 10 (implausible for keirin ~6.5 min)
         record_generated_time(self.EVENT_ID + 1, 55, 10, datetime(2026, 1, 1, 8, 0, 0))
         record_generated_time(self.EVENT_ID + 1, 55, 11, datetime(2026, 1, 1, 11, 0, 0))  # 180 min gap
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID + 1, session, now=None)
-        # Falls back to scratch_race default = 12.0 min
-        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(12.0)
-        assert sp.event_predictions[0].is_observed is False
+        # The gap belongs to pos 11; falls back to keirin default = 6.5 min
+        assert sp.event_predictions[1].estimated_duration_minutes == pytest.approx(6.5)
+        assert sp.event_predictions[1].is_observed is False
 
     def test_out_of_order_keirin_gen_duration_rejected(self):
         """
@@ -743,8 +745,8 @@ class TestGeneratedTimeDuration:
         race.  A gap > 2× the keirin default (6.5 min) must be rejected so the
         prediction falls back to the default instead of using a bogus duration.
         """
-        # Simulate a keirin final (pos 11) whose next event's result (pos 12)
-        # was uploaded 55 minutes later because the schedule ran out of order.
+        # Simulate a keirin repechage (pos 12) whose result was uploaded 55
+        # minutes after the previous final's because the schedule ran out of order.
         record_generated_time(self.EVENT_ID + 2, 55, 11, datetime(2026, 1, 1, 12, 46, 0))
         record_generated_time(self.EVENT_ID + 2, 55, 12, datetime(2026, 1, 1, 13, 41, 0))  # 55 min gap
         session = Session(
@@ -760,8 +762,8 @@ class TestGeneratedTimeDuration:
         )
         sp = predict_session(self.EVENT_ID + 2, session, now=None)
         # 55 min >> 2 × 6.5 = 13 min → rejected; falls back to keirin default
-        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(6.5)
-        assert sp.event_predictions[0].is_observed is False
+        assert sp.event_predictions[1].estimated_duration_minutes == pytest.approx(6.5)
+        assert sp.event_predictions[1].is_observed is False
 
 
 # ── update_status_cache ────────────────────────────────────────────────────────
@@ -912,3 +914,79 @@ class TestFinishedSessionWithPendingSpecial:
     def test_no_active_event(self):
         sp = predict_session(7002, self._session(), now=datetime(2026, 10, 6, 13, 47))
         assert not any(p.is_active for p in sp.event_predictions)
+
+
+class TestUseLearnedDefault:
+    """Learned durations are opt-in in the app; the predictor's defaults must match."""
+
+    def _session(self) -> Session:
+        return Session(
+            session_id=1, day="Friday", scheduled_start=time(8, 0),
+            events=[_make_event(0, EventStatus.UPCOMING), _make_event(1, EventStatus.UPCOMING)],
+        )
+
+    @pytest.fixture
+    def learned_scratch_race(self):
+        from app.database import record_duration_structured
+        for pos in range(5):
+            record_duration_structured(7003, 1, pos, "Scratch", "scratch_race", 99.0)
+
+    def test_default_ignores_learned(self, learned_scratch_race):
+        sp = predict_session(7003, self._session())
+        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), DEFAULT_DURATIONS["scratch_race"])
+
+    def test_opt_in_uses_learned(self, learned_scratch_race):
+        sp = predict_session(7003, self._session(), use_learned=True)
+        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), 99.0)
+
+    def test_schedule_default_ignores_learned(self, learned_scratch_race):
+        sched = predict_schedule(7003, [self._session()])
+        start = sched.sessions[0].event_predictions[1].predicted_start
+        assert start == _add_minutes(time(8, 0), DEFAULT_DURATIONS["scratch_race"])
+
+
+class TestGeneratedGapAssignment:
+    """A Generated timestamp marks when an event's results were published (its end), so the
+    gap between consecutive timestamps is the duration of the later event.
+
+    Captured 26037 Tuesday morning: field sizes confirm it (6 TP teams took 46.9 min,
+    2 TP teams 14.5, 3 pursuiters 12.4)."""
+
+    COMP = 26037
+
+    @pytest.fixture
+    def tuesday(self):
+        import json
+        from app.parser import parse_generated_time
+        fixtures = Path(__file__).parent / "fixtures"
+        session = parse_schedule(json.loads((fixtures / "schedule-26037-live.json").read_text()))[2]
+        for e in session.events:
+            if e.result_url:
+                page = fixtures / "26037-results" / e.result_url.rsplit("/", 1)[-1]
+                record_generated_time(self.COMP, session.session_id, e.position,
+                                      parse_generated_time(page.read_text()))
+        return session
+
+    def _durations(self, session) -> dict[int, tuple[float, bool]]:
+        sp = predict_session(self.COMP, session)
+        return {p.event.position: (round(p.estimated_duration_minutes, 1), p.is_observed)
+                for p in sp.event_predictions}
+
+    def test_gap_lands_on_later_event(self, tuesday):
+        d = self._durations(tuesday)
+        # 75+ TP (2 teams): gap from 65-74 TP's result to its own.
+        assert d[4] == (14.5, True)
+        # 45-49 sprint 1/8 (12 min default): gap from the 45-49 pursuit's result to its own.
+        assert d[8] == (22.4, True)
+
+    def test_implausible_gap_not_used(self, tuesday):
+        # 65-74 TP's own gap (46.9) is over 2x its 10-min default, so it isn't used.
+        # The old off-by-one gave it 75+ TP's 14.5 instead.
+        assert self._durations(tuesday)[3][1] is False
+
+    def test_tool_agrees(self, tuesday):
+        from app.predictor import get_generated_time
+        from tools.extract_competition import extract_generated_diff_duration
+        gen = {e.position: get_generated_time(self.COMP, tuesday.session_id, e.position) for e in tuesday.events}
+        assert round(extract_generated_diff_duration(gen[3], gen[4], "team_pursuit"), 1) == 14.5
+        assert round(extract_generated_diff_duration(gen[7], gen[8], "sprint_match"), 1) == 22.4

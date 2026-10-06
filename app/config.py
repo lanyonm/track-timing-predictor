@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     # Palmares DynamoDB table — when set, palmares data is stored in DynamoDB
     palmares_table: str = ""
     aws_region: str = "us-east-1"
+    # Origin for links users copy (e.g. https://ttp.lanyonm.org); empty uses the request host
+    public_base_url: str = ""
     # IANA timezone of the venue; upstream schedule times are naive venue-local
     venue_tz: str = "America/Toronto"
 

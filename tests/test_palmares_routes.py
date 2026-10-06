@@ -292,6 +292,34 @@ class TestShareableLink:
         assert "racer_name" not in set_cookie
 
 
+    async def _share_url(self, racer_name: str, host: str) -> str:
+        save_palmares_entries([
+            PalmaresEntry(
+                racer_name=racer_name, competition_id=26008,
+                competition_name="Test", competition_date="2026-02-28",
+                session_id=1, session_name="Friday", event_position=1,
+                event_name="E1", audit_url="results/E26008/test-AUDIT-R.htm",
+            ),
+        ])
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=f"https://{host}") as client:
+            response = await client.get(f"/palmares?r={_encode(racer_name)}")
+        assert response.status_code == 200
+        start = response.text.index('data-url="') + len('data-url="')
+        return response.text[start:response.text.index('"', start)]
+
+    @pytest.mark.asyncio
+    async def test_share_link_uses_public_base_url(self):
+        # Behind CloudFront the Lambda sees the IAM-protected Function URL host.
+        with patch("app.config.settings.public_base_url", "https://ttp.lanyonm.org"):
+            url = await self._share_url("public base racer", "abc.lambda-url.us-east-1.on.aws")
+        assert url == f"https://ttp.lanyonm.org/palmares?r={_encode('public base racer')}"
+
+    @pytest.mark.asyncio
+    async def test_share_link_falls_back_to_request_host(self):
+        url = await self._share_url("fallback racer", "pr-env.example")
+        assert url == f"https://pr-env.example/palmares?r={_encode('fallback racer')}"
+
+
 # ---------------------------------------------------------------------------
 # US4: CSV Export
 # ---------------------------------------------------------------------------

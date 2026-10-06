@@ -191,6 +191,7 @@ when `DYNAMODB_TABLE` is not set.
 | `AWS_REGION` | `us-east-1` | AWS region for DynamoDB client |
 | `DB_PATH` | `timings.db` | SQLite database path (local dev only) |
 | `VENUE_TZ` | `America/Toronto` | Fallback venue timezone; the Lambda clock is UTC and the live offset is inferred from result pages (not set by CDK, so the default applies) |
+| `PUBLIC_BASE_URL` | `""` | Origin for the palmares share link. Prod CDK sets `https://ttp.lanyonm.org`, because CloudFront forwards the Function URL host; PR envs leave it empty and use the request host |
 
 `PYTHONUNBUFFERED=1` is set in the Dockerfile for immediate log output.
 

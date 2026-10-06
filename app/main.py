@@ -180,7 +180,7 @@ async def _fetch_result_pages(
     the day, even when the app is loaded mid-event.
     """
     to_fetch = [
-        (competition_id, s.session_id, e.position, e.result_url, e.discipline)
+        (competition_id, s.session_id, e.position, e.result_url, e.discipline, e.name)
         for s in sessions
         for e in s.events
         if e.result_url and get_generated_time(competition_id, s.session_id, e.position) is None
@@ -190,7 +190,7 @@ async def _fetch_result_pages(
 
     sem = asyncio.Semaphore(10)
 
-    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str) -> None:
+    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str, name: str) -> None:
         async with sem:
             try:
                 html = await fetch_page_html(client, url)
@@ -203,7 +203,7 @@ async def _fetch_result_pages(
                     record_generated_time(ev_id, sess_id, pos, gen_time)
                 finish_time = parse_finish_time(html)
                 if finish_time is not None:
-                    record_observed_duration(ev_id, sess_id, pos, finish_time, discipline)
+                    record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name)
             except Exception:
                 logger.warning("Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 
@@ -346,8 +346,9 @@ async def get_schedule(
     """GET version of schedule so links and bookmarks work."""
     try:
         jxn_data = await fetch_initial_layout(client, event_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id}: {e}")
+    except Exception:
+        logger.warning("Failed to fetch event %d", event_id, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id} from tracktiming.live.")
 
     sessions = parse_schedule(jxn_data)
     if not sessions:
@@ -428,8 +429,9 @@ async def refresh_schedule(
     """
     try:
         jxn_data = await fetch_refresh(client, event_id)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id}: {e}")
+    except Exception:
+        logger.warning("Failed to refresh event %d", event_id, exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id} from tracktiming.live.")
 
     sessions = parse_schedule(jxn_data)
 
@@ -521,7 +523,10 @@ async def palmares_page(
     if racer_name:
         racer_encoded = _encode_racer_name(racer_name)
         competitions = get_palmares(racer_name)
-        share_url = f"{request.url.scheme}://{request.url.netloc}/palmares?r={racer_encoded}"
+        # Behind CloudFront the request host is the IAM-protected Function URL,
+        # so prod sets PUBLIC_BASE_URL to the public domain.
+        base = settings.public_base_url.rstrip("/") or f"{request.url.scheme}://{request.url.netloc}"
+        share_url = f"{base}/palmares?r={racer_encoded}"
     else:
         racer_encoded = None
         competitions = []

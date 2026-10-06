@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -300,3 +301,39 @@ class TestVenueOffsetInferredFromResults:
         assert resp.status_code == 200
         assert spy.call_args.kwargs["now"] == datetime(2026, 10, 6, 13, 43, 11)
         assert "13:43:11" in resp.text
+
+
+class TestUseLearnedToggle:
+    def test_on_sets_cookie(self, client):
+        resp = client.get("/settings/use-learned?event_id=26008&use_learned=on", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/schedule/26008"
+        assert "use_learned=true" in resp.headers["set-cookie"]
+
+    def test_off_deletes_cookie(self, client):
+        client.cookies.set("use_learned", "true")
+        resp = client.get("/settings/use-learned?event_id=26008&use_learned=off", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/schedule/26008"
+        assert 'use_learned=""' in resp.headers["set-cookie"]
+        assert "Max-Age=0" in resp.headers["set-cookie"]
+
+
+class TestScheduleErrors:
+    def test_unknown_event_returns_404(self, client):
+        # Captured response for EventId 99999999: an empty scheduleview.
+        unknown = json.loads((FIXTURE_DIR / "schedule-unknown-event.json").read_text())
+        with patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=unknown):
+            resp = client.get("/schedule/99999999")
+        assert resp.status_code == 404
+
+    @pytest.mark.parametrize("path,fetcher", [
+        ("/schedule/26008", "app.main.fetch_initial_layout"),
+        ("/schedule/26008/refresh", "app.main.fetch_refresh"),
+    ])
+    def test_fetch_failure_returns_502_without_exception_text(self, client, path, fetcher):
+        err = httpx.ConnectError("secret-upstream-host.internal refused")
+        with patch(fetcher, new_callable=AsyncMock, side_effect=err):
+            resp = client.get(path)
+        assert resp.status_code == 502
+        assert "secret-upstream-host" not in resp.text
