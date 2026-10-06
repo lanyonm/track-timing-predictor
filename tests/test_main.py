@@ -1,6 +1,7 @@
 """Tests for app/main.py route handlers, focused on racer-name functionality."""
 import base64
 import json
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -237,3 +238,30 @@ class TestCheckHealth:
             assert "SQLite" in result["detail"]
         finally:
             settings.db_path = original
+
+
+class TestVenueLocalClock:
+    """Routes must compute "now" in the venue's timezone, not the server's (UTC on Lambda)."""
+
+    @pytest.fixture(autouse=True)
+    def frozen_utc(self):
+        from tests.test_clock import _FrozenDatetime
+        with patch("app.clock.datetime", _FrozenDatetime):
+            yield
+
+    def _captured_now(self, client, path):
+        import app.main as main_module
+        with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
+            resp = client.get(path)
+        assert resp.status_code == 200
+        return resp, spy.call_args.kwargs["now"]
+
+    def test_schedule_predicts_with_venue_local_now(self, client):
+        resp, now = self._captured_now(client, "/schedule/26008")
+        assert now == datetime(2024, 6, 1, 8, 15)
+        assert 'id="last-updated" class="font-medium">08:15:00<' in resp.text
+
+    def test_refresh_predicts_with_venue_local_now(self, client):
+        resp, now = self._captured_now(client, "/schedule/26008/refresh")
+        assert now == datetime(2024, 6, 1, 8, 15)
+        assert 'data-generated-at="08:15:00"' in resp.text

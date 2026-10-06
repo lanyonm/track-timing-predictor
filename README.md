@@ -167,6 +167,7 @@ See [docs/duration-data-import.md](docs/duration-data-import.md) for full docume
 | `AWS_REGION` | `us-east-1` | DynamoDB region |
 | `REFRESH_INTERVAL_SECONDS` | `30` | Live refresh interval |
 | `MIN_LEARNED_SAMPLES` | `3` | Observations required before a learned average is used |
+| `VENUE_TZ` | `America/Toronto` | IANA timezone of the venue; schedule times are venue-local |
 
 ## Deployment
 

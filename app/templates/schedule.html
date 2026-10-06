@@ -85,8 +85,10 @@
         }
       });
 
-      document.getElementById('last-updated').textContent =
-        new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      var generatedAt = document.getElementById('schedule-generated-at');
+      if (generatedAt) {
+        document.getElementById('last-updated').textContent = generatedAt.dataset.generatedAt;
+      }
     });
   })();
 </script>

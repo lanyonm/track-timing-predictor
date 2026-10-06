@@ -36,6 +36,7 @@ No linter, formatter or type checker is configured.
 | `AWS_REGION` | `us-east-1` | DynamoDB region |
 | `REFRESH_INTERVAL_SECONDS` | `30` | HTMX polling interval passed to templates |
 | `MIN_LEARNED_SAMPLES` | `3` | Samples required before a learned average is used |
+| `VENUE_TZ` | `America/Toronto` | IANA timezone for "now"; validated at startup |
 
 ## Taxonomy
 
@@ -101,7 +102,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 
-**Live delay** (`predictor._compute_delay`): applied only while a session has both completed and pending events. It is clamped to [−30, +120] min and returns 0 once `actual_elapsed > total_est + 60 min`, so post-event views show scheduled times. "Now" is the server's naive local clock, which is UTC on Lambda.
+**Live delay** (`predictor._compute_delay`): applied only while a session has both completed and pending events. It is clamped to [−30, +120] min and returns 0 once `actual_elapsed > total_est + 60 min`, so post-event views show scheduled times. "Now" comes from `clock.venue_now()`: the current time in `VENUE_TZ`, made naive to match the schedule. Upstream exposes no timezone, so one setting covers every competition. Both schedule routes use it, and the "Last updated" label shows it (the refresh partial carries it in `#schedule-generated-at`).
 
 **Learning** (`database.py`; DynamoDB when `DYNAMODB_TABLE` is set, otherwise SQLite):
 - *Live app writes* go through `record_duration()`, from result-page observations and the UPCOMING→COMPLETED wall-clock fallback (capped at 3× static default). These writes are not idempotent.

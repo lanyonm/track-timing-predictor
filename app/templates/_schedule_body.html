@@ -1,3 +1,6 @@
+{# Read by schedule.html after each HTMX swap to update "Last updated" (venue-local) #}
+<span id="schedule-generated-at" data-generated-at="{{ now.strftime('%H:%M:%S') }}" hidden></span>
+
 {# Reusable alert class sets #}
 {% set alert_info = "alert border border-info/20 bg-info/5 text-sm py-2" %}
 {% set alert_warn = "alert border border-warning/20 bg-warning/5 text-sm py-2" %}
