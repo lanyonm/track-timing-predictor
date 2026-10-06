@@ -347,8 +347,12 @@ def predict_session(
             break
 
     # Only compute delay when the session is actively in progress:
-    # some events are done and at least one event is still pending.
-    has_pending = any(e.status != EventStatus.COMPLETED for e in session.events)
+    # some events are done and at least one race is still pending. Special
+    # events don't count, so a finished session whose End of Session row is
+    # still NOT_READY isn't treated as live (matches SessionPrediction.is_complete).
+    has_pending = any(
+        e.status != EventStatus.COMPLETED for e in session.events if not e.is_special
+    )
     delay_minutes = 0.0
     if now is not None and completed_count > 0 and has_pending:
         delay_minutes = _compute_delay(session, durations, completed_count, now)

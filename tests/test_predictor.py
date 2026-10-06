@@ -891,3 +891,24 @@ class TestLatestLiveGeneratedTime:
 
     def test_unstarted_session_ignored(self):
         assert latest_live_generated_time(self.COMP, [self._session(3, [self.U, self.U])]) is None
+
+
+class TestFinishedSessionWithPendingSpecial:
+    """A session whose races are all done is finished, even if End of Session is still NOT_READY."""
+
+    def _session(self) -> Session:
+        events = [_make_event(i, EventStatus.COMPLETED) for i in range(3)]
+        events.append(Event(
+            position=3, name="End of Session", discipline="end_of_session",
+            status=EventStatus.NOT_READY, is_special=True,
+        ))
+        return Session(session_id=1, day="Monday", scheduled_start=time(10, 0), events=events)
+
+    def test_no_delay(self):
+        # 50 min after the scheduled start: inside the delay window if the session counted as live.
+        sp = predict_session(7002, self._session(), now=datetime(2026, 10, 6, 10, 50))
+        assert sp.observed_delay_minutes == 0.0
+
+    def test_no_active_event(self):
+        sp = predict_session(7002, self._session(), now=datetime(2026, 10, 6, 13, 47))
+        assert not any(p.is_active for p in sp.event_predictions)
