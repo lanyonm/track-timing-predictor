@@ -35,6 +35,7 @@ from app.models import (
     UncategorizedEntry,
 )
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_schedule
+from app.predictor import generated_gap_duration
 
 logger = logging.getLogger(__name__)
 
@@ -66,19 +67,10 @@ def extract_generated_diff_duration(
     Applies a [0.5x, 2.0x] plausibility filter against the static default.
     Returns duration in minutes, or None if implausible or timestamps missing.
     """
-    if prev_generated is None or curr_generated is None:
-        return None
-    diff = (curr_generated - prev_generated).total_seconds() / 60.0
-    if diff <= 0:
-        return None
-    default = get_default_duration(discipline)
-    if not (0.5 * default <= diff <= 2.0 * default):
-        logger.info(
-            "Generated diff %.1f min for %s outside [%.1f, %.1f] plausibility range — skipping",
-            diff, discipline, 0.5 * default, 2.0 * default,
-        )
-        return None
-    return diff
+    dur = generated_gap_duration(prev_generated, curr_generated, get_default_duration(discipline))
+    if dur is None and prev_generated is not None and curr_generated is not None:
+        logger.info("Generated diff for %s outside plausibility range — skipping", discipline)
+    return dur
 
 
 def extract_heat_count_duration(start_list_html: str, discipline: str) -> tuple[float | None, int | None]:

@@ -202,6 +202,26 @@ def get_observed_duration(competition_id: int, session_id: int, position: int) -
     return _observed_durations.get((competition_id, session_id, position))
 
 
+def generated_gap_duration(
+    prev_generated: datetime | None,
+    curr_generated: datetime | None,
+    expected: float,
+) -> float | None:
+    """Duration of an event from its own and the previous event's Generated timestamps.
+
+    Generated marks when an event's results were published (roughly its end), so the
+    gap between consecutive timestamps belongs to the later event. Returns None when a
+    timestamp is missing or the gap is outside [0.5x, 2.0x] of ``expected``. Shared by
+    the live predictor and ``tools.extract_competition``.
+    """
+    if prev_generated is None or curr_generated is None:
+        return None
+    mins = (curr_generated - prev_generated).total_seconds() / 60.0
+    if mins <= 0 or not (0.5 * expected <= mins <= 2.0 * expected):
+        return None
+    return mins
+
+
 def _get_duration(discipline: str, use_learned: bool = False) -> float:
     """Return learned duration if available and enabled, otherwise use the default."""
     if use_learned:
@@ -288,8 +308,8 @@ def predict_session(
     heat_count_list: list[int | None] = []
 
     # Pre-compute generated-time derived durations.
-    # Duration of event[i] = generated_time[i+1] - generated_time[i], when both
-    # neighbours have a cached Generated timestamp and the gap is plausible.
+    # Duration of event[i] = generated_time[i] - generated_time[i-1], when both
+    # have a cached Generated timestamp and the gap is plausible.
     #
     # Plausibility is validated relative to the expected slot duration.  At track
     # cycling championships, result pages for events that share a session block
@@ -299,23 +319,21 @@ def predict_session(
     # within [0.5×, 2.0×] the discipline's expected duration is considered reliable.
     events = session.events
     gen_durations: dict[int, float] = {}
-    for i in range(len(events) - 1):
-        t0 = _generated_times.get((competition_id, session.session_id, events[i].position))
-        t1 = _generated_times.get((competition_id, session.session_id, events[i + 1].position))
-        if t0 is not None and t1 is not None:
-            mins = (t1 - t0).total_seconds() / 60.0
-            # Expected duration: use heat-count estimate if available, else the
-            # STATIC default (not learned averages).  Learned data may itself be
-            # corrupted by bad gen-duration observations from earlier runs, so it
-            # must not influence the bounds used to validate new observations.
-            key_i = (competition_id, session.session_id, events[i].position)
-            hc_i = _heat_counts.get(key_i)
-            if hc_i is not None:
-                expected = hc_i * get_per_heat_duration(events[i].discipline) + get_changeover(events[i].discipline)
-            else:
-                expected = get_default_duration(events[i].discipline)
-            if 0.5 * expected <= mins <= 2.0 * expected:
-                gen_durations[i] = mins
+    for i in range(1, len(events)):
+        t0 = _generated_times.get((competition_id, session.session_id, events[i - 1].position))
+        t1 = _generated_times.get((competition_id, session.session_id, events[i].position))
+        # Expected duration: use heat-count estimate if available, else the
+        # STATIC default (not learned averages).  Learned data may itself be
+        # corrupted by bad gen-duration observations from earlier runs, so it
+        # must not influence the bounds used to validate new observations.
+        hc_i = _heat_counts.get((competition_id, session.session_id, events[i].position))
+        if hc_i is not None:
+            expected = hc_i * get_per_heat_duration(events[i].discipline) + get_changeover(events[i].discipline)
+        else:
+            expected = get_default_duration(events[i].discipline)
+        mins = generated_gap_duration(t0, t1, expected)
+        if mins is not None:
+            gen_durations[i] = mins
 
     for i, e in enumerate(events):
         observed = get_observed_duration(competition_id, session.session_id, e.position)

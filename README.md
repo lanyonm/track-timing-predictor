@@ -130,7 +130,7 @@ specs/               # Feature specs (speckit), historical
 Each event's slot duration is determined by the first available source:
 
 1. **Observed** — once results are posted, the race's `Finish Time` (actual race duration) plus a discipline-specific changeover allowance is used. Shown as **obs.** in the UI.
-2. **Generated timestamps** — for completed events without a Finish Time, the gap between consecutive result pages' `Generated` timestamps (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
+2. **Generated timestamps** — for completed events without a Finish Time, the gap between its result page's `Generated` timestamp and the previous event's (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
 3. **Heat count** — on page load, start list pages are fetched concurrently for every event. The number of heats × a per-heat duration constant gives the slot estimate. Shown as **N heats** in the UI.
 4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
 

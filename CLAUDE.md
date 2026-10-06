@@ -97,7 +97,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 **Duration source priority** (`predictor.predict_session`):
 1. Observed: result-page Finish Time + changeover (bunch races).
-2. Generated: difference between consecutive result-page Generated timestamps, kept if within 0.5×–2.0× of expected.
+2. Generated: difference between an event's result-page Generated timestamp and the previous event's, kept if within 0.5×–2.0× of that event's expected duration. Generated marks an event's end, so the gap belongs to the later event. `predictor.generated_gap_duration` does this for both the app and `tools.extract_competition`.
 3. Heat count: `heat_count × per_heat_duration + changeover`.
 4. Fallback: if the `use_learned` cookie is on, the discipline-level learned average (`get_learned_duration`, ≥ `MIN_LEARNED_SAMPLES`); otherwise `DEFAULT_DURATIONS`.
 
