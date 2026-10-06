@@ -37,6 +37,7 @@ No linter, formatter or type checker is configured.
 | `REFRESH_INTERVAL_SECONDS` | `30` | HTMX polling interval passed to templates |
 | `MIN_LEARNED_SAMPLES` | `3` | Samples required before a learned average is used |
 | `VENUE_TZ` | `America/Toronto` | Fallback IANA timezone for "now" when no live session has results; validated at startup |
+| `PUBLIC_BASE_URL` | `""` | Origin for the palmares share link; prod CDK sets `https://ttp.lanyonm.org`, empty uses the request host |
 
 ## Taxonomy
 

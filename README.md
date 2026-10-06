@@ -168,6 +168,7 @@ See [docs/duration-data-import.md](docs/duration-data-import.md) for full docume
 | `REFRESH_INTERVAL_SECONDS` | `30` | Live refresh interval |
 | `MIN_LEARNED_SAMPLES` | `3` | Observations required before a learned average is used |
 | `VENUE_TZ` | `America/Toronto` | Fallback venue timezone; during a live session the offset is inferred from result-page timestamps |
+| `PUBLIC_BASE_URL` | *(empty)* | Origin for the palmares share link; empty uses the request host |
 
 ## Deployment
 

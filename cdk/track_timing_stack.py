@@ -91,6 +91,8 @@ class TrackTimingStack(Stack):
             environment={
                 "DYNAMODB_TABLE": f"track-timing-{env_name}",
                 "PALMARES_TABLE": f"track-timing-palmares-{env_name}",
+                # PR envs serve from their public Function URL, so share links use the request host
+                **({"PUBLIC_BASE_URL": "https://ttp.lanyonm.org"} if is_prod else {}),
             },
             log_group=log_group,
         )

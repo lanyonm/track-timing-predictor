@@ -523,7 +523,10 @@ async def palmares_page(
     if racer_name:
         racer_encoded = _encode_racer_name(racer_name)
         competitions = get_palmares(racer_name)
-        share_url = f"{request.url.scheme}://{request.url.netloc}/palmares?r={racer_encoded}"
+        # Behind CloudFront the request host is the IAM-protected Function URL,
+        # so prod sets PUBLIC_BASE_URL to the public domain.
+        base = settings.public_base_url.rstrip("/") or f"{request.url.scheme}://{request.url.netloc}"
+        share_url = f"{base}/palmares?r={racer_encoded}"
     else:
         racer_encoded = None
         competitions = []
