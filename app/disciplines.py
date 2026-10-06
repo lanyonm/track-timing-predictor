@@ -1,4 +1,5 @@
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,25 @@ def detect_discipline(event_name: str) -> str:
             return key
     logger.warning("Unrecognized discipline, falling back to default duration", extra={"event_name": event_name})
     return "unknown"
+
+
+# Individual pursuit page URLs encode the distance ridden, e.g. W4044-IP-3000-Q-0-R.htm.
+# Team pursuit uses -TP-, so it never matches.
+_PURSUIT_URL_DISTANCE = re.compile(r"-IP-(2000|3000|4000)-")
+_PURSUIT_BY_METRES = {"2000": "pursuit_2k", "3000": "pursuit_3k", "4000": "pursuit_4k"}
+
+
+def pursuit_discipline_from_urls(*urls: str | None) -> str | None:
+    """Return the pursuit distance key from the first event URL that encodes one.
+
+    Event names often omit the distance (e.g. masters "40-44 Women Pursuit"), and
+    the name-based keywords guess wrong for many categories, so the URL wins
+    whenever the event has any link.
+    """
+    for url in urls:
+        if url and (m := _PURSUIT_URL_DISTANCE.search(url)):
+            return _PURSUIT_BY_METRES[m.group(1)]
+    return None
 
 
 def get_default_duration(discipline: str) -> float:

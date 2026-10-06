@@ -172,6 +172,21 @@ class TestExtractCompetitionIntegration:
                 assert event.category.discipline != ""
 
     @pytest.mark.asyncio
+    async def test_pursuit_distance_from_url(self, schedule_data, tp_result_html):
+        """26009 names are French and omit the distance; the URL's -IP-<metres>- decides."""
+        with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
+             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
+            mock_fetch.return_value = schedule_data
+            mock_page.return_value = tp_result_html
+
+            report, _ = await extract_competition(26009)
+
+        by_name = {e.name: e.category.discipline for s in report.sessions for e in s.events}
+        assert by_name["Senior H Poursuite Final   / Omni I"] == "pursuit_4k"   # ME-IP-4000
+        assert by_name["Junior F Poursuite Final   / Omni I"] == "pursuit_3k"   # WJ-IP-3000
+        assert by_name["U17 H Poursuite Final   / Omni II"] == "pursuit_2k"     # M1516-IP-2000
+
+    @pytest.mark.asyncio
     async def test_incomplete_events_excluded_from_observations(self, schedule_data, tp_result_html):
         """Incomplete events should not appear in duration_observations."""
         with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \

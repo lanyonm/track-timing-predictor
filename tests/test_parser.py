@@ -569,3 +569,46 @@ class TestParseStartListRiders:
         assert all(r.heat == 1 for r in riders)
         assert riders[0].name == "SMITH James"
         assert riders[2].name == "BROWN Michael"
+
+
+class TestPursuitDistanceFromUrl:
+    """Upstream URLs carry the ridden distance (e.g. W4044-IP-3000-Q-0-R.htm); names often don't."""
+
+    def test_reads_distance(self):
+        from app.disciplines import pursuit_discipline_from_urls
+        assert pursuit_discipline_from_urls("results/E26037/W4044-IP-3000-Q-0-R.htm") == "pursuit_3k"
+        assert pursuit_discipline_from_urls(None, "results/E26037/M5054-IP-2000-Q-0-S.htm") == "pursuit_2k"
+        assert pursuit_discipline_from_urls("results/E26008/ME-IP-4000-F-0-AUDIT-R.htm") == "pursuit_4k"
+
+    def test_no_distance(self):
+        from app.disciplines import pursuit_discipline_from_urls
+        assert pursuit_discipline_from_urls(None, None) is None
+        assert pursuit_discipline_from_urls("results/E26037/M65-TP-4000-Q-0-R.htm") is None
+
+    @pytest.fixture(scope="class")
+    def by_name(self):
+        def load(fixture):
+            sessions = parse_schedule(json.loads((_FIXTURES / fixture).read_text()))
+            return {(s.day, e.name): e.discipline for s in sessions for e in s.events}
+        return load
+
+    def test_26037_masters_worlds(self, by_name):
+        d = by_name("schedule-26037-live.json")
+        tuesday = "Oct 6 - Tuesday Morning Session"
+        assert d[(tuesday, "40-44 Women Pursuit Qualifying")] == "pursuit_3k"   # was pursuit_2k
+        assert d[(tuesday, "50-54 Women Pursuit Qualifying")] == "pursuit_2k"   # start list URL only
+        assert d[("Oct 5 - Monday Morning Session", "50-54 Men Pursuit Qualifying")] == "pursuit_2k"  # was 3k
+        assert d[("Oct 5 - Monday Morning Session", "45-49 Men Pursuit Qualifying")] == "pursuit_3k"
+        # Team pursuit URLs also say 4000; they must not be reclassified.
+        assert d[(tuesday, "65-74 Men Team Pursuit Qualifying")] == "team_pursuit"
+
+    def test_name_fallback_without_urls(self, by_name):
+        d = by_name("schedule-26037-live.json")
+        assert d[("Oct 7 - Wednesday Morning Session", "35-39 Men Pursuit Qualifying")] == "pursuit_3k"
+
+    def test_26008_and_26009(self, by_name):
+        d = {name: disc for (_, name), disc in by_name("sample-event-output.json").items()}
+        assert d["Junior Women Pursuit Final"] == "pursuit_3k"   # was pursuit_2k
+        assert d["U17 Men Pursuit Final"] == "pursuit_2k"        # was pursuit_3k
+        d = {name: disc for (_, name), disc in by_name("schedule-26009.json").items()}
+        assert d["Senior H Poursuite Final   / Omni I"] == "pursuit_4k"  # was pursuit_3k

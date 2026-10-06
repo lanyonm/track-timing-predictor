@@ -23,7 +23,7 @@ import httpx
 
 from app.categorizer import categorize_event
 from app.config import settings
-from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
+from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration, pursuit_discipline_from_urls
 from app.fetcher import fetch_initial_layout, fetch_page_html
 from app.models import (
     CompetitionMeta,
@@ -194,6 +194,12 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
             # Second pass: extract durations and build event reports
             for event in session.events:
                 category, residual = categorize_event(event.name)
+                if category.discipline.startswith("pursuit_"):
+                    url_discipline = pursuit_discipline_from_urls(
+                        event.result_url, event.start_list_url, event.audit_url, event.live_url,
+                    )
+                    if url_discipline:
+                        category = category.model_copy(update={"discipline": url_discipline})
 
                 finish_time_dur = None
                 generated_diff_dur = None
