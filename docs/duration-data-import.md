@@ -121,7 +121,7 @@ The loader reads JSON report files and writes duration observations into the app
 
 ### First Run: Database Migration
 
-On first run against an existing database, the loader adds new columns and a unique index. If the database contains duplicate rows for the same `(competition_id, session_id, event_position)` — which can happen from the live app's wall-clock learning — the loader will prompt:
+On first run against an existing database, the loader adds new columns and a unique index. If the database contains duplicate rows for the same `(competition_id, session_id, event_position)` — which the live app's writes could produce before they were made idempotent — the loader will prompt:
 
 ```
 The database at timings.db has 42 duplicate rows that conflict with the new unique index.

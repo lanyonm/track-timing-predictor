@@ -721,7 +721,7 @@ class TestGeneratedTimeDuration:
         from app.predictor import record_observed_duration
         self._setup()
         # Record an observed duration of 9.0 min for pos 10 (overrides 12-min generated)
-        record_observed_duration(self.EVENT_ID, 55, 10, 7.0, "scratch_race")
+        record_observed_duration(self.EVENT_ID, 55, 10, 7.0, "scratch_race", "E10")
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
         # scratch_race changeover = 2.0 → slot = 7.0 + 2.0 = 9.0

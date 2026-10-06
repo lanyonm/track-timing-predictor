@@ -51,53 +51,94 @@ def _make_client_error(code="InternalServerError"):
     )
 
 
-class TestDynamoRecordDuration:
-    def test_atomic_accumulation(self, dynamo_table):
-        """Two calls should accumulate total_minutes and count via ADD."""
-        database._dynamo_record_duration("scratch_race", 12.5)
-        database._dynamo_record_duration("scratch_race", 14.0)
+def _seed(discipline: str, durations: list[float]) -> None:
+    """Record one live observation per duration, each for a distinct event."""
+    for pos, dur in enumerate(durations):
+        database.record_live_duration(1, 1, pos, discipline, discipline, dur, "observed")
 
-        item = dynamo_table.get_item(Key={"pk": "AGGREGATE#scratch_race"})["Item"]
-        assert item["total_minutes"] == Decimal("26.5")
-        assert item["count"] == 2
+
+def _aggregate(table, discipline: str) -> tuple[Decimal, int]:
+    item = table.get_item(Key={"pk": f"AGGREGATE#{discipline}"})["Item"]
+    return item["total_minutes"], int(item["count"])
+
+
+class TestDynamoRecordLiveDuration:
+    def test_distinct_events_accumulate(self, dynamo_table):
+        _seed("scratch_race", [12.5, 14.0])
+        assert _aggregate(dynamo_table, "scratch_race") == (Decimal("26.5"), 2)
+
+    def test_repeat_write_is_idempotent(self, dynamo_table):
+        """Cold starts and concurrent containers re-record the same event."""
+        for _ in range(3):
+            database.record_live_duration(1, 1, 1, "Scratch", "scratch_race", 12.0, "observed")
+        assert _aggregate(dynamo_table, "scratch_race") == (Decimal("12.0"), 1)
+
+    def test_observed_replaces_wall_clock(self, dynamo_table):
+        database.record_live_duration(1, 1, 1, "Scratch", "scratch_race", 20.0, "wall_clock")
+        assert database.record_live_duration(1, 1, 1, "Scratch", "scratch_race", 12.0, "observed") == "updated"
+        assert _aggregate(dynamo_table, "scratch_race") == (Decimal("12.0"), 1)
+        obs = dynamo_table.get_item(Key={"pk": "OBS#1#1#1"})["Item"]
+        assert obs["source"] == "observed"
+
+    def test_wall_clock_does_not_replace_observed(self, dynamo_table):
+        database.record_live_duration(1, 1, 1, "Scratch", "scratch_race", 12.0, "observed")
+        assert database.record_live_duration(1, 1, 1, "Scratch", "scratch_race", 20.0, "wall_clock") == "unchanged"
+        assert _aggregate(dynamo_table, "scratch_race") == (Decimal("12.0"), 1)
+
+    def test_does_not_replace_loader_observation(self, dynamo_table):
+        database.record_duration_structured(1, 1, 1, "Elite Men Scratch", "scratch_race", 15.0, "elite", "men")
+        assert database.record_live_duration(1, 1, 1, "Scratch", "scratch_race", 12.0, "observed") == "unchanged"
+        assert _aggregate(dynamo_table, "scratch_race") == (Decimal("15.0"), 1)
 
     def test_botocore_error_is_logged_not_raised(self, dynamo_table, caplog):
-        """BotoCoreError should be swallowed and logged."""
-        with patch.object(
-            database, "_dynamo_table", side_effect=BotoCoreError()
-        ):
+        with patch.object(database, "_dynamo_table", side_effect=BotoCoreError()):
             with caplog.at_level(logging.ERROR, logger="app.database"):
-                database._dynamo_record_duration("scratch_race", 10.0)
-            assert "DynamoDB error recording duration" in caplog.text
+                assert database.record_live_duration(1, 1, 1, "S", "scratch_race", 10.0, "observed") == "error"
+            assert "DynamoDB error recording live duration" in caplog.text
 
     def test_client_error_is_logged_not_raised(self, dynamo_table, caplog):
-        """ClientError (e.g. throttling) should be swallowed and logged."""
-        with patch.object(
-            database, "_dynamo_table", side_effect=_make_client_error()
-        ):
+        with patch.object(database, "_dynamo_table", side_effect=_make_client_error()):
             with caplog.at_level(logging.ERROR, logger="app.database"):
-                database._dynamo_record_duration("scratch_race", 10.0)
-            assert "DynamoDB error recording duration" in caplog.text
+                assert database.record_live_duration(1, 1, 1, "S", "scratch_race", 10.0, "observed") == "error"
+            assert "DynamoDB error recording live duration" in caplog.text
+
+
+class TestDynamoStructuredConcurrentCreate:
+    """Two writers race to create the same OBS#: the loser rolls back its aggregate increments."""
+
+    def test_conditional_check_failure_rolls_back(self, dynamo_table):
+        class LosesRace:
+            def __getattr__(self, name):
+                return getattr(dynamo_table, name)
+
+            def put_item(self, **kwargs):
+                raise ClientError(
+                    {"Error": {"Code": "ConditionalCheckFailedException", "Message": "exists"}}, "PutItem",
+                )
+
+        with patch.object(database, "_dynamo_table", return_value=LosesRace()):
+            outcome = database.record_duration_structured(1, 1, 1, "Elite Men Scratch", "scratch_race", 15.0, "elite", "men")
+        assert outcome == "unchanged"
+        for key in database._build_aggregate_keys("scratch_race", "elite", "men"):
+            item = dynamo_table.get_item(Key={"pk": key})["Item"]
+            assert (item["total_minutes"], int(item["count"])) == (Decimal("0"), 0)
 
 
 class TestDynamoGetLearnedDuration:
     def test_returns_none_below_threshold(self, dynamo_table):
         """Should return None when sample count < min_learned_samples."""
-        database._dynamo_record_duration("keirin", 8.0)
-        database._dynamo_record_duration("keirin", 10.0)
+        _seed("keirin", [8.0, 10.0])
         assert database._dynamo_get_learned_duration("keirin") is None
 
     def test_returns_average_at_threshold(self, dynamo_table):
         """Should return the average once we reach min_learned_samples."""
-        for dur in [8.0, 10.0, 12.0]:
-            database._dynamo_record_duration("keirin", dur)
+        _seed("keirin", [8.0, 10.0, 12.0])
         avg = database._dynamo_get_learned_duration("keirin")
         assert avg == pytest.approx(10.0)
 
     def test_override_takes_priority(self, dynamo_table):
         """A manual override should be returned regardless of aggregate data."""
-        for dur in [8.0, 10.0, 12.0]:
-            database._dynamo_record_duration("keirin", dur)
+        _seed("keirin", [8.0, 10.0, 12.0])
         dynamo_table.put_item(
             Item={"pk": "OVERRIDE#keirin", "duration_minutes": Decimal("7.5")}
         )
@@ -137,10 +178,9 @@ class TestDynamoGetLearnedDuration:
 class TestDynamoGetAllLearnedDurations:
     def test_scan_multiple_disciplines(self, dynamo_table):
         """Should return all aggregated disciplines."""
-        for dur in [10.0, 12.0, 14.0]:
-            database._dynamo_record_duration("sprint", dur)
-        for dur in [20.0, 22.0]:
-            database._dynamo_record_duration("points_race", dur)
+        _seed("sprint", [10.0, 12.0, 14.0])
+        for pos, dur in enumerate([20.0, 22.0]):
+            database.record_live_duration(1, 2, pos, "Points", "points_race", dur, "observed")
 
         result = database._dynamo_get_all_learned_durations()
         assert "sprint" in result
@@ -150,7 +190,7 @@ class TestDynamoGetAllLearnedDurations:
 
     def test_excludes_override_items(self, dynamo_table):
         """OVERRIDE items should not appear in scan results."""
-        database._dynamo_record_duration("sprint", 10.0)
+        _seed("sprint", [10.0])
         dynamo_table.put_item(
             Item={"pk": "OVERRIDE#sprint", "duration_minutes": Decimal("5.0")}
         )
@@ -186,41 +226,13 @@ class TestGetAllLearnedDurationsErrorHandling:
 class TestBackendDispatch:
     def test_dispatches_to_dynamo_when_configured(self, dynamo_table):
         """Public API should dispatch to DynamoDB and return the correct average."""
-        database.record_duration(
-            competition_id=1,
-            session_id=1,
-            event_position=1,
-            event_name="Scratch Race",
-            discipline="scratch_race",
-            duration_minutes=12.0,
-        )
-        database.record_duration(
-            competition_id=1,
-            session_id=1,
-            event_position=1,
-            event_name="Scratch Race",
-            discipline="scratch_race",
-            duration_minutes=14.0,
-        )
-        database.record_duration(
-            competition_id=1,
-            session_id=1,
-            event_position=1,
-            event_name="Scratch Race",
-            discipline="scratch_race",
-            duration_minutes=16.0,
-        )
-
-        avg = database.get_learned_duration("scratch_race")
-        assert avg == pytest.approx(14.0)
+        _seed("scratch_race", [12.0, 14.0, 16.0])
+        assert database.get_learned_duration("scratch_race") == pytest.approx(14.0)
 
     def test_get_all_dispatches_to_dynamo(self, dynamo_table):
         """get_all_learned_durations should dispatch to DynamoDB when configured."""
-        for dur in [10.0, 12.0, 14.0]:
-            database.record_duration(1, 1, 1, "Sprint", "sprint", dur)
-        result = database.get_all_learned_durations()
-        assert "sprint" in result
-        assert result["sprint"] == pytest.approx((12.0, 3))
+        _seed("sprint", [10.0, 12.0, 14.0])
+        assert database.get_all_learned_durations()["sprint"] == pytest.approx((12.0, 3))
 
     def test_dispatches_to_sqlite_when_not_configured(self, monkeypatch, tmp_path):
         """When dynamodb_table is empty, should use SQLite."""
@@ -229,6 +241,6 @@ class TestBackendDispatch:
         monkeypatch.setattr(settings, "db_path", db_path)
         database.init_db()
 
-        database.record_duration(1, 1, 1, "Sprint", "sprint", 5.0)
+        database.record_live_duration(1, 1, 1, "Sprint", "sprint", 5.0, "observed")
         # Only 1 sample, below threshold
         assert database.get_learned_duration("sprint") is None

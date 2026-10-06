@@ -180,7 +180,7 @@ async def _fetch_result_pages(
     the day, even when the app is loaded mid-event.
     """
     to_fetch = [
-        (competition_id, s.session_id, e.position, e.result_url, e.discipline)
+        (competition_id, s.session_id, e.position, e.result_url, e.discipline, e.name)
         for s in sessions
         for e in s.events
         if e.result_url and get_generated_time(competition_id, s.session_id, e.position) is None
@@ -190,7 +190,7 @@ async def _fetch_result_pages(
 
     sem = asyncio.Semaphore(10)
 
-    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str) -> None:
+    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str, name: str) -> None:
         async with sem:
             try:
                 html = await fetch_page_html(client, url)
@@ -203,7 +203,7 @@ async def _fetch_result_pages(
                     record_generated_time(ev_id, sess_id, pos, gen_time)
                 finish_time = parse_finish_time(html)
                 if finish_time is not None:
-                    record_observed_duration(ev_id, sess_id, pos, finish_time, discipline)
+                    record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name)
             except Exception:
                 logger.warning("Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
 

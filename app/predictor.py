@@ -1,6 +1,6 @@
 from datetime import datetime, time, timedelta
 
-from app.database import get_learned_duration, record_duration
+from app.database import get_learned_duration, record_live_duration
 from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
 from app.models import (
     Event,
@@ -55,6 +55,7 @@ def record_observed_duration(
     position: int,
     finish_time_minutes: float,
     discipline: str,
+    event_name: str,
 ) -> None:
     """
     Store an observed slot duration derived from a result-page Finish Time.
@@ -63,13 +64,14 @@ def record_observed_duration(
     """
     slot = finish_time_minutes + get_changeover(discipline)
     _observed_durations[(competition_id, session_id, position)] = slot
-    record_duration(
+    record_live_duration(
         competition_id=competition_id,
         session_id=session_id,
         event_position=position,
-        event_name=discipline,
+        event_name=event_name,
         discipline=discipline,
         duration_minutes=slot,
+        source="observed",
     )
 
 
@@ -577,13 +579,14 @@ def update_status_cache(
                 elapsed = (now - cached["seen_at"]).total_seconds() / 60.0
                 max_elapsed = 3.0 * get_default_duration(event.discipline)
                 if 0.5 <= elapsed <= max_elapsed:
-                    record_duration(
+                    record_live_duration(
                         competition_id=competition_id,
                         session_id=session.session_id,
                         event_position=event.position,
                         event_name=event.name,
                         discipline=event.discipline,
                         duration_minutes=elapsed,
+                        source="wall_clock",
                     )
                 _status_cache[key] = {"status": event.status, "seen_at": now}
 
