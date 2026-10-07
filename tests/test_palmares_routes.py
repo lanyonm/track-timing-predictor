@@ -2,6 +2,7 @@
 import base64
 import json
 from unittest.mock import AsyncMock, patch
+from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -190,6 +191,29 @@ class TestPalmaresPage:
         assert "racer_name" in response.headers.get("set-cookie", "")
 
     @pytest.mark.asyncio
+    async def test_non_latin1_name_form_submission_sets_cookie(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL,
+            follow_redirects=False,
+        ) as client:
+            response = await client.get("/palmares", params={"name": "Łukasz Ćwik"})
+        assert response.status_code == 303
+        assert response.headers["location"] == f"/palmares?r={_encode('Łukasz Ćwik')}"
+        assert response.headers["set-cookie"].startswith("racer_name=b64.")
+
+    @pytest.mark.asyncio
+    async def test_encoded_cookie_identifies_owner(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL,
+            follow_redirects=False,
+        ) as client:
+            set_resp = await client.get("/palmares", params={"name": "山田太郎"})
+            client.cookies.set("racer_name", set_resp.headers["set-cookie"].split(";")[0].split("=", 1)[1])
+            response = await client.get("/palmares")
+        assert response.status_code == 200
+        assert "山田太郎" in response.text
+
+    @pytest.mark.asyncio
     async def test_mobile_viewport_meta(self):
         async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
             response = await client.get("/palmares")
@@ -375,6 +399,65 @@ class TestCSVExport:
                 f"/palmares/export?audit_url=../../../etc/passwd&r={encoded}",
             )
         assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("audit_url", [
+        "results/%2e%2e/%2e%2e/etc/passwd",
+        "results/..%2f..%2fadmin",
+        "results/../secret",
+        "/results/E26008/test-AUDIT-R.htm",
+    ])
+    async def test_export_rejects_traversal_after_normalising(self, audit_url):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+            response = await client.get(
+                "/palmares/export", params={"audit_url": audit_url, "r": _encode("test")},
+            )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_export_rejects_oversized_audit_page(self):
+        mock_response = AsyncMock()
+        mock_response.text = "x" * 2_000_001
+        mock_response.raise_for_status = lambda: None
+        with patch.object(app.state.http_client, "get", return_value=mock_response):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    "/palmares/export",
+                    params={"audit_url": "results/E26008/test-AUDIT-R.htm", "r": _encode("test")},
+                )
+        assert response.status_code == 502
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", ["Łukasz Ćwik", "Jiří Dvořák", "山田太郎"])
+    async def test_export_non_latin1_name_in_filename(self, name):
+        mock_response = AsyncMock()
+        mock_response.text = "<html></html>"
+        mock_response.raise_for_status = lambda: None
+        with patch.object(app.state.http_client, "get", return_value=mock_response):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    "/palmares/export",
+                    params={"audit_url": "results/E26008/W1516-IP-2000-F-0-AUDIT-R.htm", "r": _encode(name)},
+                )
+        assert response.status_code == 200
+        disposition = response.headers["content-disposition"]
+        assert disposition.isascii()
+        assert f"filename*=UTF-8''{quote(f'W1516-IP-2000-F-0-{name}.csv', safe='')}" in disposition
+        assert 'filename="W1516-IP-2000-F-0-' in disposition
+
+    @pytest.mark.asyncio
+    async def test_export_non_latin1_team_name_in_filename(self):
+        mock_response = AsyncMock()
+        mock_response.text = "<html></html>"
+        mock_response.raise_for_status = lambda: None
+        with patch.object(app.state.http_client, "get", return_value=mock_response):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    "/palmares/export",
+                    params={"audit_url": "results/E26008/TP-AUDIT-R.htm", "r": _encode("test"), "team_name": "Škoda Łódź"},
+                )
+        assert response.status_code == 200
+        assert quote("TP-Škoda Łódź.csv", safe="") in response.headers["content-disposition"]
 
     @pytest.mark.asyncio
     async def test_export_audit_unavailable_returns_502(self):

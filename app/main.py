@@ -2,6 +2,7 @@ import asyncio
 import base64
 import binascii
 import logging
+import posixpath
 from contextlib import asynccontextmanager
 
 import httpx
@@ -10,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from mangum import Mangum
+from urllib.parse import quote, unquote
 from pythonjsonlogger.json import JsonFormatter
 
 from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
@@ -219,6 +221,34 @@ def _encode_racer_name(name: str) -> str:
     return base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
 
 
+# Cookie values are Base64 behind this prefix because Starlette encodes headers as
+# Latin-1 (padding is stripped so the value needs no quoting). Older cookies hold
+# the raw name and are still accepted.
+_COOKIE_PREFIX = "b64."
+
+
+def _set_racer_cookie(response: Response, name: str) -> None:
+    response.set_cookie(
+        key="racer_name", value=_COOKIE_PREFIX + _encode_racer_name(name).rstrip("="),
+        httponly=True, secure=True, samesite="lax", max_age=31536000,
+    )
+
+
+def _cookie_racer_name(request: Request) -> str | None:
+    """Return the racer name stored in the cookie, decoding the Base64 form."""
+    value = request.cookies.get("racer_name")
+    if not value:
+        return None
+    if value.startswith(_COOKIE_PREFIX):
+        try:
+            encoded = value[len(_COOKIE_PREFIX):]
+            return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8") or None
+        except (binascii.Error, UnicodeDecodeError):
+            logger.warning("Malformed racer_name cookie, ignoring it")
+            return None
+    return value
+
+
 def _resolve_racer_name(request: Request, r: str | None) -> str | None:
     """Resolve racer name from URL-safe Base64 param or cookie."""
     if r:
@@ -227,7 +257,13 @@ def _resolve_racer_name(request: Request, r: str | None) -> str | None:
         except (binascii.Error, UnicodeDecodeError):
             logger.warning("Malformed base64 racer name param: %r, falling back to cookie", r)
             # Fall through to cookie rather than returning None
-    return request.cookies.get("racer_name") or None
+    return _cookie_racer_name(request)
+
+
+def _content_disposition(filename: str) -> str:
+    """Attachment header with an ASCII fallback name and an RFC 5987 UTF-8 name."""
+    ascii_name = "".join(c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 @app.get("/health")
@@ -374,7 +410,7 @@ async def get_schedule(
     elif racer_name:
         source = "cookie"
     logger.info("racer_name_resolved", extra={
-        "source": source, "racer_name": racer_name,
+        "source": source,
         "competition_id": event_id, "match_count": schedule.match_count,
         "events_without_start_lists": schedule.events_without_start_lists,
         "total_events": schedule.total_events,
@@ -406,10 +442,7 @@ async def get_schedule(
 
     # FR-009: refresh cookie on every visit with a resolved name (rolling expiry)
     if racer_name:
-        response.set_cookie(
-            key="racer_name", value=racer_name,
-            httponly=True, secure=True, samesite="lax", max_age=31536000,
-        )
+        _set_racer_cookie(response, racer_name)
 
     return response
 
@@ -487,10 +520,7 @@ async def set_racer_name(event_id: int = Query(...), name: str = Query("")):
             url=f"/schedule/{event_id}?r={encoded}#schedule-container",
             status_code=303,
         )
-        response.set_cookie(
-            key="racer_name", value=name,
-            httponly=True, secure=True, samesite="lax", max_age=31536000,
-        )
+        _set_racer_cookie(response, name)
     else:
         response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
         response.delete_cookie(key="racer_name")
@@ -510,14 +540,11 @@ async def palmares_page(
         racer_name = name.strip()
         encoded = _encode_racer_name(racer_name)
         response = RedirectResponse(url=f"/palmares?r={encoded}", status_code=303)
-        response.set_cookie(
-            key="racer_name", value=racer_name,
-            httponly=True, secure=True, samesite="lax", max_age=31536000,
-        )
+        _set_racer_cookie(response, racer_name)
         return response
 
     racer_name = _resolve_racer_name(request, r)
-    cookie_name = request.cookies.get("racer_name")
+    cookie_name = _cookie_racer_name(request)
     is_owner = racer_name is not None and cookie_name == racer_name
 
     if racer_name:
@@ -542,6 +569,10 @@ async def palmares_page(
     })
 
 
+# Audit pages are ~25 KB; anything far larger isn't one.
+_MAX_AUDIT_CHARS = 2_000_000
+
+
 @app.get("/palmares/export")
 async def palmares_export(
     request: Request,
@@ -555,13 +586,16 @@ async def palmares_export(
     if not racer_name:
         raise HTTPException(status_code=400, detail="Racer identity required")
 
-    # SSRF protection
-    if "://" in audit_url or ".." in audit_url or not audit_url.startswith("results/"):
+    # SSRF protection: normalise percent-encoding and ".." before checking the prefix
+    audit_url = posixpath.normpath(unquote(audit_url))
+    if "://" in audit_url or not audit_url.startswith("results/"):
         raise HTTPException(status_code=400, detail="Invalid audit URL")
 
     try:
         resp = await client.get(audit_url)
         resp.raise_for_status()
+        if len(resp.text) > _MAX_AUDIT_CHARS:
+            raise ValueError(f"audit page too large ({len(resp.text)} chars)")
     except Exception:
         logger.warning("Failed to fetch audit page: %s", audit_url, exc_info=True)
         return JSONResponse(
@@ -576,13 +610,7 @@ async def palmares_export(
     event_name = audit_url.split("/")[-1].replace("-AUDIT-R.htm", "")
     csv_str = format_csv(filtered, event_name)
 
-    def _sanitize(s: str) -> str:
-        return s.replace('"', '_').replace('\n', '').replace('\r', '')
-    safe_event = _sanitize(event_name)
-    safe_name = _sanitize(filter_name)
-    headers = {
-        "Content-Disposition": f'attachment; filename="{safe_event}-{safe_name}.csv"',
-    }
+    headers = {"Content-Disposition": _content_disposition(f"{event_name}-{filter_name}.csv")}
     if not filtered:
         headers["X-Palmares-Notice"] = "no-matching-data"
 
@@ -595,7 +623,7 @@ async def palmares_remove(
     competition_id: int = Query(...),
 ):
     """Delete all palmares entries for a competition. Cookie-only auth."""
-    cookie_name = request.cookies.get("racer_name")
+    cookie_name = _cookie_racer_name(request)
     if not cookie_name:
         raise HTTPException(status_code=403, detail="Cookie-based identity required")
 
@@ -612,7 +640,7 @@ async def palmares_rename(
     name: str = Query(""),
 ):
     """Update competition name. Cookie-only auth."""
-    cookie_name = request.cookies.get("racer_name")
+    cookie_name = _cookie_racer_name(request)
     if not cookie_name:
         raise HTTPException(status_code=403, detail="Cookie-based identity required")
     if not name.strip():

@@ -21,6 +21,17 @@ from app.predictor import (
 from app.models import normalize_rider_name
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+
+# Outside Latin-1, which Starlette uses to encode response headers.
+NON_LATIN1_NAMES = ["Łukasz Ćwik", "Jiří Dvořák", "山田太郎"]
+
+
+def _cookie_name(set_cookie: str) -> str:
+    """Decode the racer name from a racer_name Set-Cookie header."""
+    value = set_cookie.split(";")[0].split("=", 1)[1]
+    assert value.startswith("b64.")
+    encoded = value[len("b64."):]
+    return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
 SAMPLE_EVENT_PATH = FIXTURE_DIR / "sample-event-output.json"
 START_LIST_PATH = FIXTURE_DIR / "start-list-sample.html"
 
@@ -96,7 +107,45 @@ class TestRacerNameRoutes:
         # The response should set a cookie updating racer_name to "Other Name"
         set_cookie = response.headers.get("set-cookie", "")
         assert "racer_name" in set_cookie
-        assert "Other Name" in set_cookie or "Other+Name" in set_cookie or "Other%20Name" in set_cookie
+        assert _cookie_name(set_cookie) == "Other Name"
+
+    @pytest.mark.parametrize("name", NON_LATIN1_NAMES)
+    def test_schedule_with_non_latin1_name(self, client, name):
+        encoded = base64.urlsafe_b64encode(name.encode()).decode("ascii")
+        response = client.get(f"/schedule/26008?r={encoded}")
+        assert response.status_code == 200
+        assert f'value="{name}"' in response.text
+        assert _cookie_name(response.headers["set-cookie"]) == name
+
+    @pytest.mark.parametrize("name", NON_LATIN1_NAMES)
+    def test_set_non_latin1_racer_name(self, client, name):
+        response = client.get(
+            "/settings/racer-name", params={"event_id": 26008, "name": name},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert _cookie_name(response.headers["set-cookie"]) == name
+
+    @pytest.mark.parametrize("name", NON_LATIN1_NAMES)
+    def test_encoded_cookie_round_trips(self, client, name):
+        set_resp = client.get("/settings/racer-name", params={"event_id": 26008, "name": name}, follow_redirects=False)
+        # Secure cookies aren't sent back over http://testserver, so set it by hand
+        client.cookies.set("racer_name", set_resp.headers["set-cookie"].split(";")[0].split("=", 1)[1])
+        response = client.get("/schedule/26008")
+        assert response.status_code == 200
+        assert f'value="{name}"' in response.text
+
+    def test_legacy_raw_cookie_is_rewritten_encoded(self, client):
+        client.cookies.set("racer_name", "Sean Hall")
+        response = client.get("/schedule/26008")
+        assert response.headers["set-cookie"].startswith("racer_name=b64.")
+        assert _cookie_name(response.headers["set-cookie"]) == "Sean Hall"
+
+    def test_malformed_encoded_cookie_is_ignored(self, client):
+        client.cookies.set("racer_name", "b64.!!!")
+        response = client.get("/schedule/26008")
+        assert response.status_code == 200
+        assert "set-cookie" not in response.headers
 
     def test_set_racer_name_redirect(self, client):
         """GET /settings/racer-name?event_id=26008&name=Sean Hall redirects with ?r= and fragment."""

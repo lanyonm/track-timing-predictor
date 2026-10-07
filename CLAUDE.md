@@ -85,14 +85,14 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 | `/settings/racer-name` | Set/clear `racer_name` cookie; `?event_id=&name=` |
 | `/settings/use-learned` | Toggle `use_learned` cookie; `?event_id=&use_learned=on\|off` |
 | `/palmares` | Palmares page; `name=` sets the cookie and 303s to `?r=`; otherwise the racer comes from `r=`, then the cookie |
-| `/palmares/export` | CSV of one rider's (or team's) audit data; `audit_url` must start with `results/` |
+| `/palmares/export` | CSV of one rider's (or team's) audit data; `audit_url` must start with `results/` after percent-decoding and `normpath`; pages over 2M chars give 502; `Content-Disposition` carries an ASCII `filename` plus RFC 5987 `filename*` |
 | `/palmares/rename` | Rename a competition; requires `racer_name` cookie |
 | `/palmares/remove` | Delete a competition's entries; requires `racer_name` cookie (403 otherwise) |
 | `/defaults` | Built-in default durations |
 | `/learned` | Learned duration averages |
 | `/health` | Always 200; per-component `healthy`/`degraded` |
 
-**Cookies:** `racer_name` (raw name, 1 year, HttpOnly, Secure, Lax); `use_learned` (`"true"` when on; off by default); `theme` (`light`/`dark`, set client-side, 1 year).
+**Cookies:** `racer_name` (`b64.` + unpadded URL-safe Base64 of the name, since Starlette encodes headers as Latin-1; legacy raw-name values are still read and rewritten on the next schedule view; 1 year, HttpOnly, Secure, Lax); `use_learned` (`"true"` when on; off by default); `theme` (`light`/`dark`, set client-side, 1 year).
 
 **In-memory caches** (`predictor.py`, keyed by `(competition_id, session_id, position)`, unbounded, per Lambda container): `_status_cache` (status transitions for wall-clock learning), `_observed_durations`, `_heat_counts`, `_live_heats`, `_generated_times`, `_start_list_riders`.
 
