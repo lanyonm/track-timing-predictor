@@ -176,6 +176,19 @@ The loader writes to whichever backend is configured:
 | Empty (default) | SQLite at `DB_PATH` | Local development |
 | Set (e.g. `track-timing-durations`) | DynamoDB | Production; writes multi-level aggregates |
 
+## Rebuilding DynamoDB Aggregates
+
+```
+python -m tools.rebuild_aggregates            # dry run: print the per-key diff
+python -m tools.rebuild_aggregates --apply    # write it
+```
+
+`AGGREGATE#` items are running totals, so a bug in a write path leaves them out of step with the `OBS#` items they summarise. This tool scans every `OBS#` item, recomputes all four aggregate levels with `database._build_aggregate_keys`, and prints each key whose stored value differs (`create`, `update` or `delete`, with count × average before and after). `--apply` overwrites each changed aggregate with `put_item` and deletes aggregates that no `OBS#` item supports. `OVERRIDE#` and `OBS#` items are never touched. It requires `DYNAMODB_TABLE`; SQLite computes averages from rows at read time and needs no rebuild.
+
+Aggregate contributions with no `OBS#` item behind them are dropped, since nothing records what they were. Loader and live writes both write an `OBS#` item, so only contributions from a broken write path are lost.
+
+Run it while no competition is live. A live write that lands between the scan and the writes can be lost from the aggregates (its `OBS#` item survives, so a second run restores it). A dry run after `--apply` should report 0 changes.
+
 ## Event Name Categorization
 
 The categorizer (`app/categorizer.py`) decomposes event names like `"Elite/Junior Women Scratch Race / Omni I"` into structured dimensions:

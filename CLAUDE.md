@@ -21,6 +21,7 @@ pytest tests/test_predictor.py::TestComputeDelay::test_positive_delay_when_behin
 
 python -m tools.extract_competition 26008                 # → data/competitions/26008.json (gitignored)
 python -m tools.load_durations data/competitions/*.json   # → learning DB; --force skips the dedup prompt
+python -m tools.rebuild_aggregates [--apply]              # DynamoDB only: recompute AGGREGATE# items from OBS#; dry run by default
 ```
 
 No linter, formatter or type checker is configured.
@@ -135,7 +136,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 
 ## Repository map
 
-- `app/`: application. `tools/`: CLI importers. `tests/`: pytest suite plus `fixtures/`. `cdk/`: infrastructure. `static/`: CSS.
+- `app/`: application. `tools/`: CLI importers and `rebuild_aggregates` (DynamoDB aggregate repair). `tests/`: pytest suite plus `fixtures/`. `cdk/`: infrastructure. `static/`: CSS.
 - `specs/NNN-name/`: speckit feature artifacts (spec, plan, tasks, research, contracts). 001–005 are complete and historical; read them for rationale, not current behaviour.
 - `.specify/`: speckit config. Only `memory/constitution.md` (project principles that govern design trade-offs) and `templates/overrides/` (project-specific plan and task rules) are committed. The rest of `.specify/` and the `/speckit.*` commands in `.claude/commands/` are installed locally and gitignored. The project uses Spec Kit **v0.2.1**; to install it, run `uvx --from git+https://github.com/github/spec-kit.git@v0.2.1 specify init --here --ai claude --script sh --force`. This keeps the existing constitution and overrides; check `git status` afterwards.
 - `plans/`: pre-speckit design notes. `hosting-plan.md` is the current infrastructure reference; `data-pipeline*.md` and `dynamo-import-reload.md` are historical.
