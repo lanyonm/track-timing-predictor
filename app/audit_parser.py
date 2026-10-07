@@ -1,4 +1,5 @@
 """Parse tracktiming.live audit result pages for CSV export."""
+
 import csv
 import io
 import re
@@ -62,22 +63,26 @@ def parse_audit_riders(html: str) -> list[dict]:
                 if cells[0].find("h4"):
                     continue
                 if len(cells) >= 7:
-                    rows.append({
-                        "Dist": cells[0].get_text(strip=True),
-                        "Time": cells[1].get_text(strip=True),
-                        "Rank": cells[2].get_text(strip=True),
-                        "Lap": cells[3].get_text(strip=True),
-                        "Lap_Rank": cells[4].get_text(strip=True),
-                        "Sect": cells[5].get_text(strip=True),
-                        "Sect_Rank": cells[6].get_text(strip=True),
-                    })
+                    rows.append(
+                        {
+                            "Dist": cells[0].get_text(strip=True),
+                            "Time": cells[1].get_text(strip=True),
+                            "Rank": cells[2].get_text(strip=True),
+                            "Lap": cells[3].get_text(strip=True),
+                            "Lap_Rank": cells[4].get_text(strip=True),
+                            "Sect": cells[5].get_text(strip=True),
+                            "Sect_Rank": cells[6].get_text(strip=True),
+                        }
+                    )
 
             if rows:
-                riders.append({
-                    "name": name,
-                    "heat": current_heat,
-                    "rows": rows,
-                })
+                riders.append(
+                    {
+                        "name": name,
+                        "heat": current_heat,
+                        "rows": rows,
+                    }
+                )
 
     return riders
 
@@ -96,15 +101,17 @@ def format_csv(rider_data: list[dict], event_name: str) -> str:
 
     for rider in rider_data:
         for row in rider["rows"]:
-            writer.writerow([
-                rider["heat"],
-                row["Dist"],
-                row["Time"],
-                row["Rank"],
-                row["Lap"],
-                row["Lap_Rank"],
-                row["Sect"],
-                row["Sect_Rank"],
-            ])
+            writer.writerow(
+                [
+                    rider["heat"],
+                    row["Dist"],
+                    row["Time"],
+                    row["Rank"],
+                    row["Lap"],
+                    row["Lap_Rank"],
+                    row["Sect"],
+                    row["Sect_Rank"],
+                ]
+            )
 
     return output.getvalue()

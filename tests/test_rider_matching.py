@@ -1,4 +1,5 @@
 """Tests for rider matching and next-race logic in app/predictor.py."""
+
 from datetime import datetime, time, timedelta
 
 import pytest
@@ -38,6 +39,7 @@ DISCIPLINE = "keirin"
 @pytest.fixture(autouse=True)
 def clear_caches():
     from app.predictor import _start_list_riders, _heat_counts
+
     _start_list_riders.clear()
     _heat_counts.clear()
     yield
@@ -175,12 +177,9 @@ class TestNextRace:
         """Active event with rider match sets next_race_is_active=True."""
         # Build a session with: 1 completed event, 1 active event (the match), 1 upcoming
         events = [
-            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match",
-                       status=EventStatus.COMPLETED),
-            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
-            make_event(position=2, name="Elite Women Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
+            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match", status=EventStatus.COMPLETED),
+            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
+            make_event(position=2, name="Elite Women Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
 
@@ -189,8 +188,7 @@ class TestNextRace:
 
         # now must be set so that completed_count > 0 and has_pending => active_index = 1
         now = datetime(2024, 6, 1, 18, 15, 0)
-        result = predict_schedule(COMP_ID, [session], now=now, racer_name="Sean Hall",
-                                  use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=now, racer_name="Sean Hall", use_learned=False)
 
         assert result.next_race is not None
         assert result.next_race.event_name == "Elite Men Keirin"
@@ -200,10 +198,8 @@ class TestNextRace:
     def test_next_race_upcoming_event(self):
         """Upcoming event with rider match sets next_race_is_active=False."""
         events = [
-            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match",
-                       status=EventStatus.UPCOMING),
-            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
+            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match", status=EventStatus.UPCOMING),
+            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
 
@@ -211,8 +207,7 @@ class TestNextRace:
         seed_riders(1, [("HALL Sean", 1)])
 
         # No completed events => no active index. now=None means pre-event mode.
-        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall",
-                                  use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall", use_learned=False)
 
         assert result.next_race is not None
         assert result.next_race.event_name == "Elite Men Keirin"
@@ -221,38 +216,43 @@ class TestNextRace:
     def test_next_race_all_completed(self):
         """When all events are completed, next_race_event_name is None."""
         events = [
-            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match",
-                       status=EventStatus.COMPLETED),
-            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.COMPLETED),
+            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match", status=EventStatus.COMPLETED),
+            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.COMPLETED),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
 
         seed_riders(0, [("HALL Sean", 1)])
         seed_riders(1, [("HALL Sean", 1)])
 
-        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall",
-                                  use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall", use_learned=False)
 
         assert result.next_race is None
 
     def test_events_without_start_lists_excludes_special(self):
         """Special events (break, ceremony) are excluded from events_without_start_lists."""
         events = [
-            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
-            make_event(position=1, name="Break", discipline="break_",
-                       status=EventStatus.UPCOMING, is_special=True,
-                       start_list_url=None),
-            make_event(position=2, name="Medal Ceremonies", discipline="ceremony",
-                       status=EventStatus.UPCOMING, is_special=True,
-                       start_list_url=None),
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
+            make_event(
+                position=1,
+                name="Break",
+                discipline="break_",
+                status=EventStatus.UPCOMING,
+                is_special=True,
+                start_list_url=None,
+            ),
+            make_event(
+                position=2,
+                name="Medal Ceremonies",
+                discipline="ceremony",
+                status=EventStatus.UPCOMING,
+                is_special=True,
+                start_list_url=None,
+            ),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
 
         # No start lists seeded for any event. Only non-special events should count.
-        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall",
-                                  use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall", use_learned=False)
 
         # Only the keirin at position 0 should count as missing a start list
         assert result.events_without_start_lists == 1
@@ -260,42 +260,36 @@ class TestNextRace:
     def test_has_racer_match_on_session_prediction(self):
         """SessionPrediction.has_racer_match is True when a rider match exists."""
         events = [
-            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
         seed_riders(0, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall",
-                             use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
 
         assert sp.has_racer_match is True
 
     def test_has_pending_racer_match_true_when_upcoming(self):
         """has_pending_racer_match is True when a matched event is still upcoming."""
         events = [
-            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
         seed_riders(0, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall",
-                             use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
 
         assert sp.has_pending_racer_match is True
 
     def test_has_pending_racer_match_false_when_all_completed(self):
         """has_pending_racer_match is False when all matched events are completed."""
         events = [
-            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.COMPLETED),
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.COMPLETED),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
         seed_riders(0, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall",
-                             use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
 
         assert sp.has_racer_match is True
         assert sp.has_pending_racer_match is False
@@ -303,14 +297,16 @@ class TestNextRace:
     def test_total_events_excludes_special(self):
         """total_events only counts non-is_special events."""
         events = [
-            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
-            make_event(position=1, name="Elite Women Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
-            make_event(position=2, name="Break", discipline="break_",
-                       status=EventStatus.UPCOMING, is_special=True),
-            make_event(position=3, name="End of Session", discipline="end_of_session",
-                       status=EventStatus.UPCOMING, is_special=True),
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
+            make_event(position=1, name="Elite Women Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
+            make_event(position=2, name="Break", discipline="break_", status=EventStatus.UPCOMING, is_special=True),
+            make_event(
+                position=3,
+                name="End of Session",
+                discipline="end_of_session",
+                status=EventStatus.UPCOMING,
+                is_special=True,
+            ),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
 
@@ -321,24 +317,20 @@ class TestNextRace:
     def test_next_race_active_prioritized_over_upcoming_across_sessions(self):
         """Active match in session 2 takes priority over upcoming match in session 1."""
         session1_events = [
-            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match",
-                       status=EventStatus.UPCOMING),
+            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match", status=EventStatus.UPCOMING),
         ]
         session1 = make_session(session_id=1, events=session1_events, scheduled_start=time(10, 0))
         seed_riders(0, [("HALL Sean", 1)], session_id=1)
 
         session2_events = [
-            make_event(position=0, name="Elite Women Sprint", discipline="sprint_match",
-                       status=EventStatus.COMPLETED),
-            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
+            make_event(position=0, name="Elite Women Sprint", discipline="sprint_match", status=EventStatus.COMPLETED),
+            make_event(position=1, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
         ]
         session2 = make_session(session_id=2, events=session2_events, scheduled_start=time(18, 0))
         seed_riders(1, [("HALL Sean", 2)], session_id=2)
 
         now = datetime(2024, 6, 1, 18, 15, 0)
-        result = predict_schedule(COMP_ID, [session1, session2], now=now,
-                                  racer_name="Sean Hall", use_learned=False)
+        result = predict_schedule(COMP_ID, [session1, session2], now=now, racer_name="Sean Hall", use_learned=False)
 
         assert result.next_race is not None
         assert result.next_race.event_name == "Elite Men Keirin"
@@ -348,18 +340,15 @@ class TestNextRace:
     def test_pre_event_no_active(self):
         """When now is None, all matched events are upcoming (not active)."""
         events = [
-            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
-            make_event(position=1, name="Elite Women Keirin", discipline=DISCIPLINE,
-                       status=EventStatus.UPCOMING),
+            make_event(position=0, name="Elite Men Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
+            make_event(position=1, name="Elite Women Keirin", discipline=DISCIPLINE, status=EventStatus.UPCOMING),
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
 
         seed_riders(0, [("HALL Sean", 1)])
         seed_riders(1, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall",
-                             use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
 
         for pred in sp.event_predictions:
             assert pred.is_active is False

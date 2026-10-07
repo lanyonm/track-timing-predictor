@@ -82,7 +82,8 @@ def plan_changes(items: list[dict]) -> list[Change]:
     obs_items = [i for i in items if i["pk"].startswith("OBS#")]
     current = {
         i["pk"]: Aggregate(Decimal(i.get("total_minutes", 0)), int(i.get("count", 0)))
-        for i in items if i["pk"].startswith("AGGREGATE#")
+        for i in items
+        if i["pk"].startswith("AGGREGATE#")
     }
     expected = compute_aggregates(obs_items)
     changes = []
@@ -98,11 +99,13 @@ def apply_changes(table, changes: list[Change]) -> None:
         if change.after is None:
             table.delete_item(Key={"pk": change.key})
         else:
-            table.put_item(Item={
-                "pk": change.key,
-                "total_minutes": change.after.total_minutes,
-                "count": change.after.count,
-            })
+            table.put_item(
+                Item={
+                    "pk": change.key,
+                    "total_minutes": change.after.total_minutes,
+                    "count": change.after.count,
+                }
+            )
 
 
 def _fmt(agg: Aggregate | None) -> str:

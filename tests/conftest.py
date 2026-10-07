@@ -1,4 +1,5 @@
 """Shared pytest configuration and fixtures."""
+
 import httpx
 import pytest
 
@@ -29,12 +30,14 @@ def test_db(tmp_path_factory):
 
     # Provide a shared HTTP client on app.state for routes that use Depends(get_http_client)
     app.state.http_client = httpx.AsyncClient(
-        base_url=settings.tracktiming_base_url, timeout=15.0,
+        base_url=settings.tracktiming_base_url,
+        timeout=15.0,
     )
 
     yield
 
     import asyncio
+
     try:
         loop = asyncio.get_event_loop()
         if not loop.is_closed():

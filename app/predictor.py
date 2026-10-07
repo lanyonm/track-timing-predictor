@@ -370,9 +370,7 @@ def predict_session(
     # some events are done and at least one race is still pending. Special
     # events don't count, so a finished session whose End of Session row is
     # still NOT_READY isn't treated as live (matches SessionPrediction.is_complete).
-    has_pending = any(
-        e.status != EventStatus.COMPLETED for e in session.events if not e.is_special
-    )
+    has_pending = any(e.status != EventStatus.COMPLETED for e in session.events if not e.is_special)
     delay_minutes = 0.0
     if now is not None and completed_count > 0 and has_pending:
         delay_minutes = _compute_delay(session, durations, completed_count, now)
@@ -447,26 +445,32 @@ def predict_session(
                         microsecond=0,
                     )
                 rider_match = get_rider_match(
-                    competition_id, session.session_id, event.position,
-                    user_tokens, event_start_dt, event.discipline,
+                    competition_id,
+                    session.session_id,
+                    event.position,
+                    user_tokens,
+                    event_start_dt,
+                    event.discipline,
                 )
                 if rider_match:
                     has_racer_match = True
                     if event.status != EventStatus.COMPLETED:
                         has_pending_racer_match = True
 
-        predictions.append(Prediction(
-            event=event,
-            predicted_start=predicted_start,
-            estimated_duration_minutes=durations[i],
-            is_adjusted=(applied_delay != 0.0),
-            cumulative_delay_minutes=applied_delay,
-            is_observed=is_observed_list[i],
-            heat_count=heat_count_list[i],
-            is_active=is_active,
-            active_heat=active_heat,
-            rider_match=rider_match,
-        ))
+        predictions.append(
+            Prediction(
+                event=event,
+                predicted_start=predicted_start,
+                estimated_duration_minutes=durations[i],
+                is_adjusted=(applied_delay != 0.0),
+                cumulative_delay_minutes=applied_delay,
+                is_observed=is_observed_list[i],
+                heat_count=heat_count_list[i],
+                is_active=is_active,
+                active_heat=active_heat,
+                rider_match=rider_match,
+            )
+        )
         if event.discipline not in _ZERO_DURATION_DISCIPLINES:
             cumulative += durations[i]
 
@@ -507,7 +511,11 @@ def predict_schedule(
 
     for s in sessions:
         sp = predict_session(
-            competition_id, s, now=now, racer_name=racer_name, use_learned=use_learned,
+            competition_id,
+            s,
+            now=now,
+            racer_name=racer_name,
+            use_learned=use_learned,
         )
         session_predictions.append(sp)
         total_events_without_start_lists += sp.events_without_start_lists
@@ -562,10 +570,7 @@ def update_status_cache(
             if cached is None:
                 _status_cache[key] = {"status": event.status, "seen_at": now}
 
-            elif (
-                cached["status"] == EventStatus.UPCOMING
-                and event.status == EventStatus.COMPLETED
-            ):
+            elif cached["status"] == EventStatus.UPCOMING and event.status == EventStatus.COMPLETED:
                 # Wall-clock fallback: record elapsed time for disciplines
                 # that don't have a result-page Finish Time.
                 # Upper bound is 3× the static default duration for the discipline.
@@ -592,9 +597,7 @@ def update_status_cache(
 
                 # Signal caller to fetch result page if URL is available.
                 if event.result_url:
-                    newly_completed.append(
-                        (competition_id, session.session_id, event.position, event.result_url)
-                    )
+                    newly_completed.append((competition_id, session.session_id, event.position, event.result_url))
 
             elif cached["status"] != event.status:
                 _status_cache[key] = {"status": event.status, "seen_at": now}

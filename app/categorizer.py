@@ -40,11 +40,11 @@ _SPECIAL_PATTERNS: list[tuple[re.Pattern, str]] = [
 # 2. Omnium part: "/ Omni III" or "/ Omni 3"
 # --------------------------------------------------------------------------
 
-_ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7,
-           "viii": 8, "ix": 9, "x": 10}
+_ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10}
 
 _OMNIUM_RE = re.compile(
-    r"/\s*omni\s+([ivx]+|\d+)", re.IGNORECASE,
+    r"/\s*omni\s+([ivx]+|\d+)",
+    re.IGNORECASE,
 )
 
 # --------------------------------------------------------------------------
@@ -214,9 +214,25 @@ _DISCIPLINE_KEYWORDS: list[tuple[re.Pattern, str]] = [
 
 _PURSUIT_4K_CLASSES = {"elite", "senior"}
 _PURSUIT_3K_CLASSES = {"junior", "master_a", "master_b", "master_ab"}
-_PURSUIT_2K_CLASSES = {"master_c", "master_d", "master_e", "master_cd", "master",
-                       "u17", "u15", "u13", "u11", "u15_u17", "u11_u13",
-                       "para_b", "para_c2", "para_c3", "para_c4", "para_c5", "para_c1_5"}
+_PURSUIT_2K_CLASSES = {
+    "master_c",
+    "master_d",
+    "master_e",
+    "master_cd",
+    "master",
+    "u17",
+    "u15",
+    "u13",
+    "u11",
+    "u15_u17",
+    "u11_u13",
+    "para_b",
+    "para_c2",
+    "para_c3",
+    "para_c4",
+    "para_c5",
+    "para_c1_5",
+}
 _PURSUIT_2K_COMPOUND_CLASSES = {"elite_junior", "junior_master_elite"}
 
 
@@ -230,13 +246,14 @@ def _resolve_pursuit_distance(classification: str | None, gender: str) -> str:
             return "pursuit_2k"
         if gender == "men":
             # Master C+ men = 2k, youth = 2k
-            if classification and (classification.startswith("master") or
-                                    classification.startswith("u") or
-                                    classification.startswith("para")):
+            if classification and (
+                classification.startswith("master")
+                or classification.startswith("u")
+                or classification.startswith("para")
+            ):
                 return "pursuit_2k"
         # open/unknown gender for youth categories
-        if classification and (classification.startswith("u") or
-                               classification.startswith("para")):
+        if classification and (classification.startswith("u") or classification.startswith("para")):
             return "pursuit_2k"
         return "pursuit_2k"
     if classification in _PURSUIT_2K_COMPOUND_CLASSES:
@@ -259,7 +276,7 @@ def _resolve_pursuit_distance(classification: str | None, gender: str) -> str:
 
 def _strip(text: str, match: re.Match) -> str:
     """Remove a match from text and collapse whitespace."""
-    return (text[:match.start()] + " " + text[match.end():]).strip()
+    return (text[: match.start()] + " " + text[match.end() :]).strip()
 
 
 def _clean(text: str) -> str:

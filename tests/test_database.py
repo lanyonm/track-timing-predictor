@@ -1,4 +1,5 @@
 """SQLite code paths in app/database.py (conftest points settings at a temp DB)."""
+
 import pytest
 
 from app.database import (

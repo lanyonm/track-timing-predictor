@@ -435,39 +435,60 @@ class TestUnresolvedResidual:
 class TestFullTestCasesFromPipeline:
     """Validate all 27+ test cases from data-pipeline.md section 2.8."""
 
-    @pytest.mark.parametrize("event_name,expected_disc,expected_gender,expected_class,expected_round,expected_ride,expected_omni", [
-        ("U17 Women Sprint Qualifying", "sprint_qualifying", "women", "u17", "qualifying", None, None),
-        ("Master C/D Men Sprint 1/8 Final", "sprint_match", "men", "master_cd", "eighth_final", None, None),
-        ("Elite/Junior Women Scratch Race  / Omni I", "scratch_race", "women", "elite_junior", None, None, 1),
-        ("U11 & U13 Keirin 1-6 Final", "keirin", "open", "u11_u13", "final_1_6", None, None),
-        ("Elite Men Sprint 1/2 Final Ride 1", "sprint_match", "men", "elite", "semi_final", 1, None),
-        ("Para C4 Men Flying 200m Final", "sprint_qualifying", "men", "para_c4", "final", None, None),
-        ("Open F Madison Final", "madison", "women", "open", "final", None, None),
-        ("Open H Madison Final", "madison", "men", "open", "final", None, None),
-        ("Co-Ed Team Sprint Final", "team_sprint", "open", None, "final", None, None),
-        ("35-39 Women Pursuit Final", "pursuit_2k", "women", "age_35_39", "final", None, None),
-        ("80+ Men Sprint Qualifying", "sprint_qualifying", "men", "age_80_plus", "qualifying", None, None),
-        ("55-64 Women Sprint 1/2 Final Ride 1", "sprint_match", "women", "age_55_64", "semi_final", 1, None),
-        ("Para C1-5 Elimination Race Final", "elimination_race", "open", "para_c1_5", "final", None, None),
-        ("Para B Mixed Team Sprint Final", "team_sprint", "open", "para_b", "final", None, None),
-        ("Junior/Elite F Vitesse Qualifying", "sprint_qualifying", "women", "elite_junior", "qualifying", None, None),
-        ("U15 F 200m Final  / Omni I", "sprint_qualifying", "women", "u15", "final", None, 1),
-        ("Maitre A Kilo CLM Final  / Omni III", "time_trial_kilo", "open", "master_a", "final", None, 3),
-        ("Senior H Vitesse Final Ride 1 / Omni III", "sprint_match", "men", "senior", "final", 1, 3),
-        ("Junior/Maitre/Elite F Tempo Race Final  / Omni II", "tempo_race", "women", "junior_master_elite", "final", None, 2),
-        ("U15/U17 H Course Aux Points Final  / Omni V", "points_race", "men", "u15_u17", "final", None, 5),
-        ("Women Miss And Out Final", "elimination_race", "women", None, "final", None, None),
-        ("Men American Tempo Final", "tempo_race", "men", None, "final", None, None),
-        ("Junior Men Point A Lap Final", "tempo_race", "men", "junior", "final", None, None),
-        ("Women Sprint 1/16 Final", "sprint_match", "women", None, "sixteenth_final", None, None),
-        ("Men Sprint 1/16 Final Repechage", "sprint_match", "men", None, "sixteenth_final_repechage", None, None),
-        ("Women Sprint 9-12 Final", "sprint_match", "women", None, "final_9_12", None, None),
-        ("Exhibition Flying 200m Final", "sprint_qualifying", "open", None, "final", None, None),
-        ("Men Omnium Qualifier 1", "unknown", "men", None, "qualifier_1", None, None),
-        ("Kids Race", "exhibition", "open", None, None, None, None),
-        ("Junior Open Chariot Race Final", "exhibition", "open", "junior", "final", None, None),
-    ])
-    def test_pipeline_cases(self, event_name, expected_disc, expected_gender, expected_class, expected_round, expected_ride, expected_omni):
+    @pytest.mark.parametrize(
+        "event_name,expected_disc,expected_gender,expected_class,expected_round,expected_ride,expected_omni",
+        [
+            ("U17 Women Sprint Qualifying", "sprint_qualifying", "women", "u17", "qualifying", None, None),
+            ("Master C/D Men Sprint 1/8 Final", "sprint_match", "men", "master_cd", "eighth_final", None, None),
+            ("Elite/Junior Women Scratch Race  / Omni I", "scratch_race", "women", "elite_junior", None, None, 1),
+            ("U11 & U13 Keirin 1-6 Final", "keirin", "open", "u11_u13", "final_1_6", None, None),
+            ("Elite Men Sprint 1/2 Final Ride 1", "sprint_match", "men", "elite", "semi_final", 1, None),
+            ("Para C4 Men Flying 200m Final", "sprint_qualifying", "men", "para_c4", "final", None, None),
+            ("Open F Madison Final", "madison", "women", "open", "final", None, None),
+            ("Open H Madison Final", "madison", "men", "open", "final", None, None),
+            ("Co-Ed Team Sprint Final", "team_sprint", "open", None, "final", None, None),
+            ("35-39 Women Pursuit Final", "pursuit_2k", "women", "age_35_39", "final", None, None),
+            ("80+ Men Sprint Qualifying", "sprint_qualifying", "men", "age_80_plus", "qualifying", None, None),
+            ("55-64 Women Sprint 1/2 Final Ride 1", "sprint_match", "women", "age_55_64", "semi_final", 1, None),
+            ("Para C1-5 Elimination Race Final", "elimination_race", "open", "para_c1_5", "final", None, None),
+            ("Para B Mixed Team Sprint Final", "team_sprint", "open", "para_b", "final", None, None),
+            (
+                "Junior/Elite F Vitesse Qualifying",
+                "sprint_qualifying",
+                "women",
+                "elite_junior",
+                "qualifying",
+                None,
+                None,
+            ),
+            ("U15 F 200m Final  / Omni I", "sprint_qualifying", "women", "u15", "final", None, 1),
+            ("Maitre A Kilo CLM Final  / Omni III", "time_trial_kilo", "open", "master_a", "final", None, 3),
+            ("Senior H Vitesse Final Ride 1 / Omni III", "sprint_match", "men", "senior", "final", 1, 3),
+            (
+                "Junior/Maitre/Elite F Tempo Race Final  / Omni II",
+                "tempo_race",
+                "women",
+                "junior_master_elite",
+                "final",
+                None,
+                2,
+            ),
+            ("U15/U17 H Course Aux Points Final  / Omni V", "points_race", "men", "u15_u17", "final", None, 5),
+            ("Women Miss And Out Final", "elimination_race", "women", None, "final", None, None),
+            ("Men American Tempo Final", "tempo_race", "men", None, "final", None, None),
+            ("Junior Men Point A Lap Final", "tempo_race", "men", "junior", "final", None, None),
+            ("Women Sprint 1/16 Final", "sprint_match", "women", None, "sixteenth_final", None, None),
+            ("Men Sprint 1/16 Final Repechage", "sprint_match", "men", None, "sixteenth_final_repechage", None, None),
+            ("Women Sprint 9-12 Final", "sprint_match", "women", None, "final_9_12", None, None),
+            ("Exhibition Flying 200m Final", "sprint_qualifying", "open", None, "final", None, None),
+            ("Men Omnium Qualifier 1", "unknown", "men", None, "qualifier_1", None, None),
+            ("Kids Race", "exhibition", "open", None, None, None, None),
+            ("Junior Open Chariot Race Final", "exhibition", "open", "junior", "final", None, None),
+        ],
+    )
+    def test_pipeline_cases(
+        self, event_name, expected_disc, expected_gender, expected_class, expected_round, expected_ride, expected_omni
+    ):
         cat, _ = categorize_event(event_name)
         assert cat.discipline == expected_disc, f"discipline mismatch for '{event_name}'"
         assert cat.gender == expected_gender, f"gender mismatch for '{event_name}'"

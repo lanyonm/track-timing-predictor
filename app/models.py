@@ -12,6 +12,7 @@ DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
 
 class EventCategory(BaseModel):
     """Structured decomposition of an event name into component dimensions."""
+
     model_config = ConfigDict(frozen=True)
 
     discipline: str = Field(min_length=1)
@@ -85,9 +86,9 @@ class Prediction(BaseModel):
     estimated_duration_minutes: float
     is_adjusted: bool
     cumulative_delay_minutes: float
-    is_observed: bool = False    # True when duration comes from a result-page Finish Time
+    is_observed: bool = False  # True when duration comes from a result-page Finish Time
     heat_count: int | None = None  # Set when duration is derived from start-list heat count
-    is_active: bool = False      # True for the first non-COMPLETED event in an in-progress session
+    is_active: bool = False  # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event
     rider_match: RiderMatch | None = None
 
@@ -133,8 +134,10 @@ class SchedulePrediction(BaseModel):
 # Palmares models
 # ---------------------------------------------------------------------------
 
+
 class PalmaresEntry(BaseModel):
     """A single timed event in a racer's palmares."""
+
     racer_name: str
     competition_id: int
     competition_name: str
@@ -149,6 +152,7 @@ class PalmaresEntry(BaseModel):
 
 class PalmaresCompetition(BaseModel):
     """Groups palmares entries by competition for template rendering."""
+
     competition_id: int
     competition_name: str
     competition_date: str | None = None
@@ -159,8 +163,10 @@ class PalmaresCompetition(BaseModel):
 # Duration data import models
 # ---------------------------------------------------------------------------
 
+
 class DurationRecord(BaseModel):
     """A single observation of how long an event took."""
+
     category: EventCategory
     event_name: str
     heat_count: int | None = Field(default=None, ge=1)
@@ -182,6 +188,7 @@ class DurationRecord(BaseModel):
 
 class UncategorizedEntry(BaseModel):
     """Summary of an event name that couldn't be fully categorized."""
+
     event_name: str
     partial_category: EventCategory
     unresolved_text: str = Field(min_length=1)
@@ -192,6 +199,7 @@ class UncategorizedEntry(BaseModel):
 
 class CompetitionMeta(BaseModel):
     """Metadata for a competition."""
+
     competition_id: int = Field(gt=0)
     name: str | None = None
     url: str = Field(min_length=1)
@@ -199,6 +207,7 @@ class CompetitionMeta(BaseModel):
 
 class EventReport(BaseModel):
     """Per-event data in a competition report."""
+
     position: int = Field(ge=0)
     name: str
     category: EventCategory
@@ -219,6 +228,7 @@ class EventReport(BaseModel):
 
 class SessionReport(BaseModel):
     """Per-session data in a competition report."""
+
     session_id: int = Field(ge=1)
     day: str = Field(min_length=1)
     scheduled_start: str = Field(pattern=r"^\d{2}:\d{2}$")
@@ -227,6 +237,7 @@ class SessionReport(BaseModel):
 
 class CompetitionReport(BaseModel):
     """Top-level JSON output file structure."""
+
     version: Literal["1.0"] = "1.0"
     extracted_at: datetime
     competition: CompetitionMeta

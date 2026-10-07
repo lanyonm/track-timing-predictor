@@ -1,4 +1,5 @@
 """Tests for audit page HTML parsing."""
+
 from app.audit_parser import parse_audit_riders, filter_rider_data, format_csv
 
 
@@ -76,14 +77,23 @@ class TestFilterRiderData:
 
 class TestFormatCSV:
     def test_produces_valid_csv(self):
-        riders = [{
-            "name": "PITTARD Charlie",
-            "heat": "Heat 1",
-            "rows": [
-                {"Dist": "125", "Time": "15.531", "Rank": "5",
-                 "Lap": "", "Lap_Rank": "", "Sect": "15.531", "Sect_Rank": "5"},
-            ],
-        }]
+        riders = [
+            {
+                "name": "PITTARD Charlie",
+                "heat": "Heat 1",
+                "rows": [
+                    {
+                        "Dist": "125",
+                        "Time": "15.531",
+                        "Rank": "5",
+                        "Lap": "",
+                        "Lap_Rank": "",
+                        "Sect": "15.531",
+                        "Sect_Rank": "5",
+                    },
+                ],
+            }
+        ]
         csv_str = format_csv(riders, "test-event")
         lines = csv_str.strip().splitlines()
         assert len(lines) == 2  # header + 1 data row

@@ -1,4 +1,5 @@
 """Tests for app/main.py route handlers, focused on racer-name functionality."""
+
 import base64
 import json
 from datetime import datetime
@@ -30,8 +31,10 @@ def _cookie_name(set_cookie: str) -> str:
     """Decode the racer name from a racer_name Set-Cookie header."""
     value = set_cookie.split(";")[0].split("=", 1)[1]
     assert value.startswith("b64.")
-    encoded = value[len("b64."):]
+    encoded = value[len("b64.") :]
     return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
+
+
 SAMPLE_EVENT_PATH = FIXTURE_DIR / "sample-event-output.json"
 START_LIST_PATH = FIXTURE_DIR / "start-list-sample.html"
 
@@ -82,7 +85,6 @@ def client():
 
 
 class TestRacerNameRoutes:
-
     def test_schedule_with_base64_racer_name(self, client):
         """GET /schedule/26008?r=<base64> includes the racer name in the form input."""
         encoded = base64.urlsafe_b64encode(b"Sean Hall").decode("ascii")
@@ -120,7 +122,8 @@ class TestRacerNameRoutes:
     @pytest.mark.parametrize("name", NON_LATIN1_NAMES)
     def test_set_non_latin1_racer_name(self, client, name):
         response = client.get(
-            "/settings/racer-name", params={"event_id": 26008, "name": name},
+            "/settings/racer-name",
+            params={"event_id": 26008, "name": name},
             follow_redirects=False,
         )
         assert response.status_code == 303
@@ -173,7 +176,7 @@ class TestRacerNameRoutes:
         # Should delete the cookie (max-age=0 signals deletion)
         set_cookie = response.headers.get("set-cookie", "")
         assert "racer_name" in set_cookie
-        assert 'Max-Age=0' in set_cookie or 'max-age=0' in set_cookie
+        assert "Max-Age=0" in set_cookie or "max-age=0" in set_cookie
 
     def test_empty_name_clears(self, client):
         """GET /settings/racer-name?event_id=26008&name= behaves like clear."""
@@ -233,6 +236,7 @@ class TestHealthEndpoint:
     def test_health_returns_degraded_on_bad_db(self):
         """Health endpoint returns 200 with degraded status when DB is unreachable."""
         from app.config import settings
+
         original = settings.db_path
         settings.db_path = "/nonexistent/path/to/db.sqlite"
         try:
@@ -271,6 +275,7 @@ class TestCheckHealth:
     async def test_check_health_sqlite_healthy(self):
         """check_health returns healthy for a valid SQLite DB."""
         from app.database import check_health
+
         result = await check_health()
         assert result["status"] == "healthy"
 
@@ -279,6 +284,7 @@ class TestCheckHealth:
         """check_health returns degraded when SQLite DB path is invalid."""
         from app.config import settings
         from app.database import check_health
+
         original = settings.db_path
         settings.db_path = "/nonexistent/impossible/path.db"
         try:
@@ -295,6 +301,7 @@ class TestVenueLocalClock:
 
     def _captured_now(self, client, path):
         import app.main as main_module
+
         with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
             resp = client.get(path)
         assert resp.status_code == 200
@@ -303,6 +310,7 @@ class TestVenueLocalClock:
     @pytest.fixture
     def frozen_toronto_morning(self):
         from tests.test_clock import FROZEN_UTC, frozen_datetime
+
         with patch("app.clock.datetime", frozen_datetime(FROZEN_UTC)):
             yield
 
@@ -325,6 +333,7 @@ class TestVenueOffsetInferredFromResults:
     def live_26037(self):
         from datetime import timezone
         from tests.test_clock import frozen_datetime
+
         schedule = json.loads((FIXTURE_DIR / "schedule-26037-live.json").read_text())
         results_dir = FIXTURE_DIR / "26037-results"
 
@@ -345,6 +354,7 @@ class TestVenueOffsetInferredFromResults:
     @pytest.mark.parametrize("path", ["/schedule/26037", "/schedule/26037/refresh"])
     def test_now_uses_inferred_offset(self, client, path):
         import app.main as main_module
+
         with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
             resp = client.get(path)
         assert resp.status_code == 200
@@ -376,10 +386,13 @@ class TestScheduleErrors:
             resp = client.get("/schedule/99999999")
         assert resp.status_code == 404
 
-    @pytest.mark.parametrize("path,fetcher", [
-        ("/schedule/26008", "app.main.fetch_initial_layout"),
-        ("/schedule/26008/refresh", "app.main.fetch_refresh"),
-    ])
+    @pytest.mark.parametrize(
+        "path,fetcher",
+        [
+            ("/schedule/26008", "app.main.fetch_initial_layout"),
+            ("/schedule/26008/refresh", "app.main.fetch_refresh"),
+        ],
+    )
     def test_fetch_failure_returns_502_without_exception_text(self, client, path, fetcher):
         err = httpx.ConnectError("secret-upstream-host.internal refused")
         with patch(fetcher, new_callable=AsyncMock, side_effect=err):

@@ -136,11 +136,13 @@ def _extract_names_from_h4(h4) -> list[tuple[str, str | None]]:
         return results
 
     text = h4.get_text(strip=True)
-    if (not text
-            or re.match(r"^Heat\s+\d+$", text)
-            or re.match(r"^\d+$", text)
-            or text == "\xa0"
-            or re.match(r"^Number of Riders", text)):
+    if (
+        not text
+        or re.match(r"^Heat\s+\d+$", text)
+        or re.match(r"^\d+$", text)
+        or text == "\xa0"
+        or re.match(r"^Number of Riders", text)
+    ):
         return []
     return [(text, None)]
 
@@ -192,10 +194,14 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
                 for name, team in _extract_names_from_h4(h4):
                     if _is_rider_name(name):
                         tokens = normalize_rider_name(name)
-                        riders.append(RiderEntry(
-                            name=name, heat=current_heat,
-                            normalized_tokens=tokens, team_name=team,
-                        ))
+                        riders.append(
+                            RiderEntry(
+                                name=name,
+                                heat=current_heat,
+                                normalized_tokens=tokens,
+                                team_name=team,
+                            )
+                        )
         else:
             # Rider row: either within a multi-rider heat (current_heat > 0)
             # or a bunch race with no heat labels (current_heat == 0 → heat 1)
@@ -204,10 +210,14 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
                 for name, team in _extract_names_from_h4(h4):
                     if _is_rider_name(name):
                         tokens = normalize_rider_name(name)
-                        riders.append(RiderEntry(
-                            name=name, heat=heat,
-                            normalized_tokens=tokens, team_name=team,
-                        ))
+                        riders.append(
+                            RiderEntry(
+                                name=name,
+                                heat=heat,
+                                normalized_tokens=tokens,
+                                team_name=team,
+                            )
+                        )
 
     if not riders and soup.find("tr"):
         logger.warning("parse_start_list_riders found 0 riders in HTML with %d rows", len(soup.find_all("tr")))
@@ -330,21 +340,29 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
             discipline = detect_discipline(name)
             status, result_url, start_list_url, audit_url, live_url = _parse_row(row)
             if discipline.startswith("pursuit_"):
-                discipline = pursuit_discipline_from_urls(
-                    result_url, start_list_url, audit_url, live_url,
-                ) or discipline
+                discipline = (
+                    pursuit_discipline_from_urls(
+                        result_url,
+                        start_list_url,
+                        audit_url,
+                        live_url,
+                    )
+                    or discipline
+                )
 
-            events.append(Event(
-                position=position,
-                name=name,
-                discipline=discipline,
-                status=status,
-                is_special=is_special,
-                result_url=result_url,
-                start_list_url=start_list_url,
-                audit_url=audit_url,
-                live_url=live_url,
-            ))
+            events.append(
+                Event(
+                    position=position,
+                    name=name,
+                    discipline=discipline,
+                    status=status,
+                    is_special=is_special,
+                    result_url=result_url,
+                    start_list_url=start_list_url,
+                    audit_url=audit_url,
+                    live_url=live_url,
+                )
+            )
 
         # Special events (e.g. Medal Ceremonies) publish their result page
         # incrementally while still in progress. Don't consider one COMPLETED
@@ -358,11 +376,13 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
             ):
                 events[i] = event.model_copy(update={"status": EventStatus.UPCOMING})
 
-        sessions.append(Session(
-            session_id=session_id,
-            day=day,
-            scheduled_start=scheduled_start,
-            events=events,
-        ))
+        sessions.append(
+            Session(
+                session_id=session_id,
+                day=day,
+                scheduled_start=scheduled_start,
+                events=events,
+            )
+        )
 
     return sessions
