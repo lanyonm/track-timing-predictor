@@ -15,14 +15,14 @@ Please open an issue with:
 ```bash
 git clone https://github.com/lanyonm/track-timing-predictor.git
 cd track-timing-predictor
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.txt
 pytest
 uvicorn app.main:app --reload
 ```
 
-Python 3.11 is required.
+Python 3.13 is required. To add or change a dependency, edit `pyproject.toml` and regenerate the locks (commands in `CLAUDE.md`).
 
 ## Making changes
 

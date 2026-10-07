@@ -8,11 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-Python 3.11 (matches the Lambda base image and CI).
+Python 3.13 (matches the Lambda base image and CI).
 
 ```bash
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt        # runtime + pytest, pytest-asyncio, pytest-cov, moto
+uv venv --python 3.13 .venv && source .venv/bin/activate   # or python3.13 -m venv .venv
+pip install --require-hashes -r requirements-dev.txt       # runtime + pytest, pytest-asyncio, pytest-cov, moto, ruff, mypy
 
 uvicorn app.main:app --reload              # http://localhost:8000, try EventId 26008
 
@@ -23,6 +23,16 @@ python -m tools.extract_competition 26008                 # → data/competition
 python -m tools.load_durations data/competitions/*.json   # → learning DB; --force skips the dedup prompt
 python -m tools.rebuild_aggregates [--apply]              # DynamoDB only: recompute AGGREGATE# items from OBS#; dry run by default
 ```
+
+**Dependencies:** ranges live in `pyproject.toml` (runtime in `dependencies`, tooling in the `dev` extra). `requirements.txt` (runtime, installed by the Dockerfile) and `requirements-dev.txt` (CI and local) are hashed locks generated from it; `cdk/requirements.txt` is a hashed lock of `cdk/requirements.in`. After changing a range, regenerate the locks and commit them:
+
+```bash
+uv pip compile pyproject.toml --universal --python-version 3.13 --generate-hashes -o requirements.txt
+uv pip compile pyproject.toml --extra dev -c requirements.txt --universal --python-version 3.13 --generate-hashes -o requirements-dev.txt
+uv pip compile cdk/requirements.in --universal --python-version 3.13 --generate-hashes -o cdk/requirements.txt
+```
+
+The dev lock is constrained by the runtime lock so shared packages match the image. The CDK CLI is pinned in the workflows (`npm install -g aws-cdk@<version>`); bump it with `aws-cdk-lib`. Dependabot (`.github/dependabot.yml`) proposes monthly updates for pip (root and `cdk/`), GitHub Actions (pinned by commit SHA) and the Dockerfile base image (pinned by digest).
 
 Lint, format and type checking (config in `pyproject.toml`; CI runs all three):
 
@@ -59,7 +69,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 **Deployment:** AWS Lambda (Docker image from ECR, `Dockerfile`) behind a Function URL, adapted with Mangum (`handler` in `app/main.py`). Prod sits behind CloudFront at `ttp.lanyonm.org`, which uses OAC to sign requests to an `AWS_IAM` Function URL. Infra is CDK in `cdk/`; details are in `plans/hosting-plan.md`. **All routes must be GET.** CloudFront OAC can't sign POST bodies to Function URLs (403).
 
 **CI/CD** (`.github/workflows/`):
-- `test.yml`: pytest with coverage on pushes and PRs to `main`; updates the coverage badge gist on `main`.
+- `test.yml`: on pushes and PRs to `main`, a `lint` job (ruff check, ruff format --check, mypy) and a `test` job (pytest with coverage); `test` updates the coverage badge gist on `main`.
 - `pr-environment.yml`: for same-repo PRs, builds the image and deploys `TrackTimingStack-pr-<N>` with a public Function URL, comments the URL on the PR, and destroys the stack on close.
 - `deploy.yml`: on push to `main`, builds the image (SHA tag + `prod-latest`) and runs `cdk deploy` for prod. It does not wait for `test.yml`.
 

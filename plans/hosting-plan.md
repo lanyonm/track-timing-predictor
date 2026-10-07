@@ -38,7 +38,7 @@ requirement entirely and is simpler to operate.
 **Configuration:**
 - Memory: 512 MB (allocates ~1/3 vCPU; sufficient for concurrent httpx calls)
 - Timeout: 60 seconds (accommodates slow tracktiming.live responses)
-- Runtime: Python 3.11 via `public.ecr.aws/lambda/python:3.11` base image
+- Runtime: Python 3.13 via `public.ecr.aws/lambda/python:3.13`, pinned by digest in the `Dockerfile`; dependencies install from the hashed `requirements.txt` lock with `--require-hashes`
 
 **Known trade-off — in-memory caches:** The prediction algorithm uses
 module-level Python dicts for caching heat counts, observed durations, live
@@ -166,16 +166,21 @@ cleaned up automatically.
 
 ### Tests (`.github/workflows/test.yml`)
 
-Triggered on push/PR to `main`. Installs `requirements-dev.txt` and runs
-`pytest` with coverage; on `main` it publishes the coverage percentage to a gist
+Triggered on push/PR to `main`. Both jobs install the hashed `requirements-dev.txt`
+lock. `lint` runs `ruff check`, `ruff format --check` and `mypy`; `test` runs
+`pytest` with coverage and, on `main`, publishes the coverage percentage to a gist
 for the README badge (`GIST_TOKEN` secret).
+
+All workflow actions are pinned by commit SHA, the CDK CLI by npm version and
+`cdk/requirements.txt` by hashed lock. Dependabot (`.github/dependabot.yml`)
+proposes monthly updates for pip, GitHub Actions and the base image.
 
 ## Local Development
 
 Local dev continues to use uvicorn + SQLite:
 ```bash
 source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.txt
 uvicorn app.main:app --reload
 ```
 
