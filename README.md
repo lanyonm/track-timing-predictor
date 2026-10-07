@@ -115,7 +115,8 @@ app/
 └── templates/       # Jinja2 HTML templates (DaisyUI + HTMX)
 tools/
 ├── extract_competition.py  # CLI: competition ID → JSON report
-└── load_durations.py       # CLI: JSON reports → learning database
+├── load_durations.py       # CLI: JSON reports → learning database
+└── rebuild_aggregates.py   # CLI: recompute DynamoDB aggregates from OBS# items
 data/
 └── competitions/    # Extracted JSON reports (gitignored)
 static/
@@ -153,6 +154,8 @@ python -m tools.load_durations data/competitions/26008.json
 The extraction script decomposes event names (e.g. `"Elite/Junior Women Scratch Race / Omni I"`) into structured categories — discipline, classification, gender, round — using a bilingual parser that handles both English and French naming. Durations are computed from result-page finish times, consecutive generated timestamps, or start-list heat counts (same priority as the live app).
 
 The loader validates each observation against [0.5x, 2.0x] bounds of the expected duration (heat-count-derived when available, static default otherwise) and writes to the learning database with structured category info. On first run against an existing database with duplicate rows from live learning, it prompts to deduplicate (or use `--force` to skip the prompt). Re-loading corrected data overwrites previous values. The database stores averages at four levels of granularity (discipline + classification + gender down to discipline only), and `get_learned_duration_cascading()` can query them. The live app currently reads only the discipline-level average.
+
+If the DynamoDB aggregates ever drift from the stored observations, `python -m tools.rebuild_aggregates` recomputes them (dry run by default, `--apply` to write).
 
 See [docs/duration-data-import.md](docs/duration-data-import.md) for full documentation including the categorization rules, output format, database schema changes, and reference competitions.
 
