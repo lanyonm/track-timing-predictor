@@ -94,9 +94,9 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "sprint_match": 12.0,
     # Pursuit: one schedule slot (qualifying or final) for one category.
     # Two riders race simultaneously per heat; times below cover ~2-heat finals.
-    "pursuit_4k": 12.0,   # elite men 4km: ~4:15/ride × 2 heats + gaps
-    "pursuit_3k": 9.0,    # elite women / junior men 3km: ~3:25/ride × 2 heats + gaps
-    "pursuit_2k": 6.0,    # junior/U17 women 2km: ~2:20/ride × 2 heats + gaps
+    "pursuit_4k": 15.0,   # 2 heats × 7.5 min per heat
+    "pursuit_3k": 11.0,   # 2 heats × 5.5 min per heat
+    "pursuit_2k": 9.0,    # 2 heats × 4.5 min per heat
     # Team pursuit: qualifying or final, ~2-3 rides
     "team_pursuit": 10.0,
     # Team sprint: ~4 rides × 2:40/ride per category
@@ -116,7 +116,7 @@ DEFAULT_DURATIONS: dict[str, float] = {
     # Time trials (one category, sequential starts): per-rider time × ~8 riders
     "time_trial_500": 20.0,   # 500m: 2:20/rider
     "time_trial_750": 22.0,   # 750m: 2:40/rider
-    "time_trial_kilo": 22.0,  # 1000m: 2:30/rider
+    "time_trial_kilo": 22.0,  # 1000m: ~7 riders × 3:00
     "time_trial_generic": 20.0,
     # Non-race:
     "ceremony": 20.0,
@@ -136,14 +136,16 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "sprint_qualifying": 1.25,
     # Sprint match: one 2-rider match per heat (~3:00 + recovery)
     "sprint_match": 3.0,
+    # Timed events below are rounded medians of Generated-timestamp gap / heat count across
+    # 25022-26037 (docs/timed-event-durations.md); each includes ~1.5-2.5 min between heats.
     # Individual pursuit: 2 riders race simultaneously per heat
-    "pursuit_4k": 5.0,    # elite men 4km: ~4:15/ride per heat
-    "pursuit_3k": 4.0,    # elite women / junior men 3km: ~3:25/ride per heat
-    "pursuit_2k": 3.0,    # junior/U17 women 2km: ~2:20/ride per heat
-    # Team pursuit: 2 teams race simultaneously per heat (~4:30-5 min/ride)
-    "team_pursuit": 5.0,
-    # Team sprint: 2 teams per heat (~2:40 ride + setup)
-    "team_sprint": 2.67,
+    "pursuit_4k": 7.5,
+    "pursuit_3k": 5.5,
+    "pursuit_2k": 4.5,
+    # Team pursuit: 2 teams race simultaneously per heat
+    "team_pursuit": 6.75,
+    # Team sprint: 2 teams per heat
+    "team_sprint": 3.0,
     # Mass start races are almost always 1 heat; per-heat ≈ full race duration
     "scratch_race": 12.0,
     # Assumes 60 laps on a 250m track at ~50 km/h average speed
@@ -159,7 +161,7 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     # Time trials: one rider per heat; per-rider time + small gap between starts
     "time_trial_500": 2.33,    # 500m: ~2:20/rider
     "time_trial_750": 2.67,    # 750m: ~2:40/rider
-    "time_trial_kilo": 2.5,   # 1000m: ~2:30/rider
+    "time_trial_kilo": 3.0,   # 1000m: measured ~3:05/rider
     "time_trial_generic": 3.0,
 }
 

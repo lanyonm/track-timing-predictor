@@ -1,6 +1,6 @@
 # Timed Event Durations
 
-This document explains how the predictor estimates schedule slot durations for individual pursuits and time trials.
+This document explains how the predictor estimates schedule slot durations for individual pursuits, team pursuit, team sprint and time trials.
 
 ## How These Events Work
 
@@ -61,21 +61,27 @@ slot = heat_count × per_heat_duration
 
 (No changeover is added for pursuits; the per-heat duration already includes the setup time between heats.)
 
-Per-heat durations (race time + ~30 s transition):
+Per-heat durations come from the measured data in [Measured Per-Heat Durations](#measured-per-heat-durations). The race times above are only part of each slot: rider setup, the start and the clear-down between heats add about 1.5–2.5 min per heat.
 
 | Distance | Per-Heat Duration |
 |---|---|
-| 4 km | 5.0 min |
-| 3 km | 4.0 min |
-| 2 km | 3.0 min |
+| 4 km | 7.5 min |
+| 3 km | 5.5 min |
+| 2 km | 4.5 min |
 
-When heat count is unknown, the default duration covers an assumed ~2-heat final:
+When heat count is unknown, the default duration covers an assumed 2-heat final (the median heat count at 2 km and 4 km):
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|
-| `pursuit_4k` | 12.0 min | 2 heats × 5 min + 2 min buffer |
-| `pursuit_3k` | 9.0 min | 2 heats × 4 min + 1 min buffer |
-| `pursuit_2k` | 6.0 min | 2 heats × 3 min |
+| `pursuit_4k` | 15.0 min | 2 heats × 7.5 min |
+| `pursuit_3k` | 11.0 min | 2 heats × 5.5 min |
+| `pursuit_2k` | 9.0 min | 2 heats × 4.5 min |
+
+---
+
+## Team Pursuit and Team Sprint
+
+Both race two teams per heat, so they use the same `heat_count × per_heat_duration` formula. Per-heat durations are 6.75 min for `team_pursuit` and 3.0 min for `team_sprint`, from the measured data below. The flat defaults (10.0 min each) match the measured whole-event medians (10.4 and 9.4 min) and are unchanged.
 
 ---
 
@@ -105,7 +111,7 @@ Each rider's slot includes the ride itself plus rolling off the track and the ne
 |---|---|---|
 | 500 m | ~40–55 s | ~2:20 |
 | 750 m | ~55–65 s | ~2:40 |
-| 1000 m | ~1:00–1:20 | ~2:30 |
+| 1000 m | ~1:00–1:20 | ~3:00 |
 
 Rider counts at E26008 ranged from 1 (Master A Women) to ~7 (Elite Men kilo), reflecting typical entry sizes at a regional championship. National and international events may have larger fields and correspondingly longer slots.
 
@@ -123,17 +129,39 @@ Per-rider durations used:
 |---|---|
 | `time_trial_500` | 2.33 min (~2:20) |
 | `time_trial_750` | 2.67 min (~2:40) |
-| `time_trial_kilo` | 2.50 min (~2:30) |
+| `time_trial_kilo` | 3.00 min (measured ~3:05, see below) |
 
-When rider count is unknown, the default assumes ~8 riders:
+The 500 m value matches the measured median (2.31 min over 9 events). The 750 m value has one measurement (5.25 min at 26002) and is unchanged until there is more data.
+
+When rider count is unknown, the default assumes ~7–8 riders:
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|
 | `time_trial_500` | 20.0 min | 8 riders × 2:20 ≈ 19 min |
 | `time_trial_750` | 22.0 min | 8 riders × 2:40 ≈ 21 min |
-| `time_trial_kilo` | 22.0 min | 8 riders × 2:30 ≈ 20 min |
+| `time_trial_kilo` | 22.0 min | ~7 riders × 3:00 ≈ 21 min |
 
 ---
+
+## Measured Per-Heat Durations
+
+Per-heat duration = an event's Generated-timestamp gap (`generated_diff` observations in the extracted reports) ÷ its start-list heat count. Observations derived from heat counts are excluded, since they're computed from the model itself. Data: 25022, 25026, 25027, 25028, 25031, 26001, 26002, 26008, 26009, 26010 and 26037, extracted 2026-10-06 with URL-derived pursuit distances. Values are minutes; cells show the median per competition (n = events).
+
+| Discipline | 25022 | 25028 | 26002 | 26008 | 26009 | 26037 | All (median) | Previous | Now |
+|---|---|---|---|---|---|---|---|---|---|
+| `pursuit_2k` | 4.19 (5) | | 5.20 (5) | 4.54 (2) | 4.72 (3) | | 4.72 (15) | 3.0 | 4.5 |
+| `pursuit_3k` | 4.92 (1) | | 1.54 (1) | 5.71 (1) | 5.39 (1) | 6.20 (1) | 5.39 (5) | 4.0 | 5.5 |
+| `pursuit_4k` | 8.05 (3) | | 7.88 (3) | 6.80 (1) | | | 7.88 (7) | 5.0 | 7.5 |
+| `team_pursuit` | 5.93 (5) | | | 6.43 (5) | 8.07 (2) | 7.27 (1) | 6.90 (13) | 5.0 | 6.75 |
+| `team_sprint` | 4.50 (4) | 2.20 (1) | | 2.73 (4) | | | 3.01 (9) | 2.67 | 3.0 |
+| `time_trial_kilo` | | | 3.13 (2) | 3.26 (2) | 2.83 (3) | | 3.10 (7) | 2.5 | 3.0 |
+| `time_trial_500` | 2.30 (5) | | 2.60 (1) | 3.02 (2) | 2.16 (1) | | 2.31 (9) | 2.33 | 2.33 |
+
+New values are the all-competition median rounded to a quarter-minute. They round down for `pursuit_2k`, `pursuit_4k` and `team_pursuit`, where single slower meets (26002 pursuits, 26009 team pursuit) pull the median up, so no one competition sets the value. The 26002 `pursuit_3k` value (1.54) is an outlier: a 3-heat event whose Generated gap was 4.6 min.
+
+The same method confirmed the existing values for `sprint_qualifying` (median 1.36 vs 1.25), `sprint_match` (3.00 vs 3.0) and `keirin` (4.53 vs 4.5), so those are unchanged.
+
+**Fixed per-event overhead: not added.** Rounds with only a few heats run long per heat at 26037 (a 5-heat sprint qualifying at 2.94 min per heat). Across the other competitions, sprint qualifying with 4–16 heats stays at 1.1–1.5 min per heat with no visible trend by heat count, so the data doesn't yet support a fixed term.
 
 ## Caveats and Future Work
 
