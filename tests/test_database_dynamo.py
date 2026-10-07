@@ -9,9 +9,8 @@ import pytest
 from botocore.exceptions import BotoCoreError, ClientError
 from moto import mock_aws
 
-from app.config import settings
 from app import database
-
+from app.config import settings
 
 TABLE_NAME = "test-track-timing"
 

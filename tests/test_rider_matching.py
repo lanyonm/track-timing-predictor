@@ -8,22 +8,19 @@ from app.disciplines import get_per_heat_duration
 from app.models import (
     Event,
     EventStatus,
-    Prediction,
     RiderEntry,
     RiderMatch,
-    SchedulePrediction,
     Session,
-    SessionPrediction,
+    normalize_rider_name,
 )
-from app.models import normalize_rider_name
 from app.predictor import (
+    _heat_counts,
+    _start_list_riders,
     get_rider_match,
     predict_schedule,
     predict_session,
     record_heat_count,
     record_start_list_riders,
-    _start_list_riders,
-    _heat_counts,
 )
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -38,7 +35,6 @@ DISCIPLINE = "keirin"
 
 @pytest.fixture(autouse=True)
 def clear_caches():
-    from app.predictor import _start_list_riders, _heat_counts
 
     _start_list_riders.clear()
     _heat_counts.clear()

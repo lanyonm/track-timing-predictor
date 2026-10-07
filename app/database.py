@@ -3,36 +3,9 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
-try:
-    from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-
-    _BotoError = (BotoCoreError, ClientError)
-    _AUTH_ERROR_CODES = frozenset(
-        {
-            "ExpiredTokenException",
-            "UnrecognizedClientException",
-            "AccessDeniedException",
-            "InvalidSignatureException",
-        }
-    )
-except ImportError:  # boto3 not installed (local dev without AWS deps)
-    _BotoError = ()  # type: ignore[assignment]
-    NoCredentialsError = None  # type: ignore[assignment,misc]
-    _AUTH_ERROR_CODES = frozenset()
-
-
-def _raise_if_auth_error(exc: Exception) -> None:
-    """Re-raise credential/config errors that should not be silently caught."""
-    if NoCredentialsError is not None and isinstance(exc, NoCredentialsError):
-        raise exc
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code in _AUTH_ERROR_CODES:
-            raise exc
-
-
+from app.aws_errors import BotoError as _BotoError, ClientError, raise_if_auth_error as _raise_if_auth_error
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -136,7 +109,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_event_durations_natural_key
             ON event_durations(competition_id, session_id, event_position)
         """)
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as exc:
         dup_count = conn.execute("""
             SELECT COUNT(*) FROM event_durations
             WHERE id NOT IN (
@@ -144,7 +117,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                 GROUP BY competition_id, session_id, event_position
             )
         """).fetchone()[0]
-        raise DuplicateRowsError(dup_count)
+        raise DuplicateRowsError(dup_count) from exc
 
 
 def deduplicate_event_durations() -> int:
@@ -185,10 +158,11 @@ def deduplicate_event_durations() -> int:
 #                                            loader writes leave it unset
 # ---------------------------------------------------------------------------
 
-_dynamo_table_cache = None
+# boto3 DynamoDB Table resource; boto3 ships no type stubs
+_dynamo_table_cache: Any = None
 
 
-def _dynamo_table():
+def _dynamo_table() -> Any:
     global _dynamo_table_cache
     if _dynamo_table_cache is None:
         import boto3

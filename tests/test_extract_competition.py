@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from app.models import EventStatus
 from tools.extract_competition import (
     _fetch_with_retry,
     extract_competition,

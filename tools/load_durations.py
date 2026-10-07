@@ -19,7 +19,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.database import DuplicateRowsError, deduplicate_event_durations, init_db, record_duration_structured
-from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration, DEFAULT_DURATIONS
+from app.disciplines import DEFAULT_DURATIONS, get_changeover, get_default_duration, get_per_heat_duration
 from app.models import CompetitionReport, DurationRecord
 
 logger = logging.getLogger(__name__)

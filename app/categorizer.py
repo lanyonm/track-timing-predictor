@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import re
 
-from app.models import EventCategory
+from app.models import EventCategory, Gender
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ _CLASSIFICATION_PATTERNS: list[tuple[re.Pattern, str]] = [
 # 6. Gender patterns
 # --------------------------------------------------------------------------
 
-_GENDER_PATTERNS: list[tuple[re.Pattern, str]] = [
+_GENDER_PATTERNS: list[tuple[re.Pattern, Gender]] = [
     (re.compile(r"\bwomen\b", re.IGNORECASE), "women"),
     (re.compile(r"\bfemmes\b", re.IGNORECASE), "women"),
     (re.compile(r"\bdames\b", re.IGNORECASE), "women"),
@@ -293,7 +293,7 @@ def categorize_event(event_name: str) -> tuple[EventCategory, str]:
     text = _clean(event_name)
     discipline: str | None = None
     classification: str | None = None
-    gender: str = "open"
+    gender: Gender = "open"
     round_: str | None = None
     ride_number: int | None = None
     omnium_part: int | None = None

@@ -24,7 +24,13 @@ python -m tools.load_durations data/competitions/*.json   # → learning DB; --f
 python -m tools.rebuild_aggregates [--apply]              # DynamoDB only: recompute AGGREGATE# items from OBS#; dry run by default
 ```
 
-No linter, formatter or type checker is configured.
+Lint, format and type checking (config in `pyproject.toml`; CI runs all three):
+
+```bash
+ruff check .                               # lint (E, F, I, B, UP, ASYNC); --fix applies safe fixes
+ruff format .                              # format; CI runs ruff format --check
+mypy                                       # type-check app/ (non-strict, check_untyped_defs)
+```
 
 **Environment variables** (`app/config.py`, `pydantic_settings`, no prefix):
 
@@ -110,7 +116,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 - *Live app writes* go through `record_live_duration(..., source)`: `"observed"` from result-page Finish Times, `"wall_clock"` from the UPCOMING→COMPLETED fallback (capped at 3× static default). They're idempotent per `(competition, session, position)` and keep any existing record, except that an observed value replaces a wall-clock one. Loader records (no `source`) are never replaced. DynamoDB reuses the structured `OBS#` path with a `source` attribute; SQLite stores it in a `source` column.
 - *Loader writes* go through `record_duration_structured()` (returns `RecordOutcome`: created/updated/unchanged/error), with classification, gender and per-heat duration. They're idempotent: SQLite uses `INSERT OR REPLACE`; DynamoDB uses an `OBS#<comp>#<sess>#<pos>` item as a commit marker written after the `AGGREGATE#...` updates, with delta correction on re-load.
 - *Reads:* the app uses only `get_learned_duration(discipline)` (overrides first, then the average). `get_learned_duration_cascading(discipline, classification, gender)` exists and is tested, but nothing in the app calls it.
-- The DynamoDB key layout (`AGGREGATE#` levels, `OVERRIDE#`, `OBS#`) is documented in the comment block near the top of the DynamoDB section in `database.py` (~line 165). SQLite tables are `event_durations` (with `_migrate_schema` adding columns to old DBs) and `discipline_overrides`.
+- The DynamoDB key layout (`AGGREGATE#` levels, `OVERRIDE#`, `OBS#`) is documented in the comment block near the top of the DynamoDB section in `database.py` (~line 150). `aws_errors.py` holds the optional-botocore import shared by `database.py` and `palmares.py` (`BotoError`, `ClientError`, `raise_if_auth_error`). SQLite tables are `event_durations` (with `_migrate_schema` adding columns to old DBs) and `discipline_overrides`.
 
 **Disciplines:** two classifiers exist.
 - `disciplines.detect_discipline` is an ordered keyword list (`DISCIPLINE_KEYWORDS`, more specific phrases first). The live app uses it; `disciplines.py` also holds `DEFAULT_DURATIONS`, `PER_HEAT_DURATIONS` and changeovers.
@@ -136,6 +142,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 
 ## Repository map
 
+- `pyproject.toml`: project metadata, dependency ranges and ruff/mypy/pytest/coverage config.
 - `app/`: application. `tools/`: CLI importers and `rebuild_aggregates` (DynamoDB aggregate repair). `tests/`: pytest suite plus `fixtures/`. `cdk/`: infrastructure. `static/`: CSS.
 - `specs/NNN-name/`: speckit feature artifacts (spec, plan, tasks, research, contracts). 001–005 are complete and historical; read them for rationale, not current behaviour.
 - `.specify/`: speckit config. Only `memory/constitution.md` (project principles that govern design trade-offs) and `templates/overrides/` (project-specific plan and task rules) are committed. The rest of `.specify/` and the `/speckit.*` commands in `.claude/commands/` are installed locally and gitignored. The project uses Spec Kit **v0.2.1**; to install it, run `uvx --from git+https://github.com/github/spec-kit.git@v0.2.1 specify init --here --ai claude --script sh --force`. This keeps the existing constitution and overrides; check `git status` afterwards.

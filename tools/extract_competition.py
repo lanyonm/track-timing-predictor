@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -329,7 +329,7 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
 
         report = CompetitionReport(
             version="1.0",
-            extracted_at=datetime.now(timezone.utc),
+            extracted_at=datetime.now(UTC),
             competition=CompetitionMeta(
                 competition_id=competition_id,
                 name=f"Competition {competition_id}",

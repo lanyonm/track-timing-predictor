@@ -4,10 +4,10 @@ from datetime import datetime, time
 
 from bs4 import BeautifulSoup, Tag
 
-logger = logging.getLogger(__name__)
-
-from app.disciplines import detect_discipline, pursuit_discipline_from_urls, SPECIAL_EVENT_NAMES
+from app.disciplines import SPECIAL_EVENT_NAMES, detect_discipline, pursuit_discipline_from_urls
 from app.models import Event, EventStatus, RiderEntry, Session, normalize_rider_name
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_section_html(jxn_data: dict, section_id: str) -> str:
@@ -70,15 +70,17 @@ def _parse_row(row: Tag) -> tuple[EventStatus, str | None, str | None, str | Non
     live_url: str | None = None
 
     for btn in buttons:
-        classes = " ".join(btn.get("class", []))
+        classes = " ".join(btn.get_attribute_list("class"))
+        href = btn.get("href")
+        href = href if isinstance(href, str) else None
         if "btn-success" in classes and "disabled" not in classes:
-            result_url = btn.get("href")
+            result_url = href
         if "btn-primary" in classes and "disabled" not in classes:
-            start_list_url = btn.get("href")
+            start_list_url = href
         if "btn-info" in classes and "disabled" not in classes:
-            audit_url = btn.get("href")
+            audit_url = href
         if "btn-danger" in classes and "disabled" not in classes:
-            live_url = btn.get("href")
+            live_url = href
 
     if result_url:
         return EventStatus.COMPLETED, result_url, start_list_url, audit_url, live_url
@@ -325,7 +327,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
 
         session_id_str = details.get("id", "0")
         try:
-            session_id = int(session_id_str)
+            session_id = int(str(session_id_str))
         except (ValueError, TypeError):
             session_id = 0
 

@@ -4,10 +4,9 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from app.config import settings
 from app import palmares
+from app.config import settings
 from app.models import PalmaresEntry
-
 
 PALMARES_TABLE = "test-track-timing-palmares"
 

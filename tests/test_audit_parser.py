@@ -1,6 +1,6 @@
 """Tests for audit page HTML parsing."""
 
-from app.audit_parser import parse_audit_riders, filter_rider_data, format_csv
+from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
 
 
 def _load_fixture():

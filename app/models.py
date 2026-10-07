@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
+Gender = Literal["men", "women", "open"]
 
 
 class EventCategory(BaseModel):
@@ -17,7 +18,7 @@ class EventCategory(BaseModel):
 
     discipline: str = Field(min_length=1)
     classification: str | None = None
-    gender: Literal["men", "women", "open"] = "open"
+    gender: Gender = "open"
     round: str | None = None
     ride_number: int | None = Field(default=None, ge=1)
     omnium_part: int | None = Field(default=None, ge=1)
@@ -66,7 +67,7 @@ class RiderEntry(BaseModel):
     team_name: str | None = None
 
     @model_validator(mode="after")
-    def _compute_tokens(self) -> "RiderEntry":
+    def _compute_tokens(self) -> RiderEntry:
         if not self.normalized_tokens:
             tokens = normalize_rider_name(self.name)
             object.__setattr__(self, "normalized_tokens", tokens)
@@ -178,7 +179,7 @@ class DurationRecord(BaseModel):
     event_position: int = Field(ge=0)
 
     @model_validator(mode="after")
-    def _heat_count_required_for_heat_source(self) -> "DurationRecord":
+    def _heat_count_required_for_heat_source(self) -> DurationRecord:
         if self.duration_source == "heat_count" and self.heat_count is None:
             raise ValueError("heat_count must be set when duration_source is 'heat_count'")
         if self.per_heat_duration_minutes is not None and self.heat_count is None:
@@ -218,7 +219,7 @@ class EventReport(BaseModel):
     duration_source: DurationSource | None = None
 
     @model_validator(mode="after")
-    def _duration_fields_co_present(self) -> "EventReport":
+    def _duration_fields_co_present(self) -> EventReport:
         has_minutes = self.duration_minutes is not None
         has_source = self.duration_source is not None
         if has_minutes != has_source:

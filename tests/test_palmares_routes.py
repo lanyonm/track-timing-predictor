@@ -12,7 +12,6 @@ from app.main import app
 from app.models import PalmaresEntry
 from app.palmares import (
     count_competition_palmares,
-    delete_competition_palmares,
     get_palmares,
     save_palmares_entries,
 )
@@ -50,10 +49,11 @@ class TestPalmaresCollection:
             patch("app.main._fetch_result_pages", new_callable=AsyncMock),
             patch("app.main._fetch_live_heats", new_callable=AsyncMock),
         ):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+            ) as client:
                 response = await client.get(
                     f"/schedule/26008?r={encoded}",
-                    cookies={"racer_name": racer_name},
                 )
             assert response.status_code == 200
 
@@ -98,10 +98,11 @@ class TestPalmaresCollection:
             patch("app.main._fetch_result_pages", new_callable=AsyncMock),
             patch("app.main._fetch_live_heats", new_callable=AsyncMock),
         ):
-            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+            ) as client:
                 response = await client.get(
                     f"/schedule/26008?r={encoded}",
-                    cookies={"racer_name": racer_name},
                 )
             assert response.status_code == 200
 
@@ -110,6 +111,7 @@ class TestCompetitionDate:
     def test_palmares_date_uses_generated_timestamp(self):
         """Competition date should come from Generated timestamps, not datetime.now()."""
         from datetime import datetime as dt, time
+
         from app.main import _collect_palmares_entries
         from app.models import (
             Event,
@@ -175,10 +177,11 @@ class TestPalmaresPage:
         ]
         save_palmares_entries(entries)
 
-        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+        ) as client:
             response = await client.get(
                 "/palmares",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 200
         assert "Ontario Track Championships" in response.text
@@ -188,10 +191,11 @@ class TestPalmaresPage:
     @pytest.mark.asyncio
     async def test_identified_no_entries(self):
         racer_name = "empty palmares racer"
-        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+        ) as client:
             response = await client.get(
                 "/palmares",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 200
         assert "No achievements yet" in response.text
@@ -272,10 +276,10 @@ class TestPalmaresRemoval:
             transport=ASGITransport(app=app),
             base_url=BASE_URL,
             follow_redirects=False,
+            cookies={"racer_name": racer_name},
         ) as client:
             response = await client.get(
                 "/palmares/remove?competition_id=40001",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 303
         assert count_competition_palmares(racer_name, 40001) == 0
@@ -573,10 +577,10 @@ class TestPalmaresRename:
             transport=ASGITransport(app=app),
             base_url=BASE_URL,
             follow_redirects=False,
+            cookies={"racer_name": racer_name},
         ) as client:
             response = await client.get(
                 "/palmares/rename?competition_id=50001&name=Ontario+Track+Championships",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 303
         result = get_palmares(racer_name)
@@ -591,10 +595,11 @@ class TestPalmaresRename:
 
     @pytest.mark.asyncio
     async def test_rename_blank_name_returns_400(self):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": "someone"}
+        ) as client:
             response = await client.get(
                 "/palmares/rename?competition_id=50001&name=",
-                cookies={"racer_name": "someone"},
             )
         assert response.status_code == 400
 

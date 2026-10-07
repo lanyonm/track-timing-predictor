@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -12,14 +12,12 @@ from app.database import (
     DuplicateRowsError,
     deduplicate_event_durations,
     get_db,
-    get_learned_duration,
     get_learned_duration_cascading,
     init_db,
     record_duration_structured,
 )
 from app.models import CompetitionReport, DurationRecord
-from tools.load_durations import load_report, _validate_duration_bounds, _compute_per_heat_duration
-
+from tools.load_durations import _compute_per_heat_duration, _validate_duration_bounds, load_report
 
 # ---------------------------------------------------------------------------
 # Schema migration tests
@@ -54,7 +52,8 @@ def old_schema_db(tmp_path):
     conn.executescript(_OLD_SCHEMA)
     # Insert a sample row with old schema
     conn.execute(
-        "INSERT INTO event_durations (competition_id, session_id, event_position, event_name, discipline, duration_minutes) "
+        "INSERT INTO event_durations "
+        "(competition_id, session_id, event_position, event_name, discipline, duration_minutes) "
         "VALUES (1, 1, 0, 'test event', 'sprint_match', 12.0)"
     )
     conn.commit()
@@ -231,7 +230,7 @@ def _make_report(observations: list[DurationRecord]) -> CompetitionReport:
     """Create a minimal CompetitionReport with given observations."""
     return CompetitionReport(
         version="1.0",
-        extracted_at=datetime(2026, 3, 21, tzinfo=timezone.utc),
+        extracted_at=datetime(2026, 3, 21, tzinfo=UTC),
         competition={"competition_id": 26008, "name": "Test", "url": "http://test"},
         sessions=[],
         duration_observations=observations,

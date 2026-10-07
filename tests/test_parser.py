@@ -409,15 +409,12 @@ class TestParseGeneratedTime:
 # ── parse_start_list_riders ──────────────────────────────────────────────────
 
 
+@pytest.fixture(scope="module")
+def riders():
+    return parse_start_list_riders(Path("tests/fixtures/start-list-sample.html").read_text())
+
+
 class TestParseStartListRiders:
-    @pytest.fixture(scope="class")
-    def fixture_html(self):
-        return Path("tests/fixtures/start-list-sample.html").read_text()
-
-    @pytest.fixture(scope="class")
-    def riders(self, fixture_html):
-        return parse_start_list_riders(fixture_html)
-
     def test_multi_heat_extraction(self, riders):
         """Fixture has 3 heats: Heat 1 (4), Heat 2 (4), Heat 3 (3) = 11 riders."""
         assert len(riders) == 11
@@ -583,7 +580,7 @@ class TestPursuitDistanceFromUrl:
         assert pursuit_discipline_from_urls(None, None) is None
         assert pursuit_discipline_from_urls("results/E26037/M65-TP-4000-Q-0-R.htm") is None
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def by_name(self):
         def load(fixture):
             sessions = parse_schedule(json.loads((_FIXTURES / fixture).read_text()))

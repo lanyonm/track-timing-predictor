@@ -30,10 +30,22 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 line-length = 120
-extend-exclude = ["specs", ".specify", "docs"]
+extend-exclude = ["specs", ".specify", "docs", "plans"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC"]
+# StrEnum changes str()/format() of EventStatus members, which templates render
+ignore = ["UP042"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests read small fixture files inside async tests
+"tests/**" = ["ASYNC230"]
 
 [tool.mypy]
 python_version = "3.13"

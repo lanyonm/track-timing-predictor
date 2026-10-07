@@ -3,7 +3,6 @@ from datetime import datetime, time, timedelta
 from app.database import get_learned_duration, record_live_duration
 from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
 from app.models import (
-    Event,
     EventStatus,
     NextRace,
     Prediction,
@@ -409,15 +408,12 @@ def predict_session(
             if live_heat is not None:
                 # live_heat = count of finished heats; the running heat is the next one.
                 next_heat = live_heat + 1
-                if heat_count_list[i] is not None:
-                    active_heat = min(next_heat, heat_count_list[i])
-                else:
-                    active_heat = next_heat
-            elif heat_count_list[i] is not None:
+                hc = heat_count_list[i]
+                active_heat = min(next_heat, hc) if hc is not None else next_heat
+            elif (hc := heat_count_list[i]) is not None:
                 # Time-based fallback: elapsed since scheduled event start ÷ per-heat duration.
                 # Uses scheduled (not delay-adjusted) start so prior-event overrun doesn't
                 # incorrectly advance the heat counter.
-                hc = heat_count_list[i]
                 phd = get_per_heat_duration(event.discipline)
                 sched_start_minutes = _time_to_minutes(session.scheduled_start)
                 now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
@@ -484,13 +480,13 @@ def predict_session(
     )
 
 
-def _build_next_race(pred: Prediction) -> NextRace:
+def _build_next_race(pred: Prediction, match: RiderMatch) -> NextRace:
     """Build a NextRace from a matched Prediction."""
     return NextRace(
         event_name=pred.event.name,
-        heat=pred.rider_match.heat,
-        heat_count=pred.rider_match.heat_count,
-        predicted_start=pred.rider_match.heat_predicted_start,
+        heat=match.heat,
+        heat_count=match.heat_count,
+        predicted_start=match.heat_predicted_start,
         is_active=pred.is_active,
     )
 
@@ -533,7 +529,7 @@ def predict_schedule(
 
     # Active match takes priority; fall back to first upcoming match.
     best = active_candidate or upcoming_candidate
-    next_race = _build_next_race(best) if best else None
+    next_race = _build_next_race(best, best.rider_match) if best and best.rider_match else None
 
     return SchedulePrediction(
         competition_id=competition_id,

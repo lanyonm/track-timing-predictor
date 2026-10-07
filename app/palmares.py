@@ -7,19 +7,12 @@ by competition. Follows the same dual-backend dispatch pattern as database.py.
 import asyncio
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
+from app.aws_errors import ClientError, raise_if_auth_error as _raise_if_auth_error
 from app.config import settings
-from app.database import _raise_if_auth_error, get_db
-
-try:
-    from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-
-    _BotoError = (BotoCoreError, ClientError)
-except ImportError:
-    _BotoError = ()  # type: ignore[assignment]
-    NoCredentialsError = None  # type: ignore[assignment,misc]
-
+from app.database import get_db
 from app.models import PalmaresCompetition, PalmaresEntry
 
 logger = logging.getLogger(__name__)
@@ -161,10 +154,11 @@ def _delete_competition_sqlite(racer_name: str, competition_id: int) -> int:
 # DynamoDB backend
 # ---------------------------------------------------------------------------
 
-_palmares_table_cache = None
+# boto3 DynamoDB Table resource; boto3 ships no type stubs
+_palmares_table_cache: Any = None
 
 
-def _palmares_dynamo_table():
+def _palmares_dynamo_table() -> Any:
     global _palmares_table_cache
     if _palmares_table_cache is None:
         import boto3
@@ -184,7 +178,7 @@ def _save_entries_dynamo(entries: list[PalmaresEntry]) -> int:
     if not entries:
         return 0
     table = _palmares_dynamo_table()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     written = 0
     for entry in entries:
         item = {

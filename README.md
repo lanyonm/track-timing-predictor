@@ -110,6 +110,7 @@ app/
 ├── categorizer.py   # Compositional event name parser (bilingual, used by tools/)
 ├── database.py      # SQLite/DynamoDB storage for learned durations
 ├── palmares.py      # SQLite/DynamoDB storage for racer palmares
+├── aws_errors.py    # Shared botocore exception handling (optional dependency)
 ├── audit_parser.py  # Audit result parsing and CSV formatting
 ├── models.py        # Pydantic data models
 └── templates/       # Jinja2 HTML templates (DaisyUI + HTMX)

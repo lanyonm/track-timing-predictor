@@ -3,7 +3,9 @@ import base64
 import binascii
 import logging
 import posixpath
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import quote, unquote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -11,7 +13,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from mangum import Mangum
-from urllib.parse import quote, unquote
 from pythonjsonlogger.json import JsonFormatter
 
 from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
@@ -76,7 +77,7 @@ setup_logging()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_db()
     init_palmares_db()
     settings = get_settings()
@@ -293,15 +294,15 @@ def _content_disposition(filename: str) -> str:
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, object]:
     try:
         db_status = await asyncio.wait_for(check_health(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         db_status = {"status": "degraded", "detail": "Health check timed out"}
 
     try:
         palmares_status = await asyncio.wait_for(check_palmares_health(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         palmares_status = {"status": "degraded", "detail": "Palmares health check timed out"}
 
     components = {"database": db_status, "palmares": palmares_status}
@@ -310,7 +311,7 @@ async def health():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request) -> Response:
     return templates.TemplateResponse(request, "index.html")
 
 
@@ -404,7 +405,7 @@ def _save_and_count_palmares(
 
 
 @app.get("/schedule", response_class=RedirectResponse)
-async def schedule_redirect(event_id: int = Query(...)):
+async def schedule_redirect(event_id: int = Query(...)) -> RedirectResponse:
     """No-JS fallback: redirect GET /schedule?event_id=X to /schedule/X."""
     return RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
 
@@ -416,13 +417,15 @@ async def get_schedule(
     r: str | None = Query(None),
     settings: Settings = Depends(get_settings),
     client: httpx.AsyncClient = Depends(get_http_client),
-):
+) -> Response:
     """GET version of schedule so links and bookmarks work."""
     try:
         jxn_data = await fetch_initial_layout(client, event_id)
     except Exception:
         logger.warning("Failed to fetch event %d", event_id, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id} from tracktiming.live.")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to fetch event {event_id} from tracktiming.live."
+        ) from None
 
     sessions = parse_schedule(jxn_data)
     if not sessions:
@@ -500,7 +503,7 @@ async def refresh_schedule(
     r: str | None = Query(None),
     settings: Settings = Depends(get_settings),
     client: httpx.AsyncClient = Depends(get_http_client),
-):
+) -> Response:
     """
     HTMX polling endpoint. Called every N seconds to update the schedule.
     Returns only the schedule body partial for injection into the page.
@@ -510,7 +513,9 @@ async def refresh_schedule(
         jxn_data = await fetch_refresh(client, event_id)
     except Exception:
         logger.warning("Failed to refresh event %d", event_id, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id} from tracktiming.live.")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to refresh event {event_id} from tracktiming.live."
+        ) from None
 
     sessions = parse_schedule(jxn_data)
 
@@ -551,7 +556,7 @@ async def refresh_schedule(
 
 
 @app.get("/settings/use-learned")
-async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Query("off")):
+async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Query("off")) -> RedirectResponse:
     """Toggle the learned-durations feature flag for the current browser session."""
     response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
     if use_learned == "on":
@@ -562,7 +567,7 @@ async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Quer
 
 
 @app.get("/settings/racer-name")
-async def set_racer_name(event_id: int = Query(...), name: str = Query("")):
+async def set_racer_name(event_id: int = Query(...), name: str = Query("")) -> RedirectResponse:
     """Set or clear the racer name cookie, then redirect back to the schedule."""
     if name.strip():
         encoded = _encode_racer_name(name)
@@ -583,14 +588,13 @@ async def palmares_page(
     r: str | None = Query(None),
     name: str | None = Query(None),
     settings: Settings = Depends(get_settings),
-):
+) -> Response:
     """Palmares profile page — shows racer achievements grouped by competition."""
     # Handle name form submission: set cookie and redirect
     if name and name.strip():
-        racer_name = name.strip()
-        encoded = _encode_racer_name(racer_name)
-        response = RedirectResponse(url=f"/palmares?r={encoded}", status_code=303)
-        _set_racer_cookie(response, racer_name)
+        submitted = name.strip()
+        response = RedirectResponse(url=f"/palmares?r={_encode_racer_name(submitted)}", status_code=303)
+        _set_racer_cookie(response, submitted)
         return response
 
     racer_name = _resolve_racer_name(request, r)
@@ -634,7 +638,7 @@ async def palmares_export(
     r: str | None = Query(None),
     team_name: str | None = Query(None),
     client: httpx.AsyncClient = Depends(get_http_client),
-):
+) -> Response:
     """CSV export of individual audit result data for a specific event."""
     racer_name = _resolve_racer_name(request, r)
     if not racer_name:
@@ -675,7 +679,7 @@ async def palmares_export(
 async def palmares_remove(
     request: Request,
     competition_id: int = Query(...),
-):
+) -> RedirectResponse:
     """Delete all palmares entries for a competition. Cookie-only auth."""
     cookie_name = _cookie_racer_name(request)
     if not cookie_name:
@@ -692,7 +696,7 @@ async def palmares_rename(
     request: Request,
     competition_id: int = Query(...),
     name: str = Query(""),
-):
+) -> RedirectResponse:
     """Update competition name. Cookie-only auth."""
     cookie_name = _cookie_racer_name(request)
     if not cookie_name:
@@ -707,7 +711,7 @@ async def palmares_rename(
 
 
 @app.get("/defaults", response_class=HTMLResponse)
-async def default_durations(request: Request):
+async def default_durations(request: Request) -> Response:
     """Display the built-in default durations for inspection."""
     rows = [
         {"discipline": d, "default": DEFAULT_DURATIONS[d], "per_heat": PER_HEAT_DURATIONS.get(d)}
@@ -717,7 +721,7 @@ async def default_durations(request: Request):
 
 
 @app.get("/learned", response_class=HTMLResponse)
-async def learned_durations(request: Request, settings: Settings = Depends(get_settings)):
+async def learned_durations(request: Request, settings: Settings = Depends(get_settings)) -> Response:
     """Display the learned duration database for inspection."""
     durations = get_all_learned_durations()
     return templates.TemplateResponse(

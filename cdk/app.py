@@ -1,7 +1,6 @@
 import os
 
 import aws_cdk as cdk
-
 from base_stack import TrackTimingBaseStack
 from track_timing_stack import TrackTimingStack
 

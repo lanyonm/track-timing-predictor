@@ -2,7 +2,7 @@
 
 import base64
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -19,7 +19,6 @@ from app.predictor import (
     _start_list_riders,
     _status_cache,
 )
-from app.models import normalize_rider_name
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -331,7 +330,7 @@ class TestVenueOffsetInferredFromResults:
 
     @pytest.fixture(autouse=True)
     def live_26037(self):
-        from datetime import timezone
+
         from tests.test_clock import frozen_datetime
 
         schedule = json.loads((FIXTURE_DIR / "schedule-26037-live.json").read_text())
@@ -342,7 +341,7 @@ class TestVenueOffsetInferredFromResults:
             path = results_dir / url.rsplit("/", 1)[-1]
             return path.read_text() if path.exists() else ""
 
-        captured = datetime(2026, 10, 6, 12, 43, 11, tzinfo=timezone.utc)
+        captured = datetime(2026, 10, 6, 12, 43, 11, tzinfo=UTC)
         with (
             patch("app.clock.datetime", frozen_datetime(captured)),
             patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=schedule),

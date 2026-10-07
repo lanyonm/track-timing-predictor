@@ -1,6 +1,7 @@
 """Tests for the compositional event name categorizer."""
 
 import pytest
+
 from app.categorizer import categorize_event
 
 

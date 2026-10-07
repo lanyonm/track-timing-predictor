@@ -822,7 +822,6 @@ class TestUpdateStatusCacheWallClockBound:
 
     def test_reasonable_elapsed_is_recorded(self):
         """An elapsed time within 3× default is recorded without issue."""
-        from app.database import get_all_learned_durations
 
         sessions = [self._make_session(EventStatus.UPCOMING, "keirin")]
         t_seen = datetime(2026, 1, 1, 12, 0, 0)
@@ -992,6 +991,7 @@ class TestGeneratedGapAssignment:
     @pytest.fixture
     def tuesday(self):
         import json
+
         from app.parser import parse_generated_time
 
         fixtures = Path(__file__).parent / "fixtures"
