@@ -276,6 +276,28 @@ def parse_rider_list(html: str) -> list[RiderListEntry]:
     return entries
 
 
+def parse_start_list_categories(html: str) -> frozenset[str]:
+    """
+    Distinct values of a start list's Category column.
+
+    Only combined-age races carry the column (e.g. 50+ Women Points Race lists
+    W5054 … W7074), and each category gets its own podium. Returns an empty set
+    when there is no Category column.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    categories: set[str] = set()
+    for table in soup.find_all("table"):
+        headers = [th.get_text(strip=True) for th in table.find_all("th")]
+        if "Category" not in headers:
+            continue
+        col = headers.index("Category")
+        for row in table.find_all("tr"):
+            cells = row.find_all("td")
+            if len(cells) == len(headers) and (value := cells[col].get_text(strip=True)):
+                categories.add(value)
+    return frozenset(categories)
+
+
 def parse_heat_count(html: str) -> int | None:
     """
     Count the number of heats in a start list page.

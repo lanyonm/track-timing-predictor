@@ -17,6 +17,7 @@ from app.parser import (
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
+    parse_start_list_categories,
     parse_start_list_riders,
 )
 
@@ -284,6 +285,19 @@ class TestParseHeatCount:
     def test_ignores_final_ranges_in_prose(self):
         html = "<h5>Top 3 riders advance to Final 1-6, next 3 advance to Final 7-12</h5>\nHeat 1\nHeat 2\n"
         assert parse_heat_count(html) == 2
+
+
+# ── parse_start_list_categories ───────────────────────────────────────────────
+
+
+class TestParseStartListCategories:
+    def test_combined_race_categories(self):
+        html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
+        assert parse_start_list_categories(html) == frozenset({"W5054", "W5559", "W6064", "W6569", "W7074"})
+
+    def test_no_category_column(self):
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_start_list_categories(html) == frozenset()
 
 
 # ── parse_live_heat ────────────────────────────────────────────────────────────

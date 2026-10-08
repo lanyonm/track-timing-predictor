@@ -1,5 +1,6 @@
 from datetime import datetime, time, timedelta
 
+from app.ceremonies import ceremony_duration, forecast_podiums
 from app.database import get_learned_duration, record_live_duration
 from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
 from app.models import (
@@ -48,6 +49,11 @@ _generated_times: dict[tuple[int, int, int], datetime] = {}
 # Parsed rider entries from start list pages.
 # Key: (competition_id, session_id, position), Value: list of RiderEntry
 _start_list_riders: dict[tuple[int, int, int], list[RiderEntry]] = {}
+
+# Category column values from combined-age start lists, used to forecast ceremony podiums.
+# Only non-empty sets are stored.
+# Key: (competition_id, session_id, position), Value: frozenset of categories
+_start_list_categories: dict[tuple[int, int, int], frozenset[str]] = {}
 
 # Parsed Rider Lists. The file is immutable for a competition, so entries never expire.
 # Key: Rider List relative URL, Value: non-empty list of RiderListEntry
@@ -176,6 +182,22 @@ def has_start_list_riders(competition_id: int, session_id: int, position: int) -
     the event can fall back to Rider List matching.
     """
     return bool(_start_list_riders.get((competition_id, session_id, position)))
+
+
+def record_start_list_categories(
+    competition_id: int,
+    session_id: int,
+    position: int,
+    categories: frozenset[str],
+) -> None:
+    """Store a start list's Category values; an empty set never replaces cached ones."""
+    if categories:
+        _start_list_categories[(competition_id, session_id, position)] = categories
+
+
+def has_start_list_categories(competition_id: int, session_id: int, position: int) -> bool:
+    """Return True if Category values have been cached for this event."""
+    return (competition_id, session_id, position) in _start_list_categories
 
 
 def is_start_list_cached(competition_id: int, session_id: int, position: int) -> bool:
@@ -342,6 +364,7 @@ def predict_session(
     racer_name: str | None = None,
     use_learned: bool = False,
     rider_list_matches: dict[tuple[int, int], RiderMatch] | None = None,
+    ceremony_podiums: dict[tuple[int, int], int] | None = None,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -351,12 +374,16 @@ def predict_session(
       2. Generated: difference between consecutive result-page Generated timestamps
       3. Heat count: start-list heat count × per-heat duration + changeover
       4. Default: learned average or DEFAULT_DURATIONS fallback
+    A medal ceremony with forecast podiums uses ceremony_duration instead; its own
+    Generated timestamp marks when it starts, so the gap before it is never used.
 
     now: server wall-clock time used to estimate real-time delay.
          If None, no delay adjustment is applied (pre-event mode).
     racer_name: optional racer name for rider matching.
     rider_list_matches: the racer's Rider List matches from rider_list.match_events,
             keyed by (session_id, position); used for events without start-list riders.
+    ceremony_podiums: forecast podiums per medal ceremony from ceremonies.forecast_podiums,
+            keyed by (session_id, position).
     """
     # Pre-tokenize racer name once for the entire session (avoids re-normalizing per event)
     user_tokens = normalize_rider_name(racer_name) if racer_name and racer_name.strip() else None
@@ -364,6 +391,7 @@ def predict_session(
     durations: list[float] = []
     is_observed_list: list[bool] = []
     heat_count_list: list[int | None] = []
+    podium_list: list[int | None] = []
 
     # Pre-compute generated-time derived durations.
     # Duration of event[i] = generated_time[i] - generated_time[i-1], when both
@@ -378,6 +406,8 @@ def predict_session(
     events = session.events
     gen_durations: dict[int, float] = {}
     for i in range(1, len(events)):
+        if events[i].discipline == "ceremony":
+            continue
         t0 = _generated_times.get((competition_id, session.session_id, events[i - 1].position))
         t1 = _generated_times.get((competition_id, session.session_id, events[i].position))
         # Expected duration: use heat-count estimate if available, else the
@@ -396,7 +426,13 @@ def predict_session(
     for i, e in enumerate(events):
         observed = get_observed_duration(competition_id, session.session_id, e.position)
         hc = get_heat_count(competition_id, session.session_id, e.position)
-        if observed is not None:
+        podiums = (ceremony_podiums or {}).get((session.session_id, e.position))
+        podium_list.append(podiums)
+        if podiums is not None:
+            durations.append(ceremony_duration(podiums))
+            is_observed_list.append(False)
+            heat_count_list.append(None)
+        elif observed is not None:
             durations.append(observed)
             is_observed_list.append(True)
             heat_count_list.append(None)
@@ -512,6 +548,7 @@ def predict_session(
                 cumulative_delay_minutes=applied_delay,
                 is_observed=is_observed_list[i],
                 heat_count=heat_count_list[i],
+                podium_count=podium_list[i],
                 is_active=is_active,
                 active_heat=active_heat,
                 rider_match=rider_match,
@@ -564,6 +601,8 @@ def predict_schedule(
         rider_entry = find_rider(rider_list, normalize_rider_name(racer_name))
     if rider_entry is not None:
         rider_list_matches = match_events(rider_entry, sessions)
+    categories = {(s, p): c for (comp, s, p), c in _start_list_categories.items() if comp == competition_id}
+    ceremony_podiums = forecast_podiums(sessions, categories, rider_list)
 
     session_predictions = []
     total_events_without_start_lists = 0
@@ -582,6 +621,7 @@ def predict_schedule(
             racer_name=racer_name,
             use_learned=use_learned,
             rider_list_matches=rider_list_matches,
+            ceremony_podiums=ceremony_podiums,
         )
         session_predictions.append(sp)
         total_events_without_start_lists += sp.events_without_start_lists

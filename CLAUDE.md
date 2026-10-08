@@ -82,7 +82,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 **Request flow (`/schedule/{event_id}`):**
 1. `fetcher.fetch_initial_layout` POSTs to the Jaxon endpoint (refresh uses `fetch_refresh`).
 2. `parser.parse_schedule` turns the HTML into `Session`/`Event` models.
-3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. When a racer is set and some race has no start-list riders, the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
+3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. When a racer is set and some race has no start-list riders, or a combined-age bunch final has no cached start-list categories, the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
 4. `predictor.predict_schedule` builds a `SchedulePrediction`.
 5. Jinja2 renders `schedule.html`; HTMX polls `/schedule/{id}/refresh`, which returns `_schedule_body.html`.
 
@@ -113,7 +113,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 **Cookies:** `racer_name` (`b64.` + unpadded URL-safe Base64 of the name, since Starlette encodes headers as Latin-1; legacy raw-name values are still read and rewritten on the next schedule view; 1 year, HttpOnly, Secure, Lax); `use_learned` (`"true"` when on; off by default); `theme` (`light`/`dark`, set client-side, 1 year).
 
-**In-memory caches** (`predictor.py`, keyed by `(competition_id, session_id, position)`, unbounded, per Lambda container): `_status_cache` (status transitions for wall-clock learning), `_observed_durations`, `_heat_counts`, `_live_heats`, `_generated_times`, `_start_list_riders` (an empty list counts as no start list: `has_start_list_riders` is false and it is refetched, except for COMPLETED events, whose start list is fetched once; an empty parse never replaces cached riders). `_rider_lists` is keyed by Rider List URL instead and holds non-empty lists forever (the file is immutable for a competition); a failed fetch or 0-row parse goes in `_rider_list_retry_at` and isn't retried for `RIDER_LIST_RETRY_SECONDS` (10 min).
+**In-memory caches** (`predictor.py`, keyed by `(competition_id, session_id, position)`, unbounded, per Lambda container): `_status_cache` (status transitions for wall-clock learning), `_observed_durations`, `_heat_counts`, `_live_heats`, `_generated_times`, `_start_list_riders` (an empty list counts as no start list: `has_start_list_riders` is false and it is refetched, except for COMPLETED events, whose start list is fetched once; an empty parse never replaces cached riders), `_start_list_categories` (non-empty Category column values from `parser.parse_start_list_categories`; only combined-age start lists have the column). `_rider_lists` is keyed by Rider List URL instead and holds non-empty lists forever (the file is immutable for a competition); a failed fetch or 0-row parse goes in `_rider_list_retry_at` and isn't retried for `RIDER_LIST_RETRY_SECONDS` (10 min).
 
 **Duration source priority** (`predictor.predict_session`):
 1. Observed: result-page Finish Time + changeover (bunch races).
@@ -121,7 +121,9 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 3. Heat count: `heat_count × per_heat_duration + changeover`.
 4. Fallback: if the `use_learned` cookie is on, the discipline-level learned average (`get_learned_duration`, ≥ `MIN_LEARNED_SAMPLES`); otherwise `DEFAULT_DURATIONS`.
 
-The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
+A medal ceremony with a podium forecast skips all four and uses `CEREMONY_BASE_MINUTES + podiums × CEREMONY_PER_PODIUM_MINUTES` (13 + 3.3, `disciplines.py`). Its Generated timestamp marks its start, so the gap before a ceremony is never used.
+
+The UI labels these as **obs.** (1–2), **N heats** (3), **N podiums** (ceremonies) and **est.** (4).
 
 **Live delay** (`predictor._compute_delay`): applied only while a session has both completed events and pending non-special events (a NOT_READY End of Session doesn't keep a finished session live). The same condition gates the active-event flag. It is clamped to [−30, +120] min and returns 0 once `actual_elapsed > total_est + 60 min`, so post-event views show scheduled times. "Now" comes from `clock.venue_now()`, naive to match the schedule. Upstream exposes no timezone, so the venue's UTC offset is inferred from the newest Generated timestamp in an in-progress session (`predictor.latest_live_generated_time`): Generated ≤ venue-local now, so (Generated − UTC now − 2 min skew allowance) rounded up to the whole hour is the offset while that result is under ~58 min old. Results older than that (a long break) give an offset an hour low, and half-hour zones aren't supported. With no live session, or an offset outside UTC−12..+14, it falls back to `VENUE_TZ`. Both schedule routes use it, and the "Last updated" label shows it (the refresh partial carries it in `#schedule-generated-at`).
 
@@ -141,6 +143,11 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 - Scope is EventId 26037's formats only: categories `[MW]NNNN` (lo–hi) or `[MW]NN` (lo and over), event names with `NN-NN`/`NN+` then `Men`/`Women`, and codes S TT IP TP TS SCR PTS (`CODE_DISCIPLINES`). Other categories (e.g. 26008's `ME`, `MU17`) and codes produce no match. The event band must contain the rider's band.
 - `match_events` decides certainty per code over the events this rider matches: a lone event is **Entered**; otherwise Qualifying/Qualifier N rounds are Entered and the rest **If advancing** (`RiderMatch.tentative`). Per-rider grouping keeps finals tentative when overlapping open bands (55+ and 65+) share a qualifying round. Matches have `source="rider_list"` and no heat; next race uses the event's predicted start. When the rider matches several numbered qualifiers for a code (e.g. Scratch Race Qualifier 1 and 2), they ride only one, so those matches set `parallel_qualifier` and next race reads "… (or a later qualifier), be ready by HH:MM".
 - The template replaces the start-list warnings with an info line naming the category and codes (`SchedulePrediction.rider_list_entry`, set only when a Rider List match exists). Rider List matches never create palmares entries.
+
+**Ceremony podiums** (`ceremonies.py`, pure functions; `predictor.predict_schedule` calls `forecast_podiums` with the cached start-list categories and the Rider List):
+- A ceremony awards the finals since the previous ceremony, across sessions. Rounds (`1/N Final`) don't count; a sprint Final counts after its last scheduled ride; team events are one podium.
+- Combined-age points and scratch finals (`35-49 Women`, `50+ Women`) are one podium per category: start-list Category column, else Rider List categories with that event code inside the band, else five-year bands in the name (1 for an open band).
+- Scope is 26037's naming: a ceremony whose window has a final without an `event_band` gets no forecast and keeps `DEFAULT_DURATIONS["ceremony"]`. Rationale and data in `docs/medal-ceremony-durations.md`.
 
 **Palmares** (`palmares.py`; DynamoDB when `PALMARES_TABLE` is set, otherwise SQLite `palmares_entries`):
 - Collected automatically on schedule views when a racer is identified and matched on a start list to a timed event that has an audit URL.
@@ -166,7 +173,7 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 - `specs/NNN-name/`: speckit feature artifacts (spec, plan, tasks, research, contracts). 001–005 are complete and historical; read them for rationale, not current behaviour.
 - `.specify/`: speckit config. Only `memory/constitution.md` (project principles that govern design trade-offs) and `templates/overrides/` (project-specific plan and task rules) are committed. The rest of `.specify/` and the `/speckit.*` commands in `.claude/commands/` are installed locally and gitignored. The project uses Spec Kit **v0.2.1**; to install it, run `uvx --from git+https://github.com/github/spec-kit.git@v0.2.1 specify init --here --ai claude --script sh --force`. This keeps the existing constitution and overrides; check `git status` afterwards.
 - `plans/`: pre-speckit design notes. `hosting-plan.md` is the current infrastructure reference; `data-pipeline*.md` and `dynamo-import-reload.md` are historical.
-- `docs/`: `duration-data-import.md` (extract/load tooling reference), per-discipline duration rationale (`sprint-`, `mass-start-race-`, `timed-event-durations.md`), and historical HTML UI prototypes (`daisyui-*`, `*-mockup.html`).
+- `docs/`: `duration-data-import.md` (extract/load tooling reference), per-discipline duration rationale (`sprint-`, `mass-start-race-`, `timed-event-`, `medal-ceremony-durations.md`), and historical HTML UI prototypes (`daisyui-*`, `*-mockup.html`).
 
 ## Conventions
 

@@ -125,6 +125,13 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "unknown": 10.0,
 }
 
+# Medal ceremony length from the podiums it awards (app/ceremonies.py forecasts the count).
+# Least-squares fit to the three mid-session ceremonies at EventId 26037 that a following
+# result timestamp brackets: 4, 8 and 11 podiums took ~23, ~46 and ~45 min
+# (docs/medal-ceremony-durations.md). The flat "ceremony" default stays for unforecast ones.
+CEREMONY_BASE_MINUTES = 13.0
+CEREMONY_PER_PODIUM_MINUTES = 3.3
+
 SPECIAL_EVENT_NAMES = {"break", "pause", "end of session", "medal ceremonies", "medal ceremony"}
 
 # Per-heat durations in minutes for use when heat count is known from a start list.

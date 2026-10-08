@@ -19,7 +19,7 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 8. When results are posted, refines completed-event durations using the race's actual Finish Time, or the gap between consecutive result-page timestamps
 9. Auto-refreshes every 30 seconds so predictions stay current throughout the day
 
-The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), or **est.** (default/learned fallback).
+The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N podiums** (medal ceremonies), or **est.** (default/learned fallback).
 
 ## Taxonomy
 
@@ -113,6 +113,7 @@ app/
 ├── parser.py        # HTML parsing of Jaxon AJAX responses
 ├── predictor.py     # Prediction algorithm and live delay detection
 ├── rider_list.py    # Rider List fallback matching (age band, gender, event codes)
+├── ceremonies.py    # Medal ceremony podium forecasting
 ├── disciplines.py   # Discipline detection and default duration estimates
 ├── categorizer.py   # Compositional event name parser (bilingual, used by tools/)
 ├── database.py      # SQLite/DynamoDB storage for learned durations
@@ -142,6 +143,8 @@ Each event's slot duration is determined by the first available source:
 2. **Generated timestamps** — for completed events without a Finish Time, the gap between its result page's `Generated` timestamp and the previous event's (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
 3. **Heat count** — on page load, start list pages are fetched concurrently for every event. The number of heats × a per-heat duration constant gives the slot estimate. Shown as **N heats** in the UI.
 4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
+
+**Medal ceremonies** at masters competitions take 13 min plus 3.3 min per podium. The podium count is forecast from the finals since the previous ceremony, with combined-age races split by category. Shown as **N podiums** in the UI. See [docs/medal-ceremony-durations.md](docs/medal-ceremony-durations.md).
 
 Learned averages are stored in SQLite locally and DynamoDB in production.
 

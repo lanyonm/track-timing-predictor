@@ -17,6 +17,7 @@ from mangum import Mangum
 from pythonjsonlogger.json import JsonFormatter
 
 from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
+from app.ceremonies import needs_categories
 from app.clock import venue_now
 from app.config import Settings, get_settings
 from app.database import check_health, get_all_learned_durations, init_db
@@ -41,12 +42,14 @@ from app.parser import (
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
+    parse_start_list_categories,
     parse_start_list_riders,
 )
 from app.predictor import (
     get_generated_time,
     get_heat_count,
     get_rider_list,
+    has_start_list_categories,
     has_start_list_riders,
     is_start_list_cached,
     latest_live_generated_time,
@@ -57,6 +60,7 @@ from app.predictor import (
     record_observed_duration,
     record_rider_list,
     record_rider_list_failure,
+    record_start_list_categories,
     record_start_list_riders,
     rider_list_retry_pending,
     update_status_cache,
@@ -188,6 +192,7 @@ async def _fetch_start_lists(
                     record_heat_count(ev_id, sess_id, pos, count)
                 riders = parse_start_list_riders(html)
                 record_start_list_riders(ev_id, sess_id, pos, riders)
+                record_start_list_categories(ev_id, sess_id, pos, parse_start_list_categories(html))
             except Exception:
                 logger.warning(
                     "Failed to parse start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
@@ -279,19 +284,29 @@ async def _fetch_rider_list_if_needed(
     racer_name: str | None,
 ) -> list[RiderListEntry] | None:
     """
-    Fetch the Rider List when a racer is set and some race may lack start-list riders.
+    Fetch the Rider List when it can change the prediction: a racer is set and some
+    race may lack start-list riders, or a combined-age final has no cached start-list
+    categories to forecast its ceremony podiums from.
 
     Runs alongside the start-list fetches, so it uses the pre-fetch approximation:
     a non-special event with no start_list_url or no cached start-list riders.
     """
-    if not racer_name or not racer_name.strip():
-        return None
-    if not any(
-        not e.is_special
-        and (not e.start_list_url or not has_start_list_riders(competition_id, s.session_id, e.position))
+    needed_for_racer = (
+        racer_name is not None
+        and racer_name.strip() != ""
+        and any(
+            not e.is_special
+            and (not e.start_list_url or not has_start_list_riders(competition_id, s.session_id, e.position))
+            for s in sessions
+            for e in s.events
+        )
+    )
+    needed_for_podiums = any(
+        needs_categories(e) and not has_start_list_categories(competition_id, s.session_id, e.position)
         for s in sessions
         for e in s.events
-    ):
+    )
+    if not (needed_for_racer or needed_for_podiums):
         return None
     url = parse_rider_list_url(jxn_data)
     return await _fetch_rider_list(client, url) if url else None

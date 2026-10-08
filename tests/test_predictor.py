@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from app.disciplines import CHANGEOVER_MINUTES, DEFAULT_DURATIONS, PER_HEAT_DURATIONS
+from app.disciplines import (
+    CEREMONY_BASE_MINUTES,
+    CEREMONY_PER_PODIUM_MINUTES,
+    CHANGEOVER_MINUTES,
+    DEFAULT_DURATIONS,
+    PER_HEAT_DURATIONS,
+)
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
 from app.predictor import (
@@ -1025,3 +1031,51 @@ class TestGeneratedGapAssignment:
         gen = {e.position: get_generated_time(self.COMP, tuesday.session_id, e.position) for e in tuesday.events}
         assert round(extract_generated_diff_duration(gen[3], gen[4], "team_pursuit"), 1) == 14.5
         assert round(extract_generated_diff_duration(gen[7], gen[8], "sprint_match"), 1) == 22.4
+
+
+# ── Medal ceremony duration from forecast podiums ─────────────────────────────
+
+
+class TestCeremonyDuration:
+    def _session(self) -> Session:
+        names = ["45-49 Men Pursuit Final", "50-54 Men Pursuit Final", "Medal Ceremonies", "55-59 Men Pursuit Final"]
+        events = [
+            Event(
+                position=i,
+                name=n,
+                discipline="ceremony" if n == "Medal Ceremonies" else "pursuit_3k",
+                status=EventStatus.NOT_READY,
+                is_special=n == "Medal Ceremonies",
+            )
+            for i, n in enumerate(names)
+        ]
+        return Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+
+    def test_duration_from_podiums(self):
+        session = self._session()
+        schedule = predict_schedule(26101, [session], now=None)
+        ceremony = schedule.sessions[0].event_predictions[2]
+        assert ceremony.podium_count == 2
+        assert ceremony.estimated_duration_minutes == pytest.approx(
+            CEREMONY_BASE_MINUTES + 2 * CEREMONY_PER_PODIUM_MINUTES
+        )
+        assert schedule.sessions[0].event_predictions[3].predicted_start == _add_minutes(
+            time(10, 0), 2 * DEFAULT_DURATIONS["pursuit_3k"] + ceremony.estimated_duration_minutes
+        )
+
+    def test_generated_gap_ignored_for_ceremony(self):
+        # A ceremony page is generated seconds after the previous result, at the ceremony's start.
+        session = self._session()
+        record_generated_time(26102, 1, 1, datetime(2026, 10, 7, 17, 29, 27))
+        record_generated_time(26102, 1, 2, datetime(2026, 10, 7, 17, 44, 0))
+        schedule = predict_schedule(26102, [session], now=None)
+        ceremony = schedule.sessions[0].event_predictions[2]
+        assert not ceremony.is_observed
+        assert ceremony.podium_count == 2
+
+    def test_unforecast_ceremony_keeps_default(self):
+        session = self._session()
+        session.events[0].name = "U17 Men Pursuit Final"
+        ceremony = predict_schedule(26103, [session], now=None).sessions[0].event_predictions[2]
+        assert ceremony.podium_count is None
+        assert ceremony.estimated_duration_minutes == DEFAULT_DURATIONS["ceremony"]
