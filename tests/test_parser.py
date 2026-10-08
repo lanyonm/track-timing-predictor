@@ -5,6 +5,7 @@ from datetime import datetime, time
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
@@ -17,6 +18,7 @@ from app.parser import (
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
+    parse_sprint_deciders,
     parse_start_list_categories,
     parse_start_list_riders,
 )
@@ -303,6 +305,50 @@ class TestParseStartListCategories:
     def test_no_category_column(self):
         html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
         assert parse_start_list_categories(html) == frozenset()
+
+
+# ── parse_sprint_deciders ─────────────────────────────────────────────────────
+
+
+def _blank_rides(html: str, keep: int) -> str:
+    """Blank every ride column after the first ``keep`` (Ride 1, Ride 2, Decider) in a sprint result page.
+
+    The captured pages were saved after the decider was ridden; this recreates the page
+    as it stood earlier in the round.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    for row in tbody.find_all("tr"):
+        for td in row.find_all("td", recursive=False)[-3:][keep:]:
+            td.clear()
+    return str(soup)
+
+
+class TestParseSprintDeciders:
+    def test_quarter_final_with_relegation_decider(self):
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) == 1
+
+    def test_semi_final_without_deciders(self):
+        html = (FIXTURE_DIR / "result-sprint-semi-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) == 0
+
+    def test_final_headings(self):
+        # Final pages label their pairs "Final 3-4" and "Final 1-2" instead of "Heat N"
+        html = (FIXTURE_DIR / "result-sprint-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) == 1
+
+    def test_tied_pairs_after_ride_2(self):
+        html = _blank_rides((FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text(), keep=2)
+        assert parse_sprint_deciders(html) == 1
+
+    def test_unknown_after_ride_1(self):
+        html = _blank_rides((FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text(), keep=1)
+        assert parse_sprint_deciders(html) is None
+
+    def test_non_sprint_page(self):
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) is None
 
 
 # ── parse_live_heat ────────────────────────────────────────────────────────────

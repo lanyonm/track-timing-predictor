@@ -298,6 +298,45 @@ def parse_start_list_categories(html: str) -> frozenset[str]:
     return frozenset(categories)
 
 
+_SPRINT_PAIR_RE = re.compile(r"^(?:Heat\s+\d+|Final\s+\d+-\d+)$")
+
+
+def parse_sprint_deciders(html: str) -> int | None:
+    """
+    Count the pairs in a best-of-3 sprint round that need (or rode) a decider.
+
+    All rides of a round share one result page with Ride 1, Ride 2 and Decider
+    columns. Each pair has a header row ('Heat N', or 'Final 3-4'/'Final 1-2' on a
+    Final) whose last three cells hold each ride's 200m time, then one row per
+    rider whose last three cells hold 'Winner' or a gap (a relegated rider shows
+    'REL'). A pair needs a decider when it rode one or each rider won once.
+
+    Returns None until every pair has ridden Ride 2, or for any other page.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    headers = [th.get_text(strip=True) for th in soup.find_all("th")]
+    if "Decider" not in headers:
+        return None
+    tbody = soup.find("tbody")
+    if tbody is None:
+        return None
+
+    pairs: list[tuple[int, list[int]]] = []  # (rides timed, wins per rider)
+    for row in tbody.find_all("tr"):
+        cells = row.find_all("td", recursive=False)
+        if len(cells) < 3:
+            continue
+        rides = cells[-3:]
+        if _SPRINT_PAIR_RE.match(cells[0].get_text(" ", strip=True)):
+            pairs.append((sum(1 for c in rides if "km/h" in c.get_text()), []))
+        elif pairs:
+            pairs[-1][1].append(sum(1 for c in rides if c.get_text(strip=True) == "Winner"))
+
+    if not pairs or any(timed < 2 for timed, _ in pairs):
+        return None
+    return sum(1 for timed, wins in pairs if timed >= 3 or wins == [1, 1])
+
+
 def parse_heat_count(html: str) -> int | None:
     """
     Count the number of heats in a start list page.

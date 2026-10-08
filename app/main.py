@@ -21,7 +21,7 @@ from app.ceremonies import needs_categories
 from app.clock import venue_now
 from app.config import Settings, get_settings
 from app.database import check_health, get_all_learned_durations, init_db
-from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
+from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS, split_ride
 from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
 from app.models import EventStatus, PalmaresEntry, RiderListEntry, SchedulePrediction, Session
 from app.palmares import (
@@ -42,6 +42,7 @@ from app.parser import (
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
+    parse_sprint_deciders,
     parse_start_list_categories,
     parse_start_list_riders,
 )
@@ -60,6 +61,7 @@ from app.predictor import (
     record_observed_duration,
     record_rider_list,
     record_rider_list_failure,
+    record_sprint_deciders,
     record_start_list_categories,
     record_start_list_riders,
     rider_list_retry_pending,
@@ -242,6 +244,10 @@ async def _fetch_result_pages(
                 finish_time = parse_finish_time(html)
                 if finish_time is not None:
                     record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name)
+                if discipline == "sprint_match" and (ride := split_ride(name)) is not None:
+                    deciders = parse_sprint_deciders(html)
+                    if deciders is not None:
+                        record_sprint_deciders(ev_id, ride[0], deciders)
             except Exception:
                 logger.warning(
                     "Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True

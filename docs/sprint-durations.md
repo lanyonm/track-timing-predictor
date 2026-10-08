@@ -96,6 +96,22 @@ When heat count is unknown:
 |---|---|---|
 | `sprint_match` | 12.0 min | ~4 matches × 3 min |
 
+### Best-of-3 Rides (Ride 1, Ride 2, Ride 3)
+
+Masters championships (26037) schedule each best-of-3 ride as its own row: `55-59 Men Sprint 1/4 Final Ride 1`, `Ride 2`, `Ride 3`. All three rows share one start list and one result page (`M5559-S-4-R1-S.htm`, `M5559-S-4-R1-R.htm`), and the start list's heat count is the number of pairs. Every pair rides Rides 1 and 2, so those use the normal heat-count estimate.
+
+Ride 3 is the decider, ridden only by pairs tied 1–1. In completed 26037 rounds (days 1–3) 4 of 32 pairs needed one, so a Ride 3 is estimated as:
+
+```
+slot = heat_count × per_heat_duration × SPRINT_DECIDER_RATE   (0.12)
+```
+
+(1.44 min for a 4-pair round, 0.72 for 2 pairs; without a start list, the 12-minute default × 0.12.) Expected value rather than "one match" because overestimating pushes every later event's predicted start too late.
+
+Once Ride 2 is posted, the shared result page shows which pairs are tied, and the Ride 3 uses the exact count: `deciders × per_heat_duration`, shown as **N heats** (0 when none). `parser.parse_sprint_deciders` reads it: each pair's header row (`Heat N`, or `Final 3-4`/`Final 1-2` on a Final) carries a 200m time per ride ridden, and each rider row a `Winner` (or a gap, or `REL` for a relegated rider) per ride. A pair needs a decider if it rode one or each rider won once. Upstream drops a Ride 3 row from the schedule when no pair needs it.
+
+Measured one-decider Ride 3 slots took 2.6–7.3 min (median ~4.2), against 3.0 per match. A Ride 3 that ran over 6 min falls outside the 0.5×–2× Generated-gap window and keeps the decider estimate rather than showing **obs.**
+
 ---
 
 ## Keirin

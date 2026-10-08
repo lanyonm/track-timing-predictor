@@ -12,6 +12,7 @@ from app.disciplines import (
     CHANGEOVER_MINUTES,
     DEFAULT_DURATIONS,
     PER_HEAT_DURATIONS,
+    SPRINT_DECIDER_RATE,
 )
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
@@ -24,6 +25,7 @@ from app.predictor import (
     record_generated_time,
     record_heat_count,
     record_live_heat,
+    record_sprint_deciders,
     update_status_cache,
 )
 
@@ -1079,3 +1081,70 @@ class TestCeremonyDuration:
         ceremony = predict_schedule(26103, [session], now=None).sessions[0].event_predictions[2]
         assert ceremony.podium_count is None
         assert ceremony.estimated_duration_minutes == DEFAULT_DURATIONS["ceremony"]
+
+
+# ── Sprint Ride 3 (decider) duration ──────────────────────────────────────────
+
+
+class TestSprintRide3:
+    """A best-of-3 round's Ride 3 is ridden only by pairs tied 1-1 after Ride 2."""
+
+    ROUND = "55-59 Men Sprint 1/4 Final"
+
+    def _session(self, ride3_status: EventStatus = EventStatus.NOT_READY) -> Session:
+        def event(pos: int, name: str, status: EventStatus) -> Event:
+            return Event(position=pos, name=name, discipline="sprint_match", status=status, is_special=False)
+
+        return Session(
+            session_id=1,
+            day="Day",
+            scheduled_start=time(10, 0),
+            events=[
+                event(0, f"{self.ROUND} Ride 2", EventStatus.COMPLETED),
+                event(1, f"{self.ROUND} Ride 3", ride3_status),
+            ],
+        )
+
+    def test_expected_deciders_before_ride_2_results(self):
+        record_heat_count(26111, 1, 1, 4)
+        ride3 = predict_session(26111, self._session()).event_predictions[1]
+        assert ride3.estimated_duration_minutes == pytest.approx(
+            4 * PER_HEAT_DURATIONS["sprint_match"] * SPRINT_DECIDER_RATE
+        )
+        assert ride3.heat_count is None
+
+    def test_expected_deciders_without_start_list(self):
+        ride3 = predict_session(26112, self._session()).event_predictions[1]
+        assert ride3.estimated_duration_minutes == pytest.approx(
+            DEFAULT_DURATIONS["sprint_match"] * SPRINT_DECIDER_RATE
+        )
+
+    def test_known_deciders(self):
+        record_heat_count(26113, 1, 1, 4)
+        record_sprint_deciders(26113, self.ROUND, 1)
+        ride3 = predict_session(26113, self._session()).event_predictions[1]
+        assert ride3.estimated_duration_minutes == pytest.approx(PER_HEAT_DURATIONS["sprint_match"])
+        assert ride3.heat_count == 1
+
+    def test_no_deciders(self):
+        record_heat_count(26114, 1, 1, 4)
+        record_sprint_deciders(26114, self.ROUND, 0)
+        ride3 = predict_session(26114, self._session()).event_predictions[1]
+        assert ride3.estimated_duration_minutes == 0.0
+        assert ride3.heat_count == 0
+
+    def test_ride_2_unaffected(self):
+        record_heat_count(26115, 1, 0, 4)
+        record_sprint_deciders(26115, self.ROUND, 1)
+        ride2 = predict_session(26115, self._session()).event_predictions[0]
+        assert ride2.estimated_duration_minutes == pytest.approx(4 * PER_HEAT_DURATIONS["sprint_match"])
+
+    def test_completed_ride_3_uses_generated_gap(self):
+        # 3.2 min is outside 0.5x-2x of the full 4-pair estimate (12 min) but plausible for one decider.
+        record_heat_count(26116, 1, 1, 4)
+        record_sprint_deciders(26116, self.ROUND, 1)
+        record_generated_time(26116, 1, 0, datetime(2026, 10, 7, 17, 0, 0))
+        record_generated_time(26116, 1, 1, datetime(2026, 10, 7, 17, 3, 12))
+        ride3 = predict_session(26116, self._session(EventStatus.COMPLETED)).event_predictions[1]
+        assert ride3.is_observed
+        assert ride3.estimated_duration_minutes == pytest.approx(3.2)

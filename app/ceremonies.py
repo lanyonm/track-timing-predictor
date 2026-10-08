@@ -15,13 +15,12 @@ Pure functions, no I/O.
 import re
 from collections.abc import Mapping
 
-from app.disciplines import CEREMONY_BASE_MINUTES, CEREMONY_PER_PODIUM_MINUTES
+from app.disciplines import CEREMONY_BASE_MINUTES, CEREMONY_PER_PODIUM_MINUTES, split_ride
 from app.models import Event, RiderListEntry, Session
 from app.rider_list import AgeBand, category_band, event_band, event_code
 
 _FINAL_RE = re.compile(r"\bFinal\b")
 _ROUND_RE = re.compile(r"\b1/\d+\s+Final\b")
-_RIDE_RE = re.compile(r"\s+Ride\s+\d+\s*$")
 
 # Bunch races whose combined-age fields are split into per-category podiums.
 _CATEGORY_PODIUM_DISCIPLINES = frozenset({"points_race", "scratch_race"})
@@ -36,7 +35,8 @@ def _final_key(event: Event) -> str | None:
     """The medal final an event belongs to (rides collapsed), or None for anything else."""
     if event.is_special or not _FINAL_RE.search(event.name) or _ROUND_RE.search(event.name):
         return None
-    return _RIDE_RE.sub("", event.name)
+    ride = split_ride(event.name)
+    return ride[0] if ride else event.name
 
 
 def _combined_band(event: Event) -> AgeBand | None:

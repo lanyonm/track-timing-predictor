@@ -2,8 +2,15 @@ from datetime import datetime, time, timedelta
 
 from app.ceremonies import ceremony_duration, forecast_podiums
 from app.database import get_learned_duration, record_live_duration
-from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
+from app.disciplines import (
+    SPRINT_DECIDER_RATE,
+    get_changeover,
+    get_default_duration,
+    get_per_heat_duration,
+    split_ride,
+)
 from app.models import (
+    Event,
     EventStatus,
     NextRace,
     Prediction,
@@ -54,6 +61,11 @@ _start_list_riders: dict[tuple[int, int, int], list[RiderEntry]] = {}
 # Only non-empty sets are stored.
 # Key: (competition_id, session_id, position), Value: frozenset of categories
 _start_list_categories: dict[tuple[int, int, int], frozenset[str]] = {}
+
+# Pairs needing a decider in a best-of-3 sprint round, from its shared result page once
+# Ride 2 is posted (parser.parse_sprint_deciders).
+# Key: (competition_id, round name without "Ride N"), Value: number of deciders
+_sprint_deciders: dict[tuple[int, str], int] = {}
 
 # Parsed Rider Lists. The file is immutable for a competition, so entries never expire.
 # Key: Rider List relative URL, Value: non-empty list of RiderListEntry
@@ -198,6 +210,32 @@ def record_start_list_categories(
 def has_start_list_categories(competition_id: int, session_id: int, position: int) -> bool:
     """Return True if Category values have been cached for this event."""
     return (competition_id, session_id, position) in _start_list_categories
+
+
+def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) -> None:
+    """Store how many pairs in a sprint round need (or rode) a decider."""
+    _sprint_deciders[(competition_id, round_name)] = deciders
+
+
+def _base_estimate(competition_id: int, session_id: int, event: Event, use_learned: bool) -> tuple[float, int | None]:
+    """Pre-result duration and heat count: heat count × per-heat + changeover, else the default.
+
+    A sprint Ride 3 is ridden only by pairs tied after Ride 2: the known decider count
+    (reported as its heat count) once Ride 2 is posted, else the full estimate scaled by
+    SPRINT_DECIDER_RATE.
+    """
+    hc = get_heat_count(competition_id, session_id, event.position)
+    ride = split_ride(event.name) if event.discipline == "sprint_match" else None
+    if ride is not None and ride[1] == 3:
+        deciders = _sprint_deciders.get((competition_id, ride[0]))
+        if deciders is not None:
+            return deciders * get_per_heat_duration(event.discipline), deciders
+        if hc is not None:
+            return hc * get_per_heat_duration(event.discipline) * SPRINT_DECIDER_RATE, None
+        return _get_duration(event.discipline, use_learned) * SPRINT_DECIDER_RATE, None
+    if hc is not None:
+        return hc * get_per_heat_duration(event.discipline) + get_changeover(event.discipline), hc
+    return _get_duration(event.discipline, use_learned), None
 
 
 def is_start_list_cached(competition_id: int, session_id: int, position: int) -> bool:
@@ -373,6 +411,7 @@ def predict_session(
       1. Observed: result-page Finish Time + changeover
       2. Generated: difference between consecutive result-page Generated timestamps
       3. Heat count: start-list heat count × per-heat duration + changeover
+         (a sprint Ride 3 uses its decider count, see _base_estimate)
       4. Default: learned average or DEFAULT_DURATIONS fallback
     A medal ceremony with forecast podiums uses ceremony_duration instead; its own
     Generated timestamp marks when it starts, so the gap before it is never used.
@@ -410,22 +449,17 @@ def predict_session(
             continue
         t0 = _generated_times.get((competition_id, session.session_id, events[i - 1].position))
         t1 = _generated_times.get((competition_id, session.session_id, events[i].position))
-        # Expected duration: use heat-count estimate if available, else the
-        # STATIC default (not learned averages).  Learned data may itself be
-        # corrupted by bad gen-duration observations from earlier runs, so it
-        # must not influence the bounds used to validate new observations.
-        hc_i = _heat_counts.get((competition_id, session.session_id, events[i].position))
-        if hc_i is not None:
-            expected = hc_i * get_per_heat_duration(events[i].discipline) + get_changeover(events[i].discipline)
-        else:
-            expected = get_default_duration(events[i].discipline)
+        # Expected duration: the pre-result estimate with the STATIC default
+        # (not learned averages).  Learned data may itself be corrupted by bad
+        # gen-duration observations from earlier runs, so it must not influence
+        # the bounds used to validate new observations.
+        expected, _ = _base_estimate(competition_id, session.session_id, events[i], use_learned=False)
         mins = generated_gap_duration(t0, t1, expected)
         if mins is not None:
             gen_durations[i] = mins
 
     for i, e in enumerate(events):
         observed = get_observed_duration(competition_id, session.session_id, e.position)
-        hc = get_heat_count(competition_id, session.session_id, e.position)
         podiums = (ceremony_podiums or {}).get((session.session_id, e.position))
         podium_list.append(podiums)
         if podiums is not None:
@@ -440,15 +474,11 @@ def predict_session(
             durations.append(gen_durations[i])
             is_observed_list.append(True)
             heat_count_list.append(None)
-        elif hc is not None:
-            dur = hc * get_per_heat_duration(e.discipline) + get_changeover(e.discipline)
+        else:
+            dur, hc = _base_estimate(competition_id, session.session_id, e, use_learned)
             durations.append(dur)
             is_observed_list.append(False)
             heat_count_list.append(hc)
-        else:
-            durations.append(_get_duration(e.discipline, use_learned))
-            is_observed_list.append(False)
-            heat_count_list.append(None)
 
     # Count leading completed events (events run sequentially)
     completed_count = 0
@@ -502,8 +532,8 @@ def predict_session(
                 # live_heat = count of finished heats; the running heat is the next one.
                 next_heat = live_heat + 1
                 hc = heat_count_list[i]
-                active_heat = min(next_heat, hc) if hc is not None else next_heat
-            elif (hc := heat_count_list[i]) is not None:
+                active_heat = min(next_heat, hc) if hc else next_heat
+            elif hc := heat_count_list[i]:
                 # Time-based fallback: elapsed since scheduled event start ÷ per-heat duration.
                 # Uses scheduled (not delay-adjusted) start so prior-event overrun doesn't
                 # incorrectly advance the heat counter.

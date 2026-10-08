@@ -173,6 +173,13 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "time_trial_generic": 3.0,
 }
 
+# Share of best-of-3 sprint pairs tied 1-1 after Ride 2, so riding a decider (Ride 3).
+# 4 of 32 pairs in completed 26037 rounds (docs/sprint-durations.md). Used for a Ride 3
+# until Ride 2's results show how many pairs are tied.
+SPRINT_DECIDER_RATE = 0.12
+
+_RIDE_RE = re.compile(r"^(.*\S)\s+Ride\s+(\d+)\s*$")
+
 # Minutes to add to a result-page Finish Time to account for changeover between events.
 # Only applicable to disciplines where "Finish Time" appears in result pages (mass start races).
 CHANGEOVER_MINUTES: dict[str, float] = {
@@ -183,6 +190,15 @@ CHANGEOVER_MINUTES: dict[str, float] = {
     "madison": 2.0,
     "keirin": 2.0,
 }
+
+
+def split_ride(event_name: str) -> tuple[str, int] | None:
+    """Split a best-of-3 ride's name into its round and ride number, or None for other events.
+
+    "55-59 Men Sprint 1/4 Final Ride 2" → ("55-59 Men Sprint 1/4 Final", 2)
+    """
+    m = _RIDE_RE.match(event_name)
+    return (m.group(1), int(m.group(2))) if m else None
 
 
 def get_changeover(discipline: str) -> float:

@@ -13,7 +13,7 @@ import pytest
 from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
-from app.main import _fetch_rider_list_if_needed, _fetch_start_lists, app
+from app.main import _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
 from app.models import EventStatus
 from app.parser import parse_schedule
 from app.predictor import (
@@ -23,6 +23,7 @@ from app.predictor import (
     _observed_durations,
     _rider_list_retry_at,
     _rider_lists,
+    _sprint_deciders,
     _start_list_categories,
     _start_list_riders,
     _status_cache,
@@ -67,6 +68,7 @@ def clear_predictor_caches():
     _generated_times.clear()
     _start_list_riders.clear()
     _start_list_categories.clear()
+    _sprint_deciders.clear()
     _rider_lists.clear()
     _rider_list_retry_at.clear()
     yield
@@ -612,3 +614,21 @@ class TestParallelQualifierRoute:
         )
         for name in ("55-59 Men Scratch Race Qualifier 1", "55-59 Men Scratch Race Qualifier 2"):
             assert "Entered" in _event_row(client.get("/schedule/26037").text, name).get_text()
+
+
+class TestFetchResultPagesDeciders:
+    def test_records_deciders_from_completed_rides(self):
+        sessions = parse_schedule(_load_fixture("schedule-26037.json"))
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
+        page = AsyncMock(side_effect=lambda _client, _path: html)
+        with patch("app.main.fetch_page_html", page):
+            asyncio.run(_fetch_result_pages(None, 26037, sessions))
+        completed_rounds = {
+            e.name.rsplit(" Ride ", 1)[0]
+            for s in sessions
+            for e in s.events
+            if e.discipline == "sprint_match" and " Ride " in e.name and e.result_url
+        }
+        assert completed_rounds
+        assert {k[1] for k in _sprint_deciders} == completed_rounds
+        assert set(_sprint_deciders.values()) == {1}
