@@ -103,14 +103,14 @@ Masters championships (26037) schedule each best-of-3 ride as its own row: `55-5
 Ride 3 is the decider, ridden only by pairs tied 1–1. In completed 26037 rounds (days 1–3) 4 of 32 pairs needed one, so a Ride 3 is estimated as:
 
 ```
-slot = heat_count × per_heat_duration × SPRINT_DECIDER_RATE   (0.12)
+slot = heat_count × SPRINT_DECIDER_RATE × SPRINT_DECIDER_MINUTES   (0.12 × 4.25)
 ```
 
-(1.44 min for a 4-pair round, 0.72 for 2 pairs; without a start list, the pairs come from the round name.) Expected value rather than "one match" because overestimating pushes every later event's predicted start too late.
+(2.04 min for a 4-pair round, 1.02 for 2 pairs; without a start list, the pairs come from the round name.) Expected value rather than "one match" because overestimating pushes every later event's predicted start too late.
 
-Once Ride 2 is posted, the shared result page shows which pairs are tied, and the Ride 3 uses the exact count: `deciders × per_heat_duration`, shown as **N heats** (0 when none). `parser.parse_sprint_deciders` reads it: each pair's header row (`Heat N`, or `Final 3-4`/`Final 1-2` on a Final) carries a 200m time per ride ridden, and each rider row a `Winner` (or a gap, or `REL` for a relegated rider) per ride. A pair needs a decider if it rode one or each rider won once. Upstream drops a Ride 3 row from the schedule when no pair needs it.
+Once Ride 2 is posted, the shared result page shows which pairs are tied, and the Ride 3 uses the exact count: `deciders × SPRINT_DECIDER_MINUTES`, shown as **N heats** (0 when none). `parser.parse_sprint_deciders` reads it: each pair's header row (`Heat N`, or `Final 3-4`/`Final 1-2` on a Final) carries a 200m time per ride ridden, and each rider row a `Winner` (or a gap, or `REL` for a relegated rider) per ride. A pair needs a decider if it rode one or each rider won once. Upstream drops a Ride 3 row from the schedule when no pair needs it.
 
-Measured one-decider Ride 3 slots took 2.6–7.3 min (median ~4.2), against 3.0 per match. A Ride 3 that ran over 6 min falls outside the 0.5×–2× Generated-gap window and keeps the decider estimate rather than showing **obs.**
+`SPRINT_DECIDER_MINUTES` (4.25) is the median of the one-decider Ride 3 slots at 26037: 2.6, 3.4, 4.23, 4.4 and 7.3 min. That's more than a match's 3.0-minute share of a full round, since a lone decider carries the whole changeover. Its 0.5×–2× Generated-gap window (2.1–8.5 min) covers all five.
 
 ---
 

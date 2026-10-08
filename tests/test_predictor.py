@@ -12,6 +12,7 @@ from app.disciplines import (
     CHANGEOVER_MINUTES,
     DEFAULT_DURATIONS,
     PER_HEAT_DURATIONS,
+    SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
 )
 from app.models import Event, EventStatus, Session
@@ -1108,22 +1109,18 @@ class TestSprintRide3:
     def test_expected_deciders_before_ride_2_results(self):
         record_heat_count(26111, 1, 1, 4)
         ride3 = predict_session(26111, self._session()).event_predictions[1]
-        assert ride3.estimated_duration_minutes == pytest.approx(
-            4 * PER_HEAT_DURATIONS["sprint_match"] * SPRINT_DECIDER_RATE
-        )
+        assert ride3.estimated_duration_minutes == pytest.approx(4 * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
         assert ride3.heat_count is None
 
     def test_expected_deciders_without_start_list(self):
         ride3 = predict_session(26112, self._session()).event_predictions[1]
-        assert ride3.estimated_duration_minutes == pytest.approx(
-            DEFAULT_DURATIONS["sprint_match"] * SPRINT_DECIDER_RATE
-        )
+        assert ride3.estimated_duration_minutes == pytest.approx(4 * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
 
     def test_known_deciders(self):
         record_heat_count(26113, 1, 1, 4)
         record_sprint_deciders(26113, self.ROUND, 1)
         ride3 = predict_session(26113, self._session()).event_predictions[1]
-        assert ride3.estimated_duration_minutes == pytest.approx(PER_HEAT_DURATIONS["sprint_match"])
+        assert ride3.estimated_duration_minutes == pytest.approx(SPRINT_DECIDER_MINUTES)
         assert ride3.heat_count == 1
 
     def test_no_deciders(self):
@@ -1138,6 +1135,16 @@ class TestSprintRide3:
         record_sprint_deciders(26115, self.ROUND, 1)
         ride2 = predict_session(26115, self._session()).event_predictions[0]
         assert ride2.estimated_duration_minutes == pytest.approx(4 * PER_HEAT_DURATIONS["sprint_match"])
+
+    def test_long_decider_still_observed(self):
+        # 40-44 Men Sprint Final Ride 3 at 26037: one decider took 7.3 min.
+        record_heat_count(26117, 1, 1, 2)
+        record_sprint_deciders(26117, self.ROUND, 1)
+        record_generated_time(26117, 1, 0, datetime(2026, 10, 5, 18, 17, 58))
+        record_generated_time(26117, 1, 1, datetime(2026, 10, 5, 18, 25, 16))
+        ride3 = predict_session(26117, self._session(EventStatus.COMPLETED)).event_predictions[1]
+        assert ride3.is_observed
+        assert ride3.estimated_duration_minutes == pytest.approx(7.3)
 
     def test_completed_ride_3_uses_generated_gap(self):
         # 3.2 min is outside 0.5x-2x of the full 4-pair estimate (12 min) but plausible for one decider.
@@ -1176,9 +1183,7 @@ class TestSprintRoundPairs:
 
     def test_decider_scaled_from_round_name(self):
         pred = self._predict(26122, "65+ Women Sprint 1/2 Final Ride 3")
-        assert pred.estimated_duration_minutes == pytest.approx(
-            2 * PER_HEAT_DURATIONS["sprint_match"] * SPRINT_DECIDER_RATE
-        )
+        assert pred.estimated_duration_minutes == pytest.approx(2 * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
 
     def test_other_rounds_keep_default(self):
         # 1/8 Finals vary with byes (4 heats at 26008, 8 at 26037), so they keep the default.

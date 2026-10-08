@@ -3,6 +3,7 @@ from datetime import datetime, time, timedelta
 from app.ceremonies import ceremony_duration, forecast_podiums
 from app.database import get_learned_duration, record_live_duration
 from app.disciplines import (
+    SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
     get_changeover,
     get_default_duration,
@@ -222,9 +223,9 @@ def _base_estimate(competition_id: int, session_id: int, event: Event, use_learn
     """Pre-result duration and heat count: heat count × per-heat + changeover, else the default.
 
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs).
-    A sprint Ride 3 is ridden only by pairs tied after Ride 2: the known decider count
-    (reported as its heat count) once Ride 2 is posted, else the full estimate scaled by
-    SPRINT_DECIDER_RATE.
+    A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
+    decider once Ride 2 is posted (the count is reported as its heat count), else per
+    expected decider (pairs × SPRINT_DECIDER_RATE).
     """
     hc = get_heat_count(competition_id, session_id, event.position)
     is_sprint = event.discipline == "sprint_match"
@@ -233,10 +234,11 @@ def _base_estimate(competition_id: int, session_id: int, event: Event, use_learn
     if ride is not None and ride[1] == 3:
         deciders = _sprint_deciders.get((competition_id, ride[0]))
         if deciders is not None:
-            return deciders * get_per_heat_duration(event.discipline), deciders
+            return deciders * SPRINT_DECIDER_MINUTES, deciders
         if pairs is not None:
-            return pairs * get_per_heat_duration(event.discipline) * SPRINT_DECIDER_RATE, None
-        return _get_duration(event.discipline, use_learned) * SPRINT_DECIDER_RATE, None
+            return pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, None
+        full = _get_duration(event.discipline, use_learned) / get_per_heat_duration(event.discipline)
+        return full * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, None
     if hc is None and pairs is not None:
         return pairs * get_per_heat_duration(event.discipline), None
     if hc is not None:

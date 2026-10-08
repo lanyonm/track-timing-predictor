@@ -177,6 +177,9 @@ PER_HEAT_DURATIONS: dict[str, float] = {
 # 4 of 32 pairs in completed 26037 rounds (docs/sprint-durations.md). Used for a Ride 3
 # until Ride 2's results show how many pairs are tied.
 SPRINT_DECIDER_RATE = 0.12
+# Minutes per decider ride: median of the one-decider Ride 3 slots at 26037 (2.6-7.3 min,
+# median 4.23), longer than a match's share of a full round (sprint_match per-heat 3.0).
+SPRINT_DECIDER_MINUTES = 4.25
 
 _RIDE_RE = re.compile(r"^(.*\S)\s+Ride\s+(\d+)\s*$")
 
