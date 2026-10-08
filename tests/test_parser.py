@@ -282,6 +282,11 @@ class TestParseHeatCount:
         html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
         assert parse_heat_count(html) == 2
 
+    def test_medal_final_counts_bronze_and_gold_rides(self):
+        # Pursuit, team pursuit and team sprint finals label their heats "For Bronze" and "For Gold"
+        html = (FIXTURE_DIR / "start-list-pursuit-final-26037.html").read_text()
+        assert parse_heat_count(html) == 2
+
     def test_ignores_final_ranges_in_prose(self):
         html = "<h5>Top 3 riders advance to Final 1-6, next 3 advance to Final 7-12</h5>\nHeat 1\nHeat 2\n"
         assert parse_heat_count(html) == 2

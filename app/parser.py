@@ -302,14 +302,15 @@ def parse_heat_count(html: str) -> int | None:
     """
     Count the number of heats in a start list page.
 
-    Each sequential time slot is labeled 'Heat N' in the page text. Sprint
-    Final start lists label their matches with '<h4>' headings like
-    'Final 3-4' instead; only headings count, since keirin pages mention
+    Each sequential time slot is labeled 'Heat N' in the page text. Medal
+    finals label theirs with '<h4>' headings instead: 'Final 3-4' and
+    'Final 1-2' for sprints, 'For Bronze' and 'For Gold' for pursuits, team
+    pursuit and team sprint. Only headings count, since keirin pages mention
     'Final 1-6' in qualification-rule prose.
     Returns None if no heats are found (e.g., page unavailable or format changed).
     """
     heats = re.findall(r"\bHeat\s+\d+\b", html)
-    heats += re.findall(r"<h4>(?:<strong>)?\s*Final\s+\d+-\d+\b", html, re.IGNORECASE)
+    heats += re.findall(r"<h4>(?:<strong>)?\s*(?:Final\s+\d+-\d+|For\s+(?:Bronze|Gold))\b", html, re.IGNORECASE)
     return len(heats) if heats else None
 
 
