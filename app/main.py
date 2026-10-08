@@ -2,7 +2,10 @@ import asyncio
 import base64
 import binascii
 import logging
+import posixpath
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import quote, unquote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -29,7 +32,14 @@ from app.palmares import (
     save_palmares_entries,
     update_competition_palmares,
 )
-from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
+from app.parser import (
+    parse_finish_time,
+    parse_generated_time,
+    parse_heat_count,
+    parse_live_heat,
+    parse_schedule,
+    parse_start_list_riders,
+)
 from app.predictor import (
     get_generated_time,
     get_heat_count,
@@ -49,11 +59,13 @@ logger = logging.getLogger(__name__)
 
 def setup_logging() -> None:
     handler = logging.StreamHandler()
-    handler.setFormatter(JsonFormatter(
-        fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%SZ",
-        rename_fields={"asctime": "timestamp", "levelname": "level"},
-    ))
+    handler.setFormatter(
+        JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%SZ",
+            rename_fields={"asctime": "timestamp", "levelname": "level"},
+        )
+    )
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(logging.INFO)
@@ -65,7 +77,7 @@ setup_logging()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_db()
     init_palmares_db()
     settings = get_settings()
@@ -89,7 +101,8 @@ def get_http_client(request: Request) -> httpx.AsyncClient:
 
 async def _fetch_live_heats(
     client: httpx.AsyncClient,
-    competition_id: int, sessions: list[Session],
+    competition_id: int,
+    sessions: list[Session],
 ) -> None:
     """
     Fetch the live results page for any event that has a live_url and parse
@@ -97,10 +110,7 @@ async def _fetch_live_heats(
     as each heat completes.
     """
     to_fetch = [
-        (competition_id, s.session_id, e.position, e.live_url)
-        for s in sessions
-        for e in s.events
-        if e.live_url
+        (competition_id, s.session_id, e.position, e.live_url) for s in sessions for e in s.events if e.live_url
     ]
     if not to_fetch:
         return
@@ -112,21 +122,26 @@ async def _fetch_live_heats(
             try:
                 html = await fetch_page_html(client, url)
             except Exception:
-                logger.warning("Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning(
+                    "Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
+                )
                 return
             try:
                 heat = parse_live_heat(html)
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:
-                logger.warning("Failed to parse live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning(
+                    "Failed to parse live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
+                )
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
 async def _fetch_start_lists(
     client: httpx.AsyncClient,
-    competition_id: int, sessions: list[Session],
+    competition_id: int,
+    sessions: list[Session],
 ) -> None:
     """
     Concurrently fetch start list pages for all events that have a start_list_url
@@ -137,7 +152,8 @@ async def _fetch_start_lists(
         (competition_id, s.session_id, e.position, e.start_list_url, e.discipline)
         for s in sessions
         for e in s.events
-        if e.start_list_url and (
+        if e.start_list_url
+        and (
             get_heat_count(competition_id, s.session_id, e.position) is None
             or not has_start_list_riders(competition_id, s.session_id, e.position)
         )
@@ -152,7 +168,9 @@ async def _fetch_start_lists(
             try:
                 html = await fetch_page_html(client, url)
             except Exception:
-                logger.warning("Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning(
+                    "Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
+                )
                 return
             try:
                 count = parse_heat_count(html)
@@ -161,14 +179,17 @@ async def _fetch_start_lists(
                 riders = parse_start_list_riders(html)
                 record_start_list_riders(ev_id, sess_id, pos, riders)
             except Exception:
-                logger.warning("Failed to parse start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning(
+                    "Failed to parse start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
+                )
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
 
 async def _fetch_result_pages(
     client: httpx.AsyncClient,
-    competition_id: int, sessions: list[Session],
+    competition_id: int,
+    sessions: list[Session],
 ) -> None:
     """
     Fetch result pages for all completed events that don't yet have a Generated
@@ -195,7 +216,9 @@ async def _fetch_result_pages(
             try:
                 html = await fetch_page_html(client, url)
             except Exception:
-                logger.warning("Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning(
+                    "Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
+                )
                 return
             try:
                 gen_time = parse_generated_time(html)
@@ -205,7 +228,9 @@ async def _fetch_result_pages(
                 if finish_time is not None:
                     record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name)
             except Exception:
-                logger.warning("Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True)
+                logger.warning(
+                    "Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
+                )
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
 
@@ -219,6 +244,38 @@ def _encode_racer_name(name: str) -> str:
     return base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
 
 
+# Cookie values are Base64 behind this prefix because Starlette encodes headers as
+# Latin-1 (padding is stripped so the value needs no quoting). Older cookies hold
+# the raw name and are still accepted.
+_COOKIE_PREFIX = "b64."
+
+
+def _set_racer_cookie(response: Response, name: str) -> None:
+    response.set_cookie(
+        key="racer_name",
+        value=_COOKIE_PREFIX + _encode_racer_name(name).rstrip("="),
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=31536000,
+    )
+
+
+def _cookie_racer_name(request: Request) -> str | None:
+    """Return the racer name stored in the cookie, decoding the Base64 form."""
+    value = request.cookies.get("racer_name")
+    if not value:
+        return None
+    if value.startswith(_COOKIE_PREFIX):
+        try:
+            encoded = value[len(_COOKIE_PREFIX) :]
+            return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8") or None
+        except (binascii.Error, UnicodeDecodeError):
+            logger.warning("Malformed racer_name cookie, ignoring it")
+            return None
+    return value
+
+
 def _resolve_racer_name(request: Request, r: str | None) -> str | None:
     """Resolve racer name from URL-safe Base64 param or cookie."""
     if r:
@@ -227,19 +284,25 @@ def _resolve_racer_name(request: Request, r: str | None) -> str | None:
         except (binascii.Error, UnicodeDecodeError):
             logger.warning("Malformed base64 racer name param: %r, falling back to cookie", r)
             # Fall through to cookie rather than returning None
-    return request.cookies.get("racer_name") or None
+    return _cookie_racer_name(request)
+
+
+def _content_disposition(filename: str) -> str:
+    """Attachment header with an ASCII fallback name and an RFC 5987 UTF-8 name."""
+    ascii_name = "".join(c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, object]:
     try:
         db_status = await asyncio.wait_for(check_health(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         db_status = {"status": "degraded", "detail": "Health check timed out"}
 
     try:
         palmares_status = await asyncio.wait_for(check_palmares_health(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         palmares_status = {"status": "degraded", "detail": "Palmares health check timed out"}
 
     components = {"database": db_status, "palmares": palmares_status}
@@ -248,16 +311,24 @@ async def health():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request) -> Response:
     return templates.TemplateResponse(request, "index.html")
 
 
 # Disciplines that produce per-lap/sector audit data (pursuits + time trials)
-_TIMED_DISCIPLINES = frozenset({
-    "pursuit_4k", "pursuit_3k", "pursuit_2k", "team_pursuit",
-    "team_sprint",
-    "time_trial_500", "time_trial_750", "time_trial_kilo", "time_trial_generic",
-})
+_TIMED_DISCIPLINES = frozenset(
+    {
+        "pursuit_4k",
+        "pursuit_3k",
+        "pursuit_2k",
+        "team_pursuit",
+        "team_sprint",
+        "time_trial_500",
+        "time_trial_750",
+        "time_trial_kilo",
+        "time_trial_generic",
+    }
+)
 
 
 def _collect_palmares_entries(
@@ -289,22 +360,26 @@ def _collect_palmares_entries(
     entries = []
     for sp in schedule.sessions:
         for pred in sp.event_predictions:
-            if (pred.rider_match
-                    and pred.event.audit_url
-                    and not pred.event.is_special
-                    and pred.event.discipline in _TIMED_DISCIPLINES):
-                entries.append(PalmaresEntry(
-                    racer_name=schedule.racer_name,
-                    competition_id=competition_id,
-                    competition_name=comp_name,
-                    competition_date=comp_date,
-                    session_id=sp.session.session_id,
-                    session_name=sp.session.day,
-                    event_position=pred.event.position,
-                    event_name=pred.event.name,
-                    audit_url=pred.event.audit_url,
-                    team_name=pred.rider_match.team_name,
-                ))
+            if (
+                pred.rider_match
+                and pred.event.audit_url
+                and not pred.event.is_special
+                and pred.event.discipline in _TIMED_DISCIPLINES
+            ):
+                entries.append(
+                    PalmaresEntry(
+                        racer_name=schedule.racer_name,
+                        competition_id=competition_id,
+                        competition_name=comp_name,
+                        competition_date=comp_date,
+                        session_id=sp.session.session_id,
+                        session_name=sp.session.day,
+                        event_position=pred.event.position,
+                        event_name=pred.event.name,
+                        audit_url=pred.event.audit_url,
+                        team_name=pred.rider_match.team_name,
+                    )
+                )
     return entries
 
 
@@ -330,7 +405,7 @@ def _save_and_count_palmares(
 
 
 @app.get("/schedule", response_class=RedirectResponse)
-async def schedule_redirect(event_id: int = Query(...)):
+async def schedule_redirect(event_id: int = Query(...)) -> RedirectResponse:
     """No-JS fallback: redirect GET /schedule?event_id=X to /schedule/X."""
     return RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
 
@@ -342,13 +417,15 @@ async def get_schedule(
     r: str | None = Query(None),
     settings: Settings = Depends(get_settings),
     client: httpx.AsyncClient = Depends(get_http_client),
-):
+) -> Response:
     """GET version of schedule so links and bookmarks work."""
     try:
         jxn_data = await fetch_initial_layout(client, event_id)
     except Exception:
         logger.warning("Failed to fetch event %d", event_id, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"Failed to fetch event {event_id} from tracktiming.live.")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to fetch event {event_id} from tracktiming.live."
+        ) from None
 
     sessions = parse_schedule(jxn_data)
     if not sessions:
@@ -373,12 +450,16 @@ async def get_schedule(
         source = "url"
     elif racer_name:
         source = "cookie"
-    logger.info("racer_name_resolved", extra={
-        "source": source, "racer_name": racer_name,
-        "competition_id": event_id, "match_count": schedule.match_count,
-        "events_without_start_lists": schedule.events_without_start_lists,
-        "total_events": schedule.total_events,
-    })
+    logger.info(
+        "racer_name_resolved",
+        extra={
+            "source": source,
+            "competition_id": event_id,
+            "match_count": schedule.match_count,
+            "events_without_start_lists": schedule.events_without_start_lists,
+            "total_events": schedule.total_events,
+        },
+    )
 
     racer_encoded = None
     if racer_name:
@@ -391,25 +472,26 @@ async def get_schedule(
     if racer_name and palmares_count:
         competition_name = get_competition_name(racer_name, event_id) or competition_name
 
-    response = templates.TemplateResponse(request, "schedule.html", {
-        "schedule": schedule,
-        "competition_id": event_id,
-        "competition_name": competition_name,
-        "now": now,
-        "refresh_seconds": settings.refresh_interval_seconds,
-        "base_url": settings.tracktiming_base_url,
-        "use_learned": use_learned,
-        "racer_name": racer_name,
-        "racer_encoded": racer_encoded,
-        "palmares_count": palmares_count,
-    })
+    response = templates.TemplateResponse(
+        request,
+        "schedule.html",
+        {
+            "schedule": schedule,
+            "competition_id": event_id,
+            "competition_name": competition_name,
+            "now": now,
+            "refresh_seconds": settings.refresh_interval_seconds,
+            "base_url": settings.tracktiming_base_url,
+            "use_learned": use_learned,
+            "racer_name": racer_name,
+            "racer_encoded": racer_encoded,
+            "palmares_count": palmares_count,
+        },
+    )
 
     # FR-009: refresh cookie on every visit with a resolved name (rolling expiry)
     if racer_name:
-        response.set_cookie(
-            key="racer_name", value=racer_name,
-            httponly=True, secure=True, samesite="lax", max_age=31536000,
-        )
+        _set_racer_cookie(response, racer_name)
 
     return response
 
@@ -421,7 +503,7 @@ async def refresh_schedule(
     r: str | None = Query(None),
     settings: Settings = Depends(get_settings),
     client: httpx.AsyncClient = Depends(get_http_client),
-):
+) -> Response:
     """
     HTMX polling endpoint. Called every N seconds to update the schedule.
     Returns only the schedule body partial for injection into the page.
@@ -431,7 +513,9 @@ async def refresh_schedule(
         jxn_data = await fetch_refresh(client, event_id)
     except Exception:
         logger.warning("Failed to refresh event %d", event_id, exc_info=True)
-        raise HTTPException(status_code=502, detail=f"Failed to refresh event {event_id} from tracktiming.live.")
+        raise HTTPException(
+            status_code=502, detail=f"Failed to refresh event {event_id} from tracktiming.live."
+        ) from None
 
     sessions = parse_schedule(jxn_data)
 
@@ -457,18 +541,22 @@ async def refresh_schedule(
     palmares_count = _save_and_count_palmares(schedule, event_id)
     racer_encoded = _encode_racer_name(racer_name) if racer_name else None
 
-    return templates.TemplateResponse(request, "_schedule_body.html", {
-        "schedule": schedule,
-        "competition_id": event_id,
-        "now": now,
-        "base_url": settings.tracktiming_base_url,
-        "palmares_count": palmares_count,
-        "racer_encoded": racer_encoded,
-    })
+    return templates.TemplateResponse(
+        request,
+        "_schedule_body.html",
+        {
+            "schedule": schedule,
+            "competition_id": event_id,
+            "now": now,
+            "base_url": settings.tracktiming_base_url,
+            "palmares_count": palmares_count,
+            "racer_encoded": racer_encoded,
+        },
+    )
 
 
 @app.get("/settings/use-learned")
-async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Query("off")):
+async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Query("off")) -> RedirectResponse:
     """Toggle the learned-durations feature flag for the current browser session."""
     response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
     if use_learned == "on":
@@ -479,7 +567,7 @@ async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Quer
 
 
 @app.get("/settings/racer-name")
-async def set_racer_name(event_id: int = Query(...), name: str = Query("")):
+async def set_racer_name(event_id: int = Query(...), name: str = Query("")) -> RedirectResponse:
     """Set or clear the racer name cookie, then redirect back to the schedule."""
     if name.strip():
         encoded = _encode_racer_name(name)
@@ -487,10 +575,7 @@ async def set_racer_name(event_id: int = Query(...), name: str = Query("")):
             url=f"/schedule/{event_id}?r={encoded}#schedule-container",
             status_code=303,
         )
-        response.set_cookie(
-            key="racer_name", value=name,
-            httponly=True, secure=True, samesite="lax", max_age=31536000,
-        )
+        _set_racer_cookie(response, name)
     else:
         response = RedirectResponse(url=f"/schedule/{event_id}", status_code=303)
         response.delete_cookie(key="racer_name")
@@ -503,21 +588,17 @@ async def palmares_page(
     r: str | None = Query(None),
     name: str | None = Query(None),
     settings: Settings = Depends(get_settings),
-):
+) -> Response:
     """Palmares profile page — shows racer achievements grouped by competition."""
     # Handle name form submission: set cookie and redirect
     if name and name.strip():
-        racer_name = name.strip()
-        encoded = _encode_racer_name(racer_name)
-        response = RedirectResponse(url=f"/palmares?r={encoded}", status_code=303)
-        response.set_cookie(
-            key="racer_name", value=racer_name,
-            httponly=True, secure=True, samesite="lax", max_age=31536000,
-        )
+        submitted = name.strip()
+        response = RedirectResponse(url=f"/palmares?r={_encode_racer_name(submitted)}", status_code=303)
+        _set_racer_cookie(response, submitted)
         return response
 
     racer_name = _resolve_racer_name(request, r)
-    cookie_name = request.cookies.get("racer_name")
+    cookie_name = _cookie_racer_name(request)
     is_owner = racer_name is not None and cookie_name == racer_name
 
     if racer_name:
@@ -532,14 +613,22 @@ async def palmares_page(
         competitions = []
         share_url = None
 
-    return templates.TemplateResponse(request, "palmares.html", {
-        "racer_name": racer_name,
-        "racer_encoded": racer_encoded,
-        "competitions": competitions,
-        "is_owner": is_owner,
-        "share_url": share_url,
-        "base_url": settings.tracktiming_base_url,
-    })
+    return templates.TemplateResponse(
+        request,
+        "palmares.html",
+        {
+            "racer_name": racer_name,
+            "racer_encoded": racer_encoded,
+            "competitions": competitions,
+            "is_owner": is_owner,
+            "share_url": share_url,
+            "base_url": settings.tracktiming_base_url,
+        },
+    )
+
+
+# Audit pages are ~25 KB; anything far larger isn't one.
+_MAX_AUDIT_CHARS = 2_000_000
 
 
 @app.get("/palmares/export")
@@ -549,19 +638,22 @@ async def palmares_export(
     r: str | None = Query(None),
     team_name: str | None = Query(None),
     client: httpx.AsyncClient = Depends(get_http_client),
-):
+) -> Response:
     """CSV export of individual audit result data for a specific event."""
     racer_name = _resolve_racer_name(request, r)
     if not racer_name:
         raise HTTPException(status_code=400, detail="Racer identity required")
 
-    # SSRF protection
-    if "://" in audit_url or ".." in audit_url or not audit_url.startswith("results/"):
+    # SSRF protection: normalise percent-encoding and ".." before checking the prefix
+    audit_url = posixpath.normpath(unquote(audit_url))
+    if "://" in audit_url or not audit_url.startswith("results/"):
         raise HTTPException(status_code=400, detail="Invalid audit URL")
 
     try:
         resp = await client.get(audit_url)
         resp.raise_for_status()
+        if len(resp.text) > _MAX_AUDIT_CHARS:
+            raise ValueError(f"audit page too large ({len(resp.text)} chars)")
     except Exception:
         logger.warning("Failed to fetch audit page: %s", audit_url, exc_info=True)
         return JSONResponse(
@@ -576,13 +668,7 @@ async def palmares_export(
     event_name = audit_url.split("/")[-1].replace("-AUDIT-R.htm", "")
     csv_str = format_csv(filtered, event_name)
 
-    def _sanitize(s: str) -> str:
-        return s.replace('"', '_').replace('\n', '').replace('\r', '')
-    safe_event = _sanitize(event_name)
-    safe_name = _sanitize(filter_name)
-    headers = {
-        "Content-Disposition": f'attachment; filename="{safe_event}-{safe_name}.csv"',
-    }
+    headers = {"Content-Disposition": _content_disposition(f"{event_name}-{filter_name}.csv")}
     if not filtered:
         headers["X-Palmares-Notice"] = "no-matching-data"
 
@@ -593,9 +679,9 @@ async def palmares_export(
 async def palmares_remove(
     request: Request,
     competition_id: int = Query(...),
-):
+) -> RedirectResponse:
     """Delete all palmares entries for a competition. Cookie-only auth."""
-    cookie_name = request.cookies.get("racer_name")
+    cookie_name = _cookie_racer_name(request)
     if not cookie_name:
         raise HTTPException(status_code=403, detail="Cookie-based identity required")
 
@@ -610,9 +696,9 @@ async def palmares_rename(
     request: Request,
     competition_id: int = Query(...),
     name: str = Query(""),
-):
+) -> RedirectResponse:
     """Update competition name. Cookie-only auth."""
-    cookie_name = request.cookies.get("racer_name")
+    cookie_name = _cookie_racer_name(request)
     if not cookie_name:
         raise HTTPException(status_code=403, detail="Cookie-based identity required")
     if not name.strip():
@@ -625,7 +711,7 @@ async def palmares_rename(
 
 
 @app.get("/defaults", response_class=HTMLResponse)
-async def default_durations(request: Request):
+async def default_durations(request: Request) -> Response:
     """Display the built-in default durations for inspection."""
     rows = [
         {"discipline": d, "default": DEFAULT_DURATIONS[d], "per_heat": PER_HEAT_DURATIONS.get(d)}
@@ -635,13 +721,17 @@ async def default_durations(request: Request):
 
 
 @app.get("/learned", response_class=HTMLResponse)
-async def learned_durations(request: Request, settings: Settings = Depends(get_settings)):
+async def learned_durations(request: Request, settings: Settings = Depends(get_settings)) -> Response:
     """Display the learned duration database for inspection."""
     durations = get_all_learned_durations()
-    return templates.TemplateResponse(request, "learned.html", {
-        "durations": durations,
-        "min_samples": settings.min_learned_samples,
-    })
+    return templates.TemplateResponse(
+        request,
+        "learned.html",
+        {
+            "durations": durations,
+            "min_samples": settings.min_learned_samples,
+        },
+    )
 
 
 handler = Mangum(app, lifespan="auto")

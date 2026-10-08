@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from app.models import EventStatus
 from tools.extract_competition import (
     _fetch_with_retry,
     extract_competition,
@@ -26,6 +25,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_fixture(name: str) -> str:
     return (FIXTURES / name).read_text()
@@ -158,8 +158,10 @@ class TestExtractCompetitionIntegration:
     @pytest.mark.asyncio
     async def test_extract_produces_event_reports_with_categories(self, schedule_data, tp_result_html):
         """Schedule parsing produces EventReport entries with structured categories."""
-        with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
-             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
+        with (
+            patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch,
+            patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page,
+        ):
             mock_fetch.return_value = schedule_data
             mock_page.return_value = tp_result_html
 
@@ -174,23 +176,27 @@ class TestExtractCompetitionIntegration:
     @pytest.mark.asyncio
     async def test_pursuit_distance_from_url(self, schedule_data, tp_result_html):
         """26009 names are French and omit the distance; the URL's -IP-<metres>- decides."""
-        with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
-             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
+        with (
+            patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch,
+            patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page,
+        ):
             mock_fetch.return_value = schedule_data
             mock_page.return_value = tp_result_html
 
             report, _ = await extract_competition(26009)
 
         by_name = {e.name: e.category.discipline for s in report.sessions for e in s.events}
-        assert by_name["Senior H Poursuite Final   / Omni I"] == "pursuit_4k"   # ME-IP-4000
-        assert by_name["Junior F Poursuite Final   / Omni I"] == "pursuit_3k"   # WJ-IP-3000
-        assert by_name["U17 H Poursuite Final   / Omni II"] == "pursuit_2k"     # M1516-IP-2000
+        assert by_name["Senior H Poursuite Final   / Omni I"] == "pursuit_4k"  # ME-IP-4000
+        assert by_name["Junior F Poursuite Final   / Omni I"] == "pursuit_3k"  # WJ-IP-3000
+        assert by_name["U17 H Poursuite Final   / Omni II"] == "pursuit_2k"  # M1516-IP-2000
 
     @pytest.mark.asyncio
     async def test_incomplete_events_excluded_from_observations(self, schedule_data, tp_result_html):
         """Incomplete events should not appear in duration_observations."""
-        with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
-             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
+        with (
+            patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch,
+            patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page,
+        ):
             mock_fetch.return_value = schedule_data
             mock_page.return_value = tp_result_html
 
@@ -204,8 +210,10 @@ class TestExtractCompetitionIntegration:
     @pytest.mark.asyncio
     async def test_multi_session_competition(self, schedule_data, tp_result_html):
         """Multi-session competitions produce records for all sessions."""
-        with patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch, \
-             patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page:
+        with (
+            patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock) as mock_fetch,
+            patch("tools.extract_competition.fetch_page_html", new_callable=AsyncMock) as mock_page,
+        ):
             mock_fetch.return_value = schedule_data
             mock_page.return_value = tp_result_html
 
@@ -288,6 +296,7 @@ class TestFetchWithRetry:
     @pytest.mark.asyncio
     async def test_all_retries_fail_returns_none(self):
         """All retries failing returns None."""
+
         async def always_fail():
             raise httpx.HTTPError("permanent")
 
@@ -297,6 +306,7 @@ class TestFetchWithRetry:
     @pytest.mark.asyncio
     async def test_non_http_error_caught(self):
         """Non-HTTP exceptions (e.g. JSONDecodeError) are also caught."""
+
         async def json_fail():
             raise ValueError("Expecting value: line 1 column 1")
 

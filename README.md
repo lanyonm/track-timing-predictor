@@ -56,12 +56,12 @@ The `r=` parameter is passed through to the HTMX refresh endpoint so highlightin
 ## Setup
 
 ```bash
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt   # runtime deps + test tooling
+pip install --require-hashes -r requirements-dev.txt   # runtime deps + test and lint tooling
 ```
 
-Requires Python 3.11.
+Requires Python 3.13. `requirements*.txt` are hashed locks generated from `pyproject.toml`; see `CLAUDE.md` for how to regenerate them.
 
 ## Running
 
@@ -110,6 +110,7 @@ app/
 ├── categorizer.py   # Compositional event name parser (bilingual, used by tools/)
 ├── database.py      # SQLite/DynamoDB storage for learned durations
 ├── palmares.py      # SQLite/DynamoDB storage for racer palmares
+├── aws_errors.py    # Shared botocore exception handling (optional dependency)
 ├── audit_parser.py  # Audit result parsing and CSV formatting
 ├── models.py        # Pydantic data models
 └── templates/       # Jinja2 HTML templates (DaisyUI + HTMX)

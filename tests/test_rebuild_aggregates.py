@@ -40,9 +40,14 @@ def dynamo_table():
 
 def _record(pos, discipline, minutes, classification=None, gender=None):
     record_duration_structured(
-        competition_id=26008, session_id=1, event_position=pos,
-        event_name="x", discipline=discipline, duration_minutes=minutes,
-        classification=classification, gender=gender,
+        competition_id=26008,
+        session_id=1,
+        event_position=pos,
+        event_name="x",
+        discipline=discipline,
+        duration_minutes=minutes,
+        classification=classification,
+        gender=gender,
     )
 
 
@@ -58,10 +63,7 @@ def _inflate(table, key, minutes, count):
 
 def _aggregates(table):
     items = table.scan()["Items"]
-    return {
-        i["pk"]: (i["total_minutes"], i["count"])
-        for i in items if i["pk"].startswith("AGGREGATE#")
-    }
+    return {i["pk"]: (i["total_minutes"], i["count"]) for i in items if i["pk"].startswith("AGGREGATE#")}
 
 
 def _rebuild(table):
@@ -108,10 +110,14 @@ class TestRebuild:
         assert after == before
 
     def test_live_obs_without_categories_count_at_level_one(self, dynamo_table):
-        dynamo_table.put_item(Item={
-            "pk": "OBS#26037#2#4", "discipline": "tempo_race",
-            "duration_minutes": Decimal("14.5"), "source": "observed",
-        })
+        dynamo_table.put_item(
+            Item={
+                "pk": "OBS#26037#2#4",
+                "discipline": "tempo_race",
+                "duration_minutes": Decimal("14.5"),
+                "source": "observed",
+            }
+        )
         _rebuild(dynamo_table)
         assert _aggregates(dynamo_table) == {"AGGREGATE#tempo_race": (Decimal("14.5"), 1)}
 

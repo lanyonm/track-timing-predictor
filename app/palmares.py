@@ -3,21 +3,16 @@
 Stores racer achievement entries (timed events with audit links) grouped
 by competition. Follows the same dual-backend dispatch pattern as database.py.
 """
+
 import asyncio
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
+from app.aws_errors import ClientError, raise_if_auth_error as _raise_if_auth_error
 from app.config import settings
-from app.database import _raise_if_auth_error, get_db
-
-try:
-    from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-    _BotoError = (BotoCoreError, ClientError)
-except ImportError:
-    _BotoError = ()  # type: ignore[assignment]
-    NoCredentialsError = None  # type: ignore[assignment,misc]
-
+from app.database import get_db
 from app.models import PalmaresCompetition, PalmaresEntry
 
 logger = logging.getLogger(__name__)
@@ -45,6 +40,7 @@ CREATE INDEX IF NOT EXISTS idx_palmares_racer ON palmares_entries(racer_name);
 # ---------------------------------------------------------------------------
 # SQLite backend
 # ---------------------------------------------------------------------------
+
 
 def init_palmares_db() -> None:
     """Create the palmares_entries table if it doesn't exist (SQLite only)."""
@@ -79,17 +75,29 @@ def _save_entries_sqlite(entries: list[PalmaresEntry]) -> int:
                          team_name)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (entry.racer_name, entry.competition_id, entry.competition_name,
-                     entry.competition_date, entry.session_id, entry.session_name,
-                     entry.event_position, entry.event_name, entry.audit_url,
-                     entry.team_name),
+                    (
+                        entry.racer_name,
+                        entry.competition_id,
+                        entry.competition_name,
+                        entry.competition_date,
+                        entry.session_id,
+                        entry.session_name,
+                        entry.event_position,
+                        entry.event_name,
+                        entry.audit_url,
+                        entry.team_name,
+                    ),
                 )
                 if cursor.rowcount > 0:
                     inserted += 1
             except sqlite3.Error:
-                logger.error("SQLite error saving palmares entry for %s comp=%d pos=%d",
-                             entry.racer_name, entry.competition_id, entry.event_position,
-                             exc_info=True)
+                logger.error(
+                    "SQLite error saving palmares entry for %s comp=%d pos=%d",
+                    entry.racer_name,
+                    entry.competition_id,
+                    entry.event_position,
+                    exc_info=True,
+                )
     return inserted
 
 
@@ -146,13 +154,15 @@ def _delete_competition_sqlite(racer_name: str, competition_id: int) -> int:
 # DynamoDB backend
 # ---------------------------------------------------------------------------
 
-_palmares_table_cache = None
+# boto3 DynamoDB Table resource; boto3 ships no type stubs
+_palmares_table_cache: Any = None
 
 
-def _palmares_dynamo_table():
+def _palmares_dynamo_table() -> Any:
     global _palmares_table_cache
     if _palmares_table_cache is None:
         import boto3
+
         dynamodb = boto3.resource("dynamodb", region_name=settings.aws_region)
         _palmares_table_cache = dynamodb.Table(settings.palmares_table)
     return _palmares_table_cache
@@ -168,7 +178,7 @@ def _save_entries_dynamo(entries: list[PalmaresEntry]) -> int:
     if not entries:
         return 0
     table = _palmares_dynamo_table()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     written = 0
     for entry in entries:
         item = {
@@ -199,6 +209,7 @@ def _save_entries_dynamo(entries: list[PalmaresEntry]) -> int:
 def _get_palmares_dynamo(racer_name: str) -> list[PalmaresCompetition]:
     """Query all palmares entries for a racer from DynamoDB."""
     from boto3.dynamodb.conditions import Key
+
     table = _palmares_dynamo_table()
     pk = f"RACER#{racer_name}"
 
@@ -218,26 +229,31 @@ def _get_palmares_dynamo(racer_name: str) -> list[PalmaresCompetition]:
             sk = item["sk"]
             # Parse sk: COMP#{comp_id}#S#{session_id}#E#{position}
             parts = sk.split("#")
-            rows.append({
-                "racer_name": racer_name,
-                "competition_id": int(parts[1]),
-                "competition_name": item.get("competition_name", ""),
-                "competition_date": item.get("competition_date") or None,
-                "session_id": int(parts[3]),
-                "session_name": item.get("session_name", ""),
-                "event_position": int(parts[5]),
-                "event_name": item.get("event_name", ""),
-                "audit_url": item.get("audit_url", ""),
-                "team_name": item.get("team_name") or None,
-            })
+            rows.append(
+                {
+                    "racer_name": racer_name,
+                    "competition_id": int(parts[1]),
+                    "competition_name": item.get("competition_name", ""),
+                    "competition_date": item.get("competition_date") or None,
+                    "session_id": int(parts[3]),
+                    "session_name": item.get("session_name", ""),
+                    "event_position": int(parts[5]),
+                    "event_name": item.get("event_name", ""),
+                    "audit_url": item.get("audit_url", ""),
+                    "team_name": item.get("team_name") or None,
+                }
+            )
         except (IndexError, ValueError, KeyError):
             logger.error("Malformed palmares DynamoDB item sk=%r, skipping", item.get("sk"))
 
     # Sort: reverse chronological by date/competition, then session/position ascending
-    rows.sort(key=lambda r: (
-        r["competition_date"] or "",
-        r["competition_id"],
-    ), reverse=True)
+    rows.sort(
+        key=lambda r: (
+            r["competition_date"] or "",
+            r["competition_id"],
+        ),
+        reverse=True,
+    )
     # Within each competition, sort by session_id then position
     return _group_by_competition(rows)
 
@@ -245,6 +261,7 @@ def _get_palmares_dynamo(racer_name: str) -> list[PalmaresCompetition]:
 def _count_competition_dynamo(racer_name: str, competition_id: int) -> int:
     """Count palmares entries for a specific competition in DynamoDB."""
     from boto3.dynamodb.conditions import Key
+
     table = _palmares_dynamo_table()
     pk = f"RACER#{racer_name}"
     sk_prefix = f"COMP#{competition_id}#"
@@ -259,6 +276,7 @@ def _count_competition_dynamo(racer_name: str, competition_id: int) -> int:
 def _update_competition_dynamo(racer_name: str, competition_id: int, competition_name: str) -> int:
     """Update competition name for all entries in DynamoDB."""
     from boto3.dynamodb.conditions import Key
+
     table = _palmares_dynamo_table()
     pk = f"RACER#{racer_name}"
     sk_prefix = f"COMP#{competition_id}#"
@@ -288,6 +306,7 @@ def _update_competition_dynamo(racer_name: str, competition_id: int, competition
 def _delete_competition_dynamo(racer_name: str, competition_id: int) -> int:
     """Delete all palmares entries for a competition from DynamoDB."""
     from boto3.dynamodb.conditions import Key
+
     table = _palmares_dynamo_table()
     pk = f"RACER#{racer_name}"
     sk_prefix = f"COMP#{competition_id}#"
@@ -315,6 +334,7 @@ def _delete_competition_dynamo(racer_name: str, competition_id: int) -> int:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _group_by_competition(rows: list[dict]) -> list[PalmaresCompetition]:
     """Group rows into PalmaresCompetition objects, preserving row order for
     competition ordering and sorting entries within each competition."""
@@ -322,8 +342,15 @@ def _group_by_competition(rows: list[dict]) -> list[PalmaresCompetition]:
     order: list[int] = []
 
     entry_fields = (
-        "racer_name", "competition_id", "competition_name", "competition_date",
-        "session_id", "session_name", "event_position", "event_name", "audit_url",
+        "racer_name",
+        "competition_id",
+        "competition_name",
+        "competition_date",
+        "session_id",
+        "session_name",
+        "event_position",
+        "event_name",
+        "audit_url",
         "team_name",
     )
     for row in rows:
@@ -351,6 +378,7 @@ def _group_by_competition(rows: list[dict]) -> list[PalmaresCompetition]:
 # Public API — dispatches to DynamoDB or SQLite
 # ---------------------------------------------------------------------------
 
+
 def save_palmares_entries(entries: list[PalmaresEntry]) -> int:
     """Save palmares entries, ignoring duplicates. Returns count saved."""
     if not entries:
@@ -370,11 +398,11 @@ def get_competition_name(racer_name: str, competition_id: int) -> str | None:
     try:
         if settings.palmares_table:
             from boto3.dynamodb.conditions import Key
+
             table = _palmares_dynamo_table()
             resp = table.query(
                 KeyConditionExpression=(
-                    Key("pk").eq(f"RACER#{racer_name}")
-                    & Key("sk").begins_with(f"COMP#{competition_id}#")
+                    Key("pk").eq(f"RACER#{racer_name}") & Key("sk").begins_with(f"COMP#{competition_id}#")
                 ),
                 ProjectionExpression="competition_name",
                 Limit=1,
@@ -413,8 +441,7 @@ def count_competition_palmares(racer_name: str, competition_id: int) -> int:
         return _count_competition_sqlite(racer_name, competition_id)
     except Exception as exc:
         _raise_if_auth_error(exc)
-        logger.error("Failed to count palmares for %s competition %d",
-                      racer_name, competition_id, exc_info=True)
+        logger.error("Failed to count palmares for %s competition %d", racer_name, competition_id, exc_info=True)
         return 0
 
 
@@ -426,8 +453,7 @@ def update_competition_palmares(racer_name: str, competition_id: int, competitio
         return _update_competition_sqlite(racer_name, competition_id, competition_name)
     except Exception as exc:
         _raise_if_auth_error(exc)
-        logger.error("Failed to update palmares for %s competition %d",
-                      racer_name, competition_id, exc_info=True)
+        logger.error("Failed to update palmares for %s competition %d", racer_name, competition_id, exc_info=True)
         return 0
 
 
@@ -439,8 +465,7 @@ def delete_competition_palmares(racer_name: str, competition_id: int) -> int:
         return _delete_competition_sqlite(racer_name, competition_id)
     except Exception as exc:
         _raise_if_auth_error(exc)
-        logger.error("Failed to delete palmares for %s competition %d",
-                      racer_name, competition_id, exc_info=True)
+        logger.error("Failed to delete palmares for %s competition %d", racer_name, competition_id, exc_info=True)
         return 0
 
 

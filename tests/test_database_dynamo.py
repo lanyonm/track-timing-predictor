@@ -1,4 +1,5 @@
 """Tests for DynamoDB code paths in app/database.py."""
+
 import logging
 from decimal import Decimal
 from unittest.mock import patch
@@ -8,9 +9,8 @@ import pytest
 from botocore.exceptions import BotoCoreError, ClientError
 from moto import mock_aws
 
-from app.config import settings
 from app import database
-
+from app.config import settings
 
 TABLE_NAME = "test-track-timing"
 
@@ -113,11 +113,14 @@ class TestDynamoStructuredConcurrentCreate:
 
             def put_item(self, **kwargs):
                 raise ClientError(
-                    {"Error": {"Code": "ConditionalCheckFailedException", "Message": "exists"}}, "PutItem",
+                    {"Error": {"Code": "ConditionalCheckFailedException", "Message": "exists"}},
+                    "PutItem",
                 )
 
         with patch.object(database, "_dynamo_table", return_value=LosesRace()):
-            outcome = database.record_duration_structured(1, 1, 1, "Elite Men Scratch", "scratch_race", 15.0, "elite", "men")
+            outcome = database.record_duration_structured(
+                1, 1, 1, "Elite Men Scratch", "scratch_race", 15.0, "elite", "men"
+            )
         assert outcome == "unchanged"
         for key in database._build_aggregate_keys("scratch_race", "elite", "men"):
             item = dynamo_table.get_item(Key={"pk": key})["Item"]
@@ -139,16 +142,12 @@ class TestDynamoGetLearnedDuration:
     def test_override_takes_priority(self, dynamo_table):
         """A manual override should be returned regardless of aggregate data."""
         _seed("keirin", [8.0, 10.0, 12.0])
-        dynamo_table.put_item(
-            Item={"pk": "OVERRIDE#keirin", "duration_minutes": Decimal("7.5")}
-        )
+        dynamo_table.put_item(Item={"pk": "OVERRIDE#keirin", "duration_minutes": Decimal("7.5")})
         assert database._dynamo_get_learned_duration("keirin") == pytest.approx(7.5)
 
     def test_override_without_aggregate(self, dynamo_table):
         """Override should work even when no aggregate data exists."""
-        dynamo_table.put_item(
-            Item={"pk": "OVERRIDE#keirin", "duration_minutes": Decimal("9.0")}
-        )
+        dynamo_table.put_item(Item={"pk": "OVERRIDE#keirin", "duration_minutes": Decimal("9.0")})
         assert database._dynamo_get_learned_duration("keirin") == pytest.approx(9.0)
 
     def test_returns_none_for_unknown_discipline(self, dynamo_table):
@@ -156,9 +155,7 @@ class TestDynamoGetLearnedDuration:
 
     def test_client_error_returns_none_and_logs(self, dynamo_table, caplog):
         """ClientError should return None and log."""
-        with patch.object(
-            database, "_dynamo_table", side_effect=_make_client_error()
-        ):
+        with patch.object(database, "_dynamo_table", side_effect=_make_client_error()):
             with caplog.at_level(logging.ERROR, logger="app.database"):
                 result = database._dynamo_get_learned_duration("keirin")
             assert result is None
@@ -166,9 +163,7 @@ class TestDynamoGetLearnedDuration:
 
     def test_botocore_error_returns_none_and_logs(self, dynamo_table, caplog):
         """BotoCoreError should return None and log."""
-        with patch.object(
-            database, "_dynamo_table", side_effect=BotoCoreError()
-        ):
+        with patch.object(database, "_dynamo_table", side_effect=BotoCoreError()):
             with caplog.at_level(logging.ERROR, logger="app.database"):
                 result = database._dynamo_get_learned_duration("keirin")
             assert result is None
@@ -191,9 +186,7 @@ class TestDynamoGetAllLearnedDurations:
     def test_excludes_override_items(self, dynamo_table):
         """OVERRIDE items should not appear in scan results."""
         _seed("sprint", [10.0])
-        dynamo_table.put_item(
-            Item={"pk": "OVERRIDE#sprint", "duration_minutes": Decimal("5.0")}
-        )
+        dynamo_table.put_item(Item={"pk": "OVERRIDE#sprint", "duration_minutes": Decimal("5.0")})
         result = database._dynamo_get_all_learned_durations()
         assert result["sprint"] == pytest.approx((10.0, 1))
 
@@ -204,9 +197,7 @@ class TestDynamoGetAllLearnedDurations:
 class TestGetAllLearnedDurationsErrorHandling:
     def test_client_error_returns_empty_and_logs(self, dynamo_table, caplog):
         """ClientError in _dynamo_get_all_learned_durations should return {} and log."""
-        with patch.object(
-            database, "_dynamo_table", side_effect=_make_client_error()
-        ):
+        with patch.object(database, "_dynamo_table", side_effect=_make_client_error()):
             with caplog.at_level(logging.ERROR, logger="app.database"):
                 result = database._dynamo_get_all_learned_durations()
             assert result == {}
@@ -214,9 +205,7 @@ class TestGetAllLearnedDurationsErrorHandling:
 
     def test_botocore_error_returns_empty_and_logs(self, dynamo_table, caplog):
         """BotoCoreError in _dynamo_get_all_learned_durations should return {} and log."""
-        with patch.object(
-            database, "_dynamo_table", side_effect=BotoCoreError()
-        ):
+        with patch.object(database, "_dynamo_table", side_effect=BotoCoreError()):
             with caplog.at_level(logging.ERROR, logger="app.database"):
                 result = database._dynamo_get_all_learned_durations()
             assert result == {}

@@ -1,7 +1,9 @@
 """Tests for palmares route handlers."""
+
 import base64
 import json
 from unittest.mock import AsyncMock, patch
+from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -10,7 +12,6 @@ from app.main import app
 from app.models import PalmaresEntry
 from app.palmares import (
     count_competition_palmares,
-    delete_competition_palmares,
     get_palmares,
     save_palmares_entries,
 )
@@ -33,6 +34,7 @@ def _encode(name: str) -> str:
 # US1: Palmares Collection
 # ---------------------------------------------------------------------------
 
+
 class TestPalmaresCollection:
     """Test that schedule routes save palmares entries for matched events."""
 
@@ -41,25 +43,28 @@ class TestPalmaresCollection:
         racer_name = "palmares test racer"
         encoded = _encode(racer_name)
 
-        with patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data), \
-             patch("app.main._fetch_start_lists", new_callable=AsyncMock), \
-             patch("app.main._fetch_result_pages", new_callable=AsyncMock), \
-             patch("app.main._fetch_live_heats", new_callable=AsyncMock):
-
-            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        with (
+            patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data),
+            patch("app.main._fetch_start_lists", new_callable=AsyncMock),
+            patch("app.main._fetch_result_pages", new_callable=AsyncMock),
+            patch("app.main._fetch_live_heats", new_callable=AsyncMock),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+            ) as client:
                 response = await client.get(
                     f"/schedule/26008?r={encoded}",
-                    cookies={"racer_name": racer_name},
                 )
             assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_no_palmares_for_unidentified_racer(self, sample_jxn_data):
-        with patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data), \
-             patch("app.main._fetch_start_lists", new_callable=AsyncMock), \
-             patch("app.main._fetch_result_pages", new_callable=AsyncMock), \
-             patch("app.main._fetch_live_heats", new_callable=AsyncMock):
-
+        with (
+            patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data),
+            patch("app.main._fetch_start_lists", new_callable=AsyncMock),
+            patch("app.main._fetch_result_pages", new_callable=AsyncMock),
+            patch("app.main._fetch_live_heats", new_callable=AsyncMock),
+        ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
                 response = await client.get("/schedule/26008")
             assert response.status_code == 200
@@ -74,24 +79,30 @@ class TestPalmaresCollection:
         # Pre-populate palmares
         entries = [
             PalmaresEntry(
-                racer_name=racer_name, competition_id=26008,
-                competition_name="Test", competition_date="2026-02-28",
-                session_id=1, session_name="Friday", event_position=3,
+                racer_name=racer_name,
+                competition_id=26008,
+                competition_name="Test",
+                competition_date="2026-02-28",
+                session_id=1,
+                session_name="Friday",
+                event_position=3,
                 event_name="Test Event",
                 audit_url="results/E26008/test-AUDIT-R.htm",
             ),
         ]
         save_palmares_entries(entries)
 
-        with patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data), \
-             patch("app.main._fetch_start_lists", new_callable=AsyncMock), \
-             patch("app.main._fetch_result_pages", new_callable=AsyncMock), \
-             patch("app.main._fetch_live_heats", new_callable=AsyncMock):
-
-            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        with (
+            patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_jxn_data),
+            patch("app.main._fetch_start_lists", new_callable=AsyncMock),
+            patch("app.main._fetch_result_pages", new_callable=AsyncMock),
+            patch("app.main._fetch_live_heats", new_callable=AsyncMock),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+            ) as client:
                 response = await client.get(
                     f"/schedule/26008?r={encoded}",
-                    cookies={"racer_name": racer_name},
                 )
             assert response.status_code == 200
 
@@ -100,22 +111,33 @@ class TestCompetitionDate:
     def test_palmares_date_uses_generated_timestamp(self):
         """Competition date should come from Generated timestamps, not datetime.now()."""
         from datetime import datetime as dt, time
+
         from app.main import _collect_palmares_entries
         from app.models import (
-            Event, EventStatus, Prediction, RiderMatch,
-            SchedulePrediction, Session, SessionPrediction,
+            Event,
+            EventStatus,
+            Prediction,
+            RiderMatch,
+            SchedulePrediction,
+            Session,
+            SessionPrediction,
         )
 
         fake_gen_time = dt(2026, 2, 27, 9, 49, 52)
         event = Event(
-            position=3, name="U17 Women Pursuit Final",
-            discipline="pursuit_2k", status=EventStatus.COMPLETED,
-            is_special=False, audit_url="results/E26008/test-AUDIT-R.htm",
+            position=3,
+            name="U17 Women Pursuit Final",
+            discipline="pursuit_2k",
+            status=EventStatus.COMPLETED,
+            is_special=False,
+            audit_url="results/E26008/test-AUDIT-R.htm",
         )
         session = Session(session_id=1, day="Friday", scheduled_start=time(8, 15), events=[event])
         pred = Prediction(
-            event=event, predicted_start=time(9, 35),
-            estimated_duration_minutes=6.0, is_adjusted=False,
+            event=event,
+            predicted_start=time(9, 35),
+            estimated_duration_minutes=6.0,
+            is_adjusted=False,
             cumulative_delay_minutes=0.0,
             rider_match=RiderMatch(heat=1, heat_count=1),
         )
@@ -133,6 +155,7 @@ class TestCompetitionDate:
 # US2: Palmares Page
 # ---------------------------------------------------------------------------
 
+
 class TestPalmaresPage:
     """Test palmares profile page routes."""
 
@@ -141,20 +164,24 @@ class TestPalmaresPage:
         racer_name = "page test racer"
         entries = [
             PalmaresEntry(
-                racer_name=racer_name, competition_id=26008,
+                racer_name=racer_name,
+                competition_id=26008,
                 competition_name="Ontario Track Championships",
                 competition_date="2026-02-28",
-                session_id=1, session_name="Friday", event_position=3,
+                session_id=1,
+                session_name="Friday",
+                event_position=3,
                 event_name="U17 Women Pursuit Final",
                 audit_url="results/E26008/test-AUDIT-R.htm",
             ),
         ]
         save_palmares_entries(entries)
 
-        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+        ) as client:
             response = await client.get(
                 "/palmares",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 200
         assert "Ontario Track Championships" in response.text
@@ -164,10 +191,11 @@ class TestPalmaresPage:
     @pytest.mark.asyncio
     async def test_identified_no_entries(self):
         racer_name = "empty palmares racer"
-        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
+        ) as client:
             response = await client.get(
                 "/palmares",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 200
         assert "No achievements yet" in response.text
@@ -182,12 +210,38 @@ class TestPalmaresPage:
     @pytest.mark.asyncio
     async def test_name_form_submission_sets_cookie_and_redirects(self):
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url=BASE_URL,
+            transport=ASGITransport(app=app),
+            base_url=BASE_URL,
             follow_redirects=False,
         ) as client:
             response = await client.get("/palmares?name=Test+Racer")
         assert response.status_code == 303
         assert "racer_name" in response.headers.get("set-cookie", "")
+
+    @pytest.mark.asyncio
+    async def test_non_latin1_name_form_submission_sets_cookie(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url=BASE_URL,
+            follow_redirects=False,
+        ) as client:
+            response = await client.get("/palmares", params={"name": "Łukasz Ćwik"})
+        assert response.status_code == 303
+        assert response.headers["location"] == f"/palmares?r={_encode('Łukasz Ćwik')}"
+        assert response.headers["set-cookie"].startswith("racer_name=b64.")
+
+    @pytest.mark.asyncio
+    async def test_encoded_cookie_identifies_owner(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url=BASE_URL,
+            follow_redirects=False,
+        ) as client:
+            set_resp = await client.get("/palmares", params={"name": "山田太郎"})
+            client.cookies.set("racer_name", set_resp.headers["set-cookie"].split(";")[0].split("=", 1)[1])
+            response = await client.get("/palmares")
+        assert response.status_code == 200
+        assert "山田太郎" in response.text
 
     @pytest.mark.asyncio
     async def test_mobile_viewport_meta(self):
@@ -205,10 +259,13 @@ class TestPalmaresRemoval:
         racer_name = "remove test racer"
         entries = [
             PalmaresEntry(
-                racer_name=racer_name, competition_id=40001,
+                racer_name=racer_name,
+                competition_id=40001,
                 competition_name="Test Comp",
                 competition_date="2026-03-01",
-                session_id=1, session_name="Saturday", event_position=1,
+                session_id=1,
+                session_name="Saturday",
+                event_position=1,
                 event_name="E1",
                 audit_url="results/E40001/test-AUDIT-R.htm",
             ),
@@ -216,12 +273,13 @@ class TestPalmaresRemoval:
         save_palmares_entries(entries)
 
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url=BASE_URL,
+            transport=ASGITransport(app=app),
+            base_url=BASE_URL,
             follow_redirects=False,
+            cookies={"racer_name": racer_name},
         ) as client:
             response = await client.get(
                 "/palmares/remove?competition_id=40001",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 303
         assert count_competition_palmares(racer_name, 40001) == 0
@@ -246,16 +304,20 @@ class TestPalmaresRemoval:
 # US3: Shareable Link
 # ---------------------------------------------------------------------------
 
+
 class TestShareableLink:
     @pytest.mark.asyncio
     async def test_shared_link_renders_palmares(self):
         racer_name = "share test racer"
         entries = [
             PalmaresEntry(
-                racer_name=racer_name, competition_id=26008,
+                racer_name=racer_name,
+                competition_id=26008,
                 competition_name="Ontario Track Championships",
                 competition_date="2026-02-28",
-                session_id=1, session_name="Friday", event_position=3,
+                session_id=1,
+                session_name="Friday",
+                event_position=3,
                 event_name="U17 Women Pursuit Final",
                 audit_url="results/E26008/test-AUDIT-R.htm",
             ),
@@ -274,9 +336,13 @@ class TestShareableLink:
         racer_name = "no cookie racer"
         entries = [
             PalmaresEntry(
-                racer_name=racer_name, competition_id=26008,
-                competition_name="Test", competition_date="2026-02-28",
-                session_id=1, session_name="Friday", event_position=1,
+                racer_name=racer_name,
+                competition_id=26008,
+                competition_name="Test",
+                competition_date="2026-02-28",
+                session_id=1,
+                session_name="Friday",
+                event_position=1,
                 event_name="E1",
                 audit_url="results/E26008/test-AUDIT-R.htm",
             ),
@@ -291,21 +357,27 @@ class TestShareableLink:
         set_cookie = response.headers.get("set-cookie", "")
         assert "racer_name" not in set_cookie
 
-
     async def _share_url(self, racer_name: str, host: str) -> str:
-        save_palmares_entries([
-            PalmaresEntry(
-                racer_name=racer_name, competition_id=26008,
-                competition_name="Test", competition_date="2026-02-28",
-                session_id=1, session_name="Friday", event_position=1,
-                event_name="E1", audit_url="results/E26008/test-AUDIT-R.htm",
-            ),
-        ])
+        save_palmares_entries(
+            [
+                PalmaresEntry(
+                    racer_name=racer_name,
+                    competition_id=26008,
+                    competition_name="Test",
+                    competition_date="2026-02-28",
+                    session_id=1,
+                    session_name="Friday",
+                    event_position=1,
+                    event_name="E1",
+                    audit_url="results/E26008/test-AUDIT-R.htm",
+                ),
+            ]
+        )
         async with AsyncClient(transport=ASGITransport(app=app), base_url=f"https://{host}") as client:
             response = await client.get(f"/palmares?r={_encode(racer_name)}")
         assert response.status_code == 200
         start = response.text.index('data-url="') + len('data-url="')
-        return response.text[start:response.text.index('"', start)]
+        return response.text[start : response.text.index('"', start)]
 
     @pytest.mark.asyncio
     async def test_share_link_uses_public_base_url(self):
@@ -323,6 +395,7 @@ class TestShareableLink:
 # ---------------------------------------------------------------------------
 # US4: CSV Export
 # ---------------------------------------------------------------------------
+
 
 class TestCSVExport:
     @pytest.mark.asyncio
@@ -377,6 +450,73 @@ class TestCSVExport:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "audit_url",
+        [
+            "results/%2e%2e/%2e%2e/etc/passwd",
+            "results/..%2f..%2fadmin",
+            "results/../secret",
+            "/results/E26008/test-AUDIT-R.htm",
+        ],
+    )
+    async def test_export_rejects_traversal_after_normalising(self, audit_url):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+            response = await client.get(
+                "/palmares/export",
+                params={"audit_url": audit_url, "r": _encode("test")},
+            )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_export_rejects_oversized_audit_page(self):
+        mock_response = AsyncMock()
+        mock_response.text = "x" * 2_000_001
+        mock_response.raise_for_status = lambda: None
+        with patch.object(app.state.http_client, "get", return_value=mock_response):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    "/palmares/export",
+                    params={"audit_url": "results/E26008/test-AUDIT-R.htm", "r": _encode("test")},
+                )
+        assert response.status_code == 502
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("name", ["Łukasz Ćwik", "Jiří Dvořák", "山田太郎"])
+    async def test_export_non_latin1_name_in_filename(self, name):
+        mock_response = AsyncMock()
+        mock_response.text = "<html></html>"
+        mock_response.raise_for_status = lambda: None
+        with patch.object(app.state.http_client, "get", return_value=mock_response):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    "/palmares/export",
+                    params={"audit_url": "results/E26008/W1516-IP-2000-F-0-AUDIT-R.htm", "r": _encode(name)},
+                )
+        assert response.status_code == 200
+        disposition = response.headers["content-disposition"]
+        assert disposition.isascii()
+        assert f"filename*=UTF-8''{quote(f'W1516-IP-2000-F-0-{name}.csv', safe='')}" in disposition
+        assert 'filename="W1516-IP-2000-F-0-' in disposition
+
+    @pytest.mark.asyncio
+    async def test_export_non_latin1_team_name_in_filename(self):
+        mock_response = AsyncMock()
+        mock_response.text = "<html></html>"
+        mock_response.raise_for_status = lambda: None
+        with patch.object(app.state.http_client, "get", return_value=mock_response):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+                response = await client.get(
+                    "/palmares/export",
+                    params={
+                        "audit_url": "results/E26008/TP-AUDIT-R.htm",
+                        "r": _encode("test"),
+                        "team_name": "Škoda Łódź",
+                    },
+                )
+        assert response.status_code == 200
+        assert quote("TP-Škoda Łódź.csv", safe="") in response.headers["content-disposition"]
+
+    @pytest.mark.asyncio
     async def test_export_audit_unavailable_returns_502(self):
         encoded = _encode("test racer")
         import httpx as httpx_lib
@@ -413,27 +553,34 @@ class TestCSVExport:
         assert response.status_code == 200
         assert response.headers.get("x-palmares-notice") == "no-matching-data"
 
+
 class TestPalmaresRename:
     @pytest.mark.asyncio
     async def test_rename_updates_name(self):
         racer_name = "rename test racer"
         entries = [
             PalmaresEntry(
-                racer_name=racer_name, competition_id=50001,
-                competition_name="Old Name", competition_date="2026-01-01",
-                session_id=1, session_name="Sat", event_position=1,
-                event_name="E1", audit_url="results/E50001/test-AUDIT-R.htm",
+                racer_name=racer_name,
+                competition_id=50001,
+                competition_name="Old Name",
+                competition_date="2026-01-01",
+                session_id=1,
+                session_name="Sat",
+                event_position=1,
+                event_name="E1",
+                audit_url="results/E50001/test-AUDIT-R.htm",
             ),
         ]
         save_palmares_entries(entries)
 
         async with AsyncClient(
-            transport=ASGITransport(app=app), base_url=BASE_URL,
+            transport=ASGITransport(app=app),
+            base_url=BASE_URL,
             follow_redirects=False,
+            cookies={"racer_name": racer_name},
         ) as client:
             response = await client.get(
                 "/palmares/rename?competition_id=50001&name=Ontario+Track+Championships",
-                cookies={"racer_name": racer_name},
             )
         assert response.status_code == 303
         result = get_palmares(racer_name)
@@ -448,10 +595,11 @@ class TestPalmaresRename:
 
     @pytest.mark.asyncio
     async def test_rename_blank_name_returns_400(self):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": "someone"}
+        ) as client:
             response = await client.get(
                 "/palmares/rename?competition_id=50001&name=",
-                cookies={"racer_name": "someone"},
             )
         assert response.status_code == 400
 

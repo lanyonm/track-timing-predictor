@@ -1,4 +1,5 @@
 """Tests for app/predictor.py prediction logic."""
+
 import json
 from datetime import datetime, time
 from pathlib import Path
@@ -100,7 +101,7 @@ class TestComputeDelay:
         raw_delay = 170 - 40 = 130 → clamped to 120.
         """
         session = self._make_session(8, 0)
-        durations = [20.0] * 10   # total_est = 200 min
+        durations = [20.0] * 10  # total_est = 200 min
         now = datetime(2024, 1, 1, 10, 50)  # actual_elapsed = 170 min
         delay = _compute_delay(session, durations, 2, now)
         assert delay == pytest.approx(120.0)
@@ -190,7 +191,7 @@ class TestPredictSession:
             day="Friday",
             scheduled_start=time(8, 0),
             events=[
-                _make_event(0, EventStatus.NOT_READY, "scratch_race"),   # default 12 min
+                _make_event(0, EventStatus.NOT_READY, "scratch_race"),  # default 12 min
                 _make_event(1, EventStatus.NOT_READY, "scratch_race"),
             ],
         )
@@ -297,8 +298,8 @@ class TestPredictSession:
             day="Sunday",
             scheduled_start=time(9, 0),
             events=[
-                _make_event(0, EventStatus.COMPLETED, "scratch_race"),   # 12 min
-                _make_event(1, EventStatus.COMPLETED, "scratch_race"),   # 12 min
+                _make_event(0, EventStatus.COMPLETED, "scratch_race"),  # 12 min
+                _make_event(1, EventStatus.COMPLETED, "scratch_race"),  # 12 min
                 _make_event(2, EventStatus.UPCOMING, "scratch_race"),
             ],
         )
@@ -312,10 +313,9 @@ class TestPredictSession:
         assert not sp.event_predictions[1].is_adjusted
         # Third event should be shifted by ~10 min
         upcoming_minutes = (
-            sp.event_predictions[2].predicted_start.hour * 60
-            + sp.event_predictions[2].predicted_start.minute
+            sp.event_predictions[2].predicted_start.hour * 60 + sp.event_predictions[2].predicted_start.minute
         )
-        assert upcoming_minutes > 9 * 60 + 24   # later than 09:24 (no-delay time)
+        assert upcoming_minutes > 9 * 60 + 24  # later than 09:24 (no-delay time)
         assert sp.event_predictions[2].is_adjusted
 
 
@@ -383,11 +383,13 @@ class TestIsActive:
 
     def test_active_is_first_pending_when_session_in_progress(self):
         """First non-COMPLETED event is active when session has started."""
-        session = self._make_session([
-            EventStatus.COMPLETED,
-            EventStatus.UPCOMING,
-            EventStatus.NOT_READY,
-        ])
+        session = self._make_session(
+            [
+                EventStatus.COMPLETED,
+                EventStatus.UPCOMING,
+                EventStatus.NOT_READY,
+            ]
+        )
         sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 15))
         assert not sp.event_predictions[0].is_active
         assert sp.event_predictions[1].is_active
@@ -395,39 +397,47 @@ class TestIsActive:
 
     def test_no_active_when_all_events_not_ready(self):
         """No event is active before the session starts."""
-        session = self._make_session([
-            EventStatus.NOT_READY,
-            EventStatus.NOT_READY,
-        ])
+        session = self._make_session(
+            [
+                EventStatus.NOT_READY,
+                EventStatus.NOT_READY,
+            ]
+        )
         sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 15))
         assert not any(p.is_active for p in sp.event_predictions)
 
     def test_no_active_when_all_events_completed(self):
         """No event is active once the session is fully complete."""
-        session = self._make_session([
-            EventStatus.COMPLETED,
-            EventStatus.COMPLETED,
-        ])
+        session = self._make_session(
+            [
+                EventStatus.COMPLETED,
+                EventStatus.COMPLETED,
+            ]
+        )
         sp = predict_session(99, session, now=datetime(2024, 1, 1, 10, 0))
         assert not any(p.is_active for p in sp.event_predictions)
 
     def test_no_active_without_now(self):
         """is_active is not set when now is None (pre-event mode)."""
-        session = self._make_session([
-            EventStatus.COMPLETED,
-            EventStatus.UPCOMING,
-        ])
+        session = self._make_session(
+            [
+                EventStatus.COMPLETED,
+                EventStatus.UPCOMING,
+            ]
+        )
         sp = predict_session(99, session, now=None)
         assert not any(p.is_active for p in sp.event_predictions)
 
     def test_exactly_one_active_at_a_time(self):
         """At most one event is active per session."""
-        session = self._make_session([
-            EventStatus.COMPLETED,
-            EventStatus.COMPLETED,
-            EventStatus.UPCOMING,
-            EventStatus.NOT_READY,
-        ])
+        session = self._make_session(
+            [
+                EventStatus.COMPLETED,
+                EventStatus.COMPLETED,
+                EventStatus.UPCOMING,
+                EventStatus.NOT_READY,
+            ]
+        )
         sp = predict_session(99, session, now=datetime(2024, 1, 1, 8, 30))
         active_count = sum(1 for p in sp.event_predictions if p.is_active)
         assert active_count == 1
@@ -445,13 +455,19 @@ class TestIsActive:
             scheduled_start=time(8, 0),
             events=[
                 Event(
-                    position=0, name="Keirin R1", discipline="keirin",
-                    status=EventStatus.UPCOMING, is_special=False,
+                    position=0,
+                    name="Keirin R1",
+                    discipline="keirin",
+                    status=EventStatus.UPCOMING,
+                    is_special=False,
                     live_url="liveresults.php?EventId=1",
                 ),
                 Event(
-                    position=1, name="Keirin R2", discipline="keirin",
-                    status=EventStatus.NOT_READY, is_special=False,
+                    position=1,
+                    name="Keirin R2",
+                    discipline="keirin",
+                    status=EventStatus.NOT_READY,
+                    is_special=False,
                 ),
             ],
         )
@@ -470,17 +486,26 @@ class TestIsActive:
             scheduled_start=time(8, 0),
             events=[
                 Event(
-                    position=0, name="Event 0", discipline="scratch_race",
-                    status=EventStatus.COMPLETED, is_special=False,
+                    position=0,
+                    name="Event 0",
+                    discipline="scratch_race",
+                    status=EventStatus.COMPLETED,
+                    is_special=False,
                 ),
                 Event(
-                    position=1, name="Event 1", discipline="keirin",
-                    status=EventStatus.UPCOMING, is_special=False,
+                    position=1,
+                    name="Event 1",
+                    discipline="keirin",
+                    status=EventStatus.UPCOMING,
+                    is_special=False,
                     live_url="liveresults.php?EventId=1",
                 ),
                 Event(
-                    position=2, name="Event 2", discipline="keirin",
-                    status=EventStatus.NOT_READY, is_special=False,
+                    position=2,
+                    name="Event 2",
+                    discipline="keirin",
+                    status=EventStatus.NOT_READY,
+                    is_special=False,
                 ),
             ],
         )
@@ -663,12 +688,9 @@ class TestGeneratedTimeDuration:
             day="Saturday",
             scheduled_start=time(8, 0),
             events=[
-                Event(position=10, name="E10", discipline="scratch_race",
-                      status=statuses[0], is_special=False),
-                Event(position=11, name="E11", discipline="keirin",
-                      status=statuses[1], is_special=False),
-                Event(position=12, name="E12", discipline="keirin",
-                      status=statuses[2], is_special=False),
+                Event(position=10, name="E10", discipline="scratch_race", status=statuses[0], is_special=False),
+                Event(position=11, name="E11", discipline="keirin", status=statuses[1], is_special=False),
+                Event(position=12, name="E12", discipline="keirin", status=statuses[2], is_special=False),
             ],
         )
 
@@ -719,6 +741,7 @@ class TestGeneratedTimeDuration:
     def test_observed_takes_priority_over_generated(self):
         """Finish-Time observed duration overrides the generated-time derived one."""
         from app.predictor import record_observed_duration
+
         self._setup()
         # Record an observed duration of 9.0 min for pos 10 (overrides 12-min generated)
         record_observed_duration(self.EVENT_ID, 55, 10, 7.0, "scratch_race", "E10")
@@ -754,10 +777,20 @@ class TestGeneratedTimeDuration:
             day="Sunday",
             scheduled_start=time(8, 0),
             events=[
-                Event(position=11, name="U11 Keirin Final", discipline="keirin",
-                      status=EventStatus.COMPLETED, is_special=False),
-                Event(position=12, name="Keirin Repechage", discipline="keirin",
-                      status=EventStatus.UPCOMING, is_special=False),
+                Event(
+                    position=11,
+                    name="U11 Keirin Final",
+                    discipline="keirin",
+                    status=EventStatus.COMPLETED,
+                    is_special=False,
+                ),
+                Event(
+                    position=12,
+                    name="Keirin Repechage",
+                    discipline="keirin",
+                    status=EventStatus.UPCOMING,
+                    is_special=False,
+                ),
             ],
         )
         sp = predict_session(self.EVENT_ID + 2, session, now=None)
@@ -783,14 +816,13 @@ class TestUpdateStatusCacheWallClockBound:
             day="Sunday",
             scheduled_start=time(12, 0),
             events=[
-                Event(position=1, name="E1", discipline=discipline,
-                      status=status, is_special=False),
+                Event(position=1, name="E1", discipline=discipline, status=status, is_special=False),
             ],
         )
 
     def test_reasonable_elapsed_is_recorded(self):
         """An elapsed time within 3× default is recorded without issue."""
-        from app.database import get_all_learned_durations
+
         sessions = [self._make_session(EventStatus.UPCOMING, "keirin")]
         t_seen = datetime(2026, 1, 1, 12, 0, 0)
         update_status_cache(88001, sessions, t_seen)
@@ -813,8 +845,7 @@ class TestUpdateStatusCacheWallClockBound:
         def _keirin_row_count() -> int:
             with get_db() as conn:
                 row = conn.execute(
-                    "SELECT COUNT(*) AS cnt FROM event_durations "
-                    "WHERE discipline = 'keirin' AND competition_id = 88002"
+                    "SELECT COUNT(*) AS cnt FROM event_durations WHERE discipline = 'keirin' AND competition_id = 88002"
                 ).fetchone()
             return row["cnt"]
 
@@ -856,13 +887,8 @@ class TestPredictSchedule:
         """Predicted start times within a session must be non-decreasing."""
         schedule = predict_schedule(26008, sessions, now=None)
         for sp in schedule.sessions:
-            times_in_minutes = [
-                p.predicted_start.hour * 60 + p.predicted_start.minute
-                for p in sp.event_predictions
-            ]
-            assert times_in_minutes == sorted(times_in_minutes), (
-                f"Times not sorted in session {sp.session.day}"
-            )
+            times_in_minutes = [p.predicted_start.hour * 60 + p.predicted_start.minute for p in sp.event_predictions]
+            assert times_in_minutes == sorted(times_in_minutes), f"Times not sorted in session {sp.session.day}"
 
 
 # ── latest_live_generated_time ─────────────────────────────────────────────────
@@ -900,10 +926,15 @@ class TestFinishedSessionWithPendingSpecial:
 
     def _session(self) -> Session:
         events = [_make_event(i, EventStatus.COMPLETED) for i in range(3)]
-        events.append(Event(
-            position=3, name="End of Session", discipline="end_of_session",
-            status=EventStatus.NOT_READY, is_special=True,
-        ))
+        events.append(
+            Event(
+                position=3,
+                name="End of Session",
+                discipline="end_of_session",
+                status=EventStatus.NOT_READY,
+                is_special=True,
+            )
+        )
         return Session(session_id=1, day="Monday", scheduled_start=time(10, 0), events=events)
 
     def test_no_delay(self):
@@ -921,13 +952,16 @@ class TestUseLearnedDefault:
 
     def _session(self) -> Session:
         return Session(
-            session_id=1, day="Friday", scheduled_start=time(8, 0),
+            session_id=1,
+            day="Friday",
+            scheduled_start=time(8, 0),
             events=[_make_event(0, EventStatus.UPCOMING), _make_event(1, EventStatus.UPCOMING)],
         )
 
     @pytest.fixture
     def learned_scratch_race(self):
         from app.database import record_duration_structured
+
         for pos in range(5):
             record_duration_structured(7003, 1, pos, "Scratch", "scratch_race", 99.0)
 
@@ -957,20 +991,20 @@ class TestGeneratedGapAssignment:
     @pytest.fixture
     def tuesday(self):
         import json
+
         from app.parser import parse_generated_time
+
         fixtures = Path(__file__).parent / "fixtures"
         session = parse_schedule(json.loads((fixtures / "schedule-26037-live.json").read_text()))[2]
         for e in session.events:
             if e.result_url:
                 page = fixtures / "26037-results" / e.result_url.rsplit("/", 1)[-1]
-                record_generated_time(self.COMP, session.session_id, e.position,
-                                      parse_generated_time(page.read_text()))
+                record_generated_time(self.COMP, session.session_id, e.position, parse_generated_time(page.read_text()))
         return session
 
     def _durations(self, session) -> dict[int, tuple[float, bool]]:
         sp = predict_session(self.COMP, session)
-        return {p.event.position: (round(p.estimated_duration_minutes, 1), p.is_observed)
-                for p in sp.event_predictions}
+        return {p.event.position: (round(p.estimated_duration_minutes, 1), p.is_observed) for p in sp.event_predictions}
 
     def test_gap_lands_on_later_event(self, tuesday):
         d = self._durations(tuesday)
@@ -987,6 +1021,7 @@ class TestGeneratedGapAssignment:
     def test_tool_agrees(self, tuesday):
         from app.predictor import get_generated_time
         from tools.extract_competition import extract_generated_diff_duration
+
         gen = {e.position: get_generated_time(self.COMP, tuesday.session_id, e.position) for e in tuesday.events}
         assert round(extract_generated_diff_duration(gen[3], gen[4], "team_pursuit"), 1) == 14.5
         assert round(extract_generated_diff_duration(gen[7], gen[8], "sprint_match"), 1) == 22.4

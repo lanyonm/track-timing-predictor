@@ -1,11 +1,14 @@
 """Shared pytest configuration and fixtures."""
+
+import asyncio
+
 import httpx
 import pytest
 
 from app.config import settings
 from app.database import get_db, init_db
-from app.palmares import init_palmares_db
 from app.main import app
+from app.palmares import init_palmares_db
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -29,18 +32,13 @@ def test_db(tmp_path_factory):
 
     # Provide a shared HTTP client on app.state for routes that use Depends(get_http_client)
     app.state.http_client = httpx.AsyncClient(
-        base_url=settings.tracktiming_base_url, timeout=15.0,
+        base_url=settings.tracktiming_base_url,
+        timeout=15.0,
     )
 
     yield
 
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-        if not loop.is_closed():
-            loop.run_until_complete(app.state.http_client.aclose())
-    except RuntimeError:
-        pass  # No event loop available during teardown
+    asyncio.run(app.state.http_client.aclose())
     settings.db_path = original_db_path
     settings.dynamodb_table = original_dynamodb_table
     settings.palmares_table = original_palmares_table

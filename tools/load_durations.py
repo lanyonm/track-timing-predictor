@@ -19,7 +19,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.database import DuplicateRowsError, deduplicate_event_durations, init_db, record_duration_structured
-from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration, DEFAULT_DURATIONS
+from app.disciplines import DEFAULT_DURATIONS, get_changeover, get_default_duration, get_per_heat_duration
 from app.models import CompetitionReport, DurationRecord
 
 logger = logging.getLogger(__name__)
@@ -35,8 +35,9 @@ def _validate_duration_bounds(record: DurationRecord) -> bool:
     Returns True if valid, False if out of bounds.
     """
     if record.heat_count is not None and record.heat_count > 0:
-        expected = (record.heat_count * get_per_heat_duration(record.category.discipline)
-                    + get_changeover(record.category.discipline))
+        expected = record.heat_count * get_per_heat_duration(record.category.discipline) + get_changeover(
+            record.category.discipline
+        )
     else:
         expected = get_default_duration(record.category.discipline)
     lo = 0.5 * expected
@@ -57,7 +58,11 @@ def _compute_per_heat_duration(record: DurationRecord) -> float | None:
     if per_heat <= 0:
         logger.warning(
             "Negative per-heat duration %.2f for %s (duration=%.1f, heats=%d, changeover=%.1f)",
-            per_heat, record.category.discipline, record.duration_minutes, record.heat_count, changeover,
+            per_heat,
+            record.category.discipline,
+            record.duration_minutes,
+            record.heat_count,
+            changeover,
         )
         return None
     return per_heat
@@ -75,8 +80,11 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
         if not _validate_duration_bounds(record):
             logger.warning(
                 "Out-of-bounds duration %.1f min for %s (competition %d, session %d, pos %d) — skipping",
-                record.duration_minutes, record.category.discipline,
-                record.competition_id, record.session_id, record.event_position,
+                record.duration_minutes,
+                record.category.discipline,
+                record.competition_id,
+                record.session_id,
+                record.event_position,
             )
             stats["skipped_bounds"] += 1
             continue
@@ -85,7 +93,8 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
         if record.category.discipline not in DEFAULT_DURATIONS and record.category.discipline != "exhibition":
             logger.warning(
                 "Unrecognized discipline '%s' for event '%s' — storing anyway",
-                record.category.discipline, record.event_name,
+                record.category.discipline,
+                record.event_name,
             )
             stats["warnings"] += 1
 
@@ -115,8 +124,11 @@ def load_report(report: CompetitionReport) -> dict[str, int]:
         except Exception:
             logger.error(
                 "Failed to record duration for %s (competition %d, session %d, pos %d)",
-                record.category.discipline, record.competition_id, record.session_id,
-                record.event_position, exc_info=True,
+                record.category.discipline,
+                record.competition_id,
+                record.session_id,
+                record.event_position,
+                exc_info=True,
             )
             stats["warnings"] += 1
 
@@ -148,10 +160,14 @@ def main() -> None:
     try:
         init_db()
     except DuplicateRowsError as exc:
-        print(f"\nThe database at {settings.db_path} has {exc.duplicate_count} "
-              "duplicate rows that conflict with the new unique index.")
-        print("The most recent row for each (competition_id, session_id, "
-              "event_position) will be kept; older duplicates will be removed.\n")
+        print(
+            f"\nThe database at {settings.db_path} has {exc.duplicate_count} "
+            "duplicate rows that conflict with the new unique index."
+        )
+        print(
+            "The most recent row for each (competition_id, session_id, "
+            "event_position) will be kept; older duplicates will be removed.\n"
+        )
         if args.force:
             proceed = True
         else:
@@ -181,14 +197,18 @@ def main() -> None:
         stats = load_report(report)
         for k in total_stats:
             total_stats[k] += stats[k]
-        print(f"  {filepath.name}: {stats['loaded']} loaded, "
-              f"{stats['updated']} updated, {stats['unchanged']} unchanged, "
-              f"{stats['skipped_bounds']} out-of-bounds")
+        print(
+            f"  {filepath.name}: {stats['loaded']} loaded, "
+            f"{stats['updated']} updated, {stats['unchanged']} unchanged, "
+            f"{stats['skipped_bounds']} out-of-bounds"
+        )
 
-    print(f"\nTotal: {total_stats['loaded']} loaded, "
-          f"{total_stats['updated']} updated, {total_stats['unchanged']} unchanged, "
-          f"{total_stats['skipped_bounds']} out-of-bounds, "
-          f"{total_stats['warnings']} warnings")
+    print(
+        f"\nTotal: {total_stats['loaded']} loaded, "
+        f"{total_stats['updated']} updated, {total_stats['unchanged']} unchanged, "
+        f"{total_stats['skipped_bounds']} out-of-bounds, "
+        f"{total_stats['warnings']} warnings"
+    )
 
     if total_stats["warnings"] > 0:
         sys.exit(1)

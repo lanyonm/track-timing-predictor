@@ -1,7 +1,8 @@
 """Tests for app/main.py route handlers, focused on racer-name functionality."""
+
 import base64
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -18,9 +19,21 @@ from app.predictor import (
     _start_list_riders,
     _status_cache,
 )
-from app.models import normalize_rider_name
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+
+# Outside Latin-1, which Starlette uses to encode response headers.
+NON_LATIN1_NAMES = ["Łukasz Ćwik", "Jiří Dvořák", "山田太郎"]
+
+
+def _cookie_name(set_cookie: str) -> str:
+    """Decode the racer name from a racer_name Set-Cookie header."""
+    value = set_cookie.split(";")[0].split("=", 1)[1]
+    assert value.startswith("b64.")
+    encoded = value[len("b64.") :]
+    return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
+
+
 SAMPLE_EVENT_PATH = FIXTURE_DIR / "sample-event-output.json"
 START_LIST_PATH = FIXTURE_DIR / "start-list-sample.html"
 
@@ -71,7 +84,6 @@ def client():
 
 
 class TestRacerNameRoutes:
-
     def test_schedule_with_base64_racer_name(self, client):
         """GET /schedule/26008?r=<base64> includes the racer name in the form input."""
         encoded = base64.urlsafe_b64encode(b"Sean Hall").decode("ascii")
@@ -96,7 +108,46 @@ class TestRacerNameRoutes:
         # The response should set a cookie updating racer_name to "Other Name"
         set_cookie = response.headers.get("set-cookie", "")
         assert "racer_name" in set_cookie
-        assert "Other Name" in set_cookie or "Other+Name" in set_cookie or "Other%20Name" in set_cookie
+        assert _cookie_name(set_cookie) == "Other Name"
+
+    @pytest.mark.parametrize("name", NON_LATIN1_NAMES)
+    def test_schedule_with_non_latin1_name(self, client, name):
+        encoded = base64.urlsafe_b64encode(name.encode()).decode("ascii")
+        response = client.get(f"/schedule/26008?r={encoded}")
+        assert response.status_code == 200
+        assert f'value="{name}"' in response.text
+        assert _cookie_name(response.headers["set-cookie"]) == name
+
+    @pytest.mark.parametrize("name", NON_LATIN1_NAMES)
+    def test_set_non_latin1_racer_name(self, client, name):
+        response = client.get(
+            "/settings/racer-name",
+            params={"event_id": 26008, "name": name},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert _cookie_name(response.headers["set-cookie"]) == name
+
+    @pytest.mark.parametrize("name", NON_LATIN1_NAMES)
+    def test_encoded_cookie_round_trips(self, client, name):
+        set_resp = client.get("/settings/racer-name", params={"event_id": 26008, "name": name}, follow_redirects=False)
+        # Secure cookies aren't sent back over http://testserver, so set it by hand
+        client.cookies.set("racer_name", set_resp.headers["set-cookie"].split(";")[0].split("=", 1)[1])
+        response = client.get("/schedule/26008")
+        assert response.status_code == 200
+        assert f'value="{name}"' in response.text
+
+    def test_legacy_raw_cookie_is_rewritten_encoded(self, client):
+        client.cookies.set("racer_name", "Sean Hall")
+        response = client.get("/schedule/26008")
+        assert response.headers["set-cookie"].startswith("racer_name=b64.")
+        assert _cookie_name(response.headers["set-cookie"]) == "Sean Hall"
+
+    def test_malformed_encoded_cookie_is_ignored(self, client):
+        client.cookies.set("racer_name", "b64.!!!")
+        response = client.get("/schedule/26008")
+        assert response.status_code == 200
+        assert "set-cookie" not in response.headers
 
     def test_set_racer_name_redirect(self, client):
         """GET /settings/racer-name?event_id=26008&name=Sean Hall redirects with ?r= and fragment."""
@@ -124,7 +175,7 @@ class TestRacerNameRoutes:
         # Should delete the cookie (max-age=0 signals deletion)
         set_cookie = response.headers.get("set-cookie", "")
         assert "racer_name" in set_cookie
-        assert 'Max-Age=0' in set_cookie or 'max-age=0' in set_cookie
+        assert "Max-Age=0" in set_cookie or "max-age=0" in set_cookie
 
     def test_empty_name_clears(self, client):
         """GET /settings/racer-name?event_id=26008&name= behaves like clear."""
@@ -184,6 +235,7 @@ class TestHealthEndpoint:
     def test_health_returns_degraded_on_bad_db(self):
         """Health endpoint returns 200 with degraded status when DB is unreachable."""
         from app.config import settings
+
         original = settings.db_path
         settings.db_path = "/nonexistent/path/to/db.sqlite"
         try:
@@ -222,6 +274,7 @@ class TestCheckHealth:
     async def test_check_health_sqlite_healthy(self):
         """check_health returns healthy for a valid SQLite DB."""
         from app.database import check_health
+
         result = await check_health()
         assert result["status"] == "healthy"
 
@@ -230,6 +283,7 @@ class TestCheckHealth:
         """check_health returns degraded when SQLite DB path is invalid."""
         from app.config import settings
         from app.database import check_health
+
         original = settings.db_path
         settings.db_path = "/nonexistent/impossible/path.db"
         try:
@@ -246,6 +300,7 @@ class TestVenueLocalClock:
 
     def _captured_now(self, client, path):
         import app.main as main_module
+
         with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
             resp = client.get(path)
         assert resp.status_code == 200
@@ -254,6 +309,7 @@ class TestVenueLocalClock:
     @pytest.fixture
     def frozen_toronto_morning(self):
         from tests.test_clock import FROZEN_UTC, frozen_datetime
+
         with patch("app.clock.datetime", frozen_datetime(FROZEN_UTC)):
             yield
 
@@ -274,8 +330,9 @@ class TestVenueOffsetInferredFromResults:
 
     @pytest.fixture(autouse=True)
     def live_26037(self):
-        from datetime import timezone
+
         from tests.test_clock import frozen_datetime
+
         schedule = json.loads((FIXTURE_DIR / "schedule-26037-live.json").read_text())
         results_dir = FIXTURE_DIR / "26037-results"
 
@@ -284,7 +341,7 @@ class TestVenueOffsetInferredFromResults:
             path = results_dir / url.rsplit("/", 1)[-1]
             return path.read_text() if path.exists() else ""
 
-        captured = datetime(2026, 10, 6, 12, 43, 11, tzinfo=timezone.utc)
+        captured = datetime(2026, 10, 6, 12, 43, 11, tzinfo=UTC)
         with (
             patch("app.clock.datetime", frozen_datetime(captured)),
             patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=schedule),
@@ -296,6 +353,7 @@ class TestVenueOffsetInferredFromResults:
     @pytest.mark.parametrize("path", ["/schedule/26037", "/schedule/26037/refresh"])
     def test_now_uses_inferred_offset(self, client, path):
         import app.main as main_module
+
         with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
             resp = client.get(path)
         assert resp.status_code == 200
@@ -327,10 +385,13 @@ class TestScheduleErrors:
             resp = client.get("/schedule/99999999")
         assert resp.status_code == 404
 
-    @pytest.mark.parametrize("path,fetcher", [
-        ("/schedule/26008", "app.main.fetch_initial_layout"),
-        ("/schedule/26008/refresh", "app.main.fetch_refresh"),
-    ])
+    @pytest.mark.parametrize(
+        "path,fetcher",
+        [
+            ("/schedule/26008", "app.main.fetch_initial_layout"),
+            ("/schedule/26008/refresh", "app.main.fetch_refresh"),
+        ],
+    )
     def test_fetch_failure_returns_502_without_exception_text(self, client, path, fetcher):
         err = httpx.ConnectError("secret-upstream-host.internal refused")
         with patch(fetcher, new_callable=AsyncMock, side_effect=err):

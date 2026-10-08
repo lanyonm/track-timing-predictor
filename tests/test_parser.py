@@ -1,4 +1,5 @@
 """Tests for app/parser.py using event 26008 sample data."""
+
 import json
 from datetime import datetime, time
 from pathlib import Path
@@ -7,7 +8,15 @@ import pytest
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
-from app.parser import _parse_summary, parse_finish_time, parse_generated_time, parse_heat_count, parse_live_heat, parse_schedule, parse_start_list_riders
+from app.parser import (
+    _parse_summary,
+    parse_finish_time,
+    parse_generated_time,
+    parse_heat_count,
+    parse_live_heat,
+    parse_schedule,
+    parse_start_list_riders,
+)
 
 SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
 
@@ -60,9 +69,7 @@ class TestParseSchedule:
     def test_result_url_present_for_completed(self, sessions):
         # Completed events must have a result_url
         completed = [e for e in sessions[0].events if e.status == EventStatus.COMPLETED]
-        assert all(e.result_url is not None for e in completed), (
-            "All completed events should have a result_url"
-        )
+        assert all(e.result_url is not None for e in completed), "All completed events should have a result_url"
 
     def test_result_url_format(self, sessions):
         url = sessions[0].events[0].result_url
@@ -77,10 +84,7 @@ class TestParseSchedule:
     def test_start_list_url_present_for_completed(self, sessions):
         # Non-special completed events (actual races) should have a start_list_url;
         # ceremonies and other special events do not.
-        completed_races = [
-            e for e in sessions[0].events
-            if e.status == EventStatus.COMPLETED and not e.is_special
-        ]
+        completed_races = [e for e in sessions[0].events if e.status == EventStatus.COMPLETED and not e.is_special]
         assert all(e.start_list_url is not None for e in completed_races), (
             "All non-special completed events should have a start_list_url"
         )
@@ -93,9 +97,7 @@ class TestParseSchedule:
 
     def test_start_list_url_present_for_upcoming(self, sessions):
         upcoming = [e for e in sessions[2].events if e.status == EventStatus.UPCOMING]
-        assert all(e.start_list_url is not None for e in upcoming), (
-            "Upcoming events should have a start_list_url"
-        )
+        assert all(e.start_list_url is not None for e in upcoming), "Upcoming events should have a start_list_url"
 
     def test_event_positions_are_sequential(self, sessions):
         positions = [e.position for e in sessions[0].events]
@@ -116,9 +118,7 @@ class TestParseSchedule:
 
     def test_live_url_present_for_active_event(self, sessions):
         # "U17 Men Tempo Race / Omni II" has btn-danger (LIVE) in the sample data
-        live_events = [
-            e for s in sessions for e in s.events if e.live_url is not None
-        ]
+        live_events = [e for s in sessions for e in s.events if e.live_url is not None]
         assert len(live_events) == 1
         assert live_events[0].live_url == "liveresults.php?EventId=26008"
 
@@ -282,21 +282,17 @@ _FIXTURES = Path(__file__).parent / "fixtures"
 
 class TestParseLiveHeat:
     # Heat 1 done (has timing), Heat 2 upcoming (no timing)
-    PARTIAL_HTML = (
-        "Heat 1\n1  RIDER_A  12.345 Q\n2  RIDER_B  12.567\n"
-        "Heat 2\nRIDER_C\nRIDER_D\n"
-    )
+    PARTIAL_HTML = "Heat 1\n1  RIDER_A  12.345 Q\n2  RIDER_B  12.567\nHeat 2\nRIDER_C\nRIDER_D\n"
     # Both heats done
     ALL_DONE_HTML = (
-        "Heat 1\n1  RIDER_A  12.345 Q\n2  RIDER_B  12.567\n"
-        "Heat 2\n1  RIDER_C  11.987 Q\n2  RIDER_D  12.111\n"
+        "Heat 1\n1  RIDER_A  12.345 Q\n2  RIDER_B  12.567\nHeat 2\n1  RIDER_C  11.987 Q\n2  RIDER_D  12.111\n"
     )
     # Real pages captured from tracktiming.live
     KEIRIN_HEAT1_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-first-active.html").read_text()
     KEIRIN_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-keirin-2-heats-second-active.html").read_text()
     TS_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-second-active.html").read_text()
     TS_HEAT3_ACTIVE_EARLY_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-third-active-1.html").read_text()
-    TS_HEAT3_ACTIVE_MID_HTML   = (_FIXTURES / "live-results-sample-team-sprint-4-heats-third-active-2.html").read_text()
+    TS_HEAT3_ACTIVE_MID_HTML = (_FIXTURES / "live-results-sample-team-sprint-4-heats-third-active-2.html").read_text()
     TP_HEAT2_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-pursuit-3-heats-second-active.html").read_text()
     TP_HEAT3_ACTIVE_HTML = (_FIXTURES / "live-results-sample-team-pursuit-3-heats-third-active.html").read_text()
 
@@ -413,15 +409,12 @@ class TestParseGeneratedTime:
 # ── parse_start_list_riders ──────────────────────────────────────────────────
 
 
+@pytest.fixture(scope="module")
+def riders():
+    return parse_start_list_riders(Path("tests/fixtures/start-list-sample.html").read_text())
+
+
 class TestParseStartListRiders:
-    @pytest.fixture(scope="class")
-    def fixture_html(self):
-        return Path("tests/fixtures/start-list-sample.html").read_text()
-
-    @pytest.fixture(scope="class")
-    def riders(self, fixture_html):
-        return parse_start_list_riders(fixture_html)
-
     def test_multi_heat_extraction(self, riders):
         """Fixture has 3 heats: Heat 1 (4), Heat 2 (4), Heat 3 (3) = 11 riders."""
         assert len(riders) == 11
@@ -576,27 +569,30 @@ class TestPursuitDistanceFromUrl:
 
     def test_reads_distance(self):
         from app.disciplines import pursuit_discipline_from_urls
+
         assert pursuit_discipline_from_urls("results/E26037/W4044-IP-3000-Q-0-R.htm") == "pursuit_3k"
         assert pursuit_discipline_from_urls(None, "results/E26037/M5054-IP-2000-Q-0-S.htm") == "pursuit_2k"
         assert pursuit_discipline_from_urls("results/E26008/ME-IP-4000-F-0-AUDIT-R.htm") == "pursuit_4k"
 
     def test_no_distance(self):
         from app.disciplines import pursuit_discipline_from_urls
+
         assert pursuit_discipline_from_urls(None, None) is None
         assert pursuit_discipline_from_urls("results/E26037/M65-TP-4000-Q-0-R.htm") is None
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def by_name(self):
         def load(fixture):
             sessions = parse_schedule(json.loads((_FIXTURES / fixture).read_text()))
             return {(s.day, e.name): e.discipline for s in sessions for e in s.events}
+
         return load
 
     def test_26037_masters_worlds(self, by_name):
         d = by_name("schedule-26037-live.json")
         tuesday = "Oct 6 - Tuesday Morning Session"
-        assert d[(tuesday, "40-44 Women Pursuit Qualifying")] == "pursuit_3k"   # was pursuit_2k
-        assert d[(tuesday, "50-54 Women Pursuit Qualifying")] == "pursuit_2k"   # start list URL only
+        assert d[(tuesday, "40-44 Women Pursuit Qualifying")] == "pursuit_3k"  # was pursuit_2k
+        assert d[(tuesday, "50-54 Women Pursuit Qualifying")] == "pursuit_2k"  # start list URL only
         assert d[("Oct 5 - Monday Morning Session", "50-54 Men Pursuit Qualifying")] == "pursuit_2k"  # was 3k
         assert d[("Oct 5 - Monday Morning Session", "45-49 Men Pursuit Qualifying")] == "pursuit_3k"
         # Team pursuit URLs also say 4000; they must not be reclassified.
@@ -608,7 +604,7 @@ class TestPursuitDistanceFromUrl:
 
     def test_26008_and_26009(self, by_name):
         d = {name: disc for (_, name), disc in by_name("sample-event-output.json").items()}
-        assert d["Junior Women Pursuit Final"] == "pursuit_3k"   # was pursuit_2k
-        assert d["U17 Men Pursuit Final"] == "pursuit_2k"        # was pursuit_3k
+        assert d["Junior Women Pursuit Final"] == "pursuit_3k"  # was pursuit_2k
+        assert d["U17 Men Pursuit Final"] == "pursuit_2k"  # was pursuit_3k
         d = {name: disc for (_, name), disc in by_name("schedule-26009.json").items()}
         assert d["Senior H Poursuite Final   / Omni I"] == "pursuit_4k"  # was pursuit_3k

@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # requirements.txt / requirements-dev.txt are hashed locks compiled from pyproject.toml
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      python:
+        patterns: ["*"]
+
+  # cdk/requirements.txt is a hashed lock compiled from cdk/requirements.in. The CDK CLI
+  # version in the workflows isn't tracked here; bump it with aws-cdk-lib.
+  - package-ecosystem: pip
+    directory: /cdk
+    schedule:
+      interval: monthly
+    groups:
+      cdk:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly

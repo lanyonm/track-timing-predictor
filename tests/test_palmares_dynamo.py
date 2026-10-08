@@ -1,12 +1,12 @@
 """Tests for palmares DynamoDB backend."""
+
 import boto3
 import pytest
 from moto import mock_aws
 
-from app.config import settings
 from app import palmares
+from app.config import settings
 from app.models import PalmaresEntry
-
 
 PALMARES_TABLE = "test-track-timing-palmares"
 
@@ -41,10 +41,17 @@ def dynamo_table():
         yield
 
 
-def _make_entry(racer="charlie pittard", comp_id=26008, comp_name="Ontario Track Championships",
-                comp_date="2026-02-28", session_id=1, session_name="Friday",
-                position=3, event_name="U17 Women Pursuit Final",
-                audit_url="results/E26008/W1516-IP-2000-F-0-AUDIT-R.htm"):
+def _make_entry(
+    racer="charlie pittard",
+    comp_id=26008,
+    comp_name="Ontario Track Championships",
+    comp_date="2026-02-28",
+    session_id=1,
+    session_name="Friday",
+    position=3,
+    event_name="U17 Women Pursuit Final",
+    audit_url="results/E26008/W1516-IP-2000-F-0-AUDIT-R.htm",
+):
     return PalmaresEntry(
         racer_name=racer,
         competition_id=comp_id,
@@ -160,10 +167,8 @@ class TestDynamoGetPalmares:
 
     def test_multiple_competitions_reverse_chronological(self, dynamo_table):
         entries = [
-            _make_entry(racer="multi dyn", comp_id=25022, comp_name="Series 1",
-                        comp_date="2026-01-15", position=1),
-            _make_entry(racer="multi dyn", comp_id=25023, comp_name="Series 2",
-                        comp_date="2026-02-20", position=1),
+            _make_entry(racer="multi dyn", comp_id=25022, comp_name="Series 1", comp_date="2026-01-15", position=1),
+            _make_entry(racer="multi dyn", comp_id=25023, comp_name="Series 2", comp_date="2026-02-20", position=1),
         ]
         palmares.save_palmares_entries(entries)
         result = palmares.get_palmares("multi dyn")

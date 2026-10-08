@@ -1,5 +1,5 @@
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.config import settings
@@ -18,7 +18,7 @@ def venue_now(latest_generated: datetime | None = None) -> datetime:
     now, so rounding (Generated − UTC now) up to the whole hour recovers the offset as
     long as the result is under ~58 minutes old. Otherwise falls back to VENUE_TZ.
     """
-    utc_now = datetime.now(timezone.utc)
+    utc_now = datetime.now(UTC)
     if latest_generated is not None:
         naive_utc = utc_now.replace(tzinfo=None)
         hours = math.ceil((latest_generated - naive_utc - _CLOCK_SKEW) / timedelta(hours=1))

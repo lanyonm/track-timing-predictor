@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -8,7 +8,7 @@ from app.clock import venue_now
 from app.config import Settings
 
 # 12:15 UTC on 2024-06-01 is 08:15 EDT in Toronto.
-FROZEN_UTC = datetime(2024, 6, 1, 12, 15, tzinfo=timezone.utc)
+FROZEN_UTC = datetime(2024, 6, 1, 12, 15, tzinfo=UTC)
 
 
 def frozen_datetime(utc: datetime) -> type[datetime]:
