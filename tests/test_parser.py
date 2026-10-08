@@ -317,9 +317,15 @@ class TestParseRaceDistanceKm:
         html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
         assert parse_race_distance_km(html) == 10.0
 
-    def test_decimal_distance_with_suffix(self):
-        html = "<h3>U15/U17 H Course Aux Points Omni V - 7.5km - 30 Laps - Sprint Every 5 Laps</h3>"
-        assert parse_race_distance_km(html) == 7.5
+    def test_decimal_distance(self):
+        # "55-59 Men Scratch Race Qualifier 1 - 3.75km - 15 Laps"
+        html = (FIXTURE_DIR / "start-list-scratch-race-26037.html").read_text()
+        assert parse_race_distance_km(html) == 3.75
+
+    def test_title_suffix(self):
+        # "U11 & U13 Points Race Omni IV - 4km - 16 Laps - Sprint Every 5 Laps"
+        html = (FIXTURE_DIR / "start-list-points-race-26008.html").read_text()
+        assert parse_race_distance_km(html) == 4.0
 
     def test_metre_distance_ignored(self):
         html = (FIXTURE_DIR / "start-list-sprint-qualifying-26009.html").read_text()

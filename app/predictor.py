@@ -261,19 +261,18 @@ def _base_estimate(
     ):
         return km / BUNCH_RACE_KMH * 60 + bunch, None
     hc = get_heat_count(competition_id, session_id, event.position)
-    is_sprint = event.discipline == "sprint_match"
-    pairs = hc if hc is not None or not is_sprint else sprint_round_pairs(event.name)
-    ride = split_ride(event.name) if is_sprint else None
-    if ride is not None and ride[1] == 3:
-        deciders = _sprint_deciders.get((competition_id, ride[0]))
-        if deciders is not None:
-            return deciders * SPRINT_DECIDER_MINUTES, deciders
-        if pairs is not None:
+    if event.discipline == "sprint_match":
+        pairs: float | None = hc if hc is not None else sprint_round_pairs(event.name)
+        ride = split_ride(event.name)
+        if ride is not None and ride[1] == 3:
+            deciders = _sprint_deciders.get((competition_id, ride[0]))
+            if deciders is not None:
+                return deciders * SPRINT_DECIDER_MINUTES, deciders
+            if pairs is None:
+                pairs = _get_duration(event.discipline, use_learned) / get_per_heat_duration(event.discipline)
             return pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, None
-        full = _get_duration(event.discipline, use_learned) / get_per_heat_duration(event.discipline)
-        return full * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, None
-    if hc is None and pairs is not None:
-        return pairs * get_per_heat_duration(event.discipline), None
+        if hc is None and pairs is not None:
+            return pairs * get_per_heat_duration(event.discipline), None
     if hc is not None:
         return hc * get_per_heat_duration(event.discipline) + _changeover(event.discipline, bunch), hc
     shift = _changeover(event.discipline, bunch) - get_changeover(event.discipline)
