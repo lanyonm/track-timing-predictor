@@ -1,21 +1,28 @@
 """Tests for app/main.py route handlers, focused on racer-name functionality."""
 
+import asyncio
 import base64
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import _fetch_start_lists, app
+from app.models import EventStatus
+from app.parser import parse_schedule
 from app.predictor import (
     _generated_times,
     _heat_counts,
     _live_heats,
     _observed_durations,
+    _rider_list_retry_at,
+    _rider_lists,
     _start_list_riders,
     _status_cache,
 )
@@ -58,6 +65,8 @@ def clear_predictor_caches():
     _live_heats.clear()
     _generated_times.clear()
     _start_list_riders.clear()
+    _rider_lists.clear()
+    _rider_list_retry_at.clear()
     yield
     _status_cache.clear()
     _observed_durations.clear()
@@ -65,6 +74,8 @@ def clear_predictor_caches():
     _live_heats.clear()
     _generated_times.clear()
     _start_list_riders.clear()
+    _rider_lists.clear()
+    _rider_list_retry_at.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -73,7 +84,12 @@ def mock_fetchers(sample_event_data, start_list_html):
     with (
         patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_event_data),
         patch("app.main.fetch_refresh", new_callable=AsyncMock, return_value=sample_event_data),
-        patch("app.main.fetch_page_html", new_callable=AsyncMock, return_value=start_list_html),
+        # The 26008 fixture links a Rider List; don't feed it start-list HTML.
+        patch(
+            "app.main.fetch_page_html",
+            new_callable=AsyncMock,
+            side_effect=lambda _client, path: "" if "RIDERLIST" in path else start_list_html,
+        ),
     ):
         yield
 
@@ -398,3 +414,182 @@ class TestScheduleErrors:
             resp = client.get(path)
         assert resp.status_code == 502
         assert "secret-upstream-host" not in resp.text
+
+
+# ── Rider List fallback (EventId 26037) ─────────────────────────────────────
+
+RIDER_LIST_HTML = (FIXTURE_DIR / "rider-list-26037.html").read_text()
+
+
+def _load_fixture(name: str) -> dict:
+    with (FIXTURE_DIR / name).open() as f:
+        return json.load(f)
+
+
+def _event_row(html: str, event_name: str):
+    """The schedule <tr> whose first cell starts with event_name."""
+    for tr in BeautifulSoup(html, "html.parser").find_all("tr"):
+        td = tr.find("td")
+        if td and next(td.stripped_strings, None) == event_name:
+            return tr
+    raise AssertionError(f"No row for {event_name!r}")
+
+
+def _rider_list_pages(_client, path: str) -> str:
+    # Start lists, results and live pages come back empty: no start-list riders anywhere.
+    return RIDER_LIST_HTML if "RIDERLIST" in path else ""
+
+
+@pytest.fixture
+def mock_26037():
+    initial = _load_fixture("schedule-26037.json")
+    refresh = _load_fixture("refresh-26037.json")
+    with (
+        patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=initial),
+        patch("app.main.fetch_refresh", new_callable=AsyncMock, return_value=refresh),
+        patch("app.main.fetch_page_html", new_callable=AsyncMock, side_effect=_rider_list_pages) as page,
+    ):
+        yield page
+
+
+def _rider_list_calls(page_mock) -> int:
+    return sum(1 for c in page_mock.call_args_list if "RIDERLIST" in c.args[1])
+
+
+class TestRiderListRoutes:
+    def test_entered_event_highlighted(self, client, mock_26037):
+        client.cookies.set("racer_name", "Brian Abers")
+        response = client.get("/schedule/26037")
+        assert response.status_code == 200
+        row = _event_row(response.text, "60-64 Men Sprint Qualifying")
+        assert "racer-row" in row["class"]
+        assert "Entered" in row.get_text()
+
+    def test_rider_list_fetched_once(self, client, mock_26037):
+        client.cookies.set("racer_name", "Brian Abers")
+        assert client.get("/schedule/26037").status_code == 200
+        assert client.get("/schedule/26037/refresh").status_code == 200
+        assert _rider_list_calls(mock_26037) == 1
+
+    def test_not_fetched_without_racer(self, client, mock_26037):
+        assert client.get("/schedule/26037").status_code == 200
+        assert _rider_list_calls(mock_26037) == 0
+
+    def test_fetch_failure_degrades_then_retries(self, client, mock_26037):
+        def failing(_client, path):
+            if "RIDERLIST" in path:
+                raise httpx.ConnectError("boom")
+            return ""
+
+        mock_26037.side_effect = failing
+        client.cookies.set("racer_name", "Brian Abers")
+        response = client.get("/schedule/26037")
+        assert response.status_code == 200
+        assert "do not yet have start lists" in response.text
+        assert "Entered" not in response.text
+
+        # Inside the retry interval the failing URL isn't fetched again.
+        assert client.get("/schedule/26037/refresh").status_code == 200
+        assert _rider_list_calls(mock_26037) == 1
+
+        # Once the interval has passed, the next request retries and recovers.
+        _rider_list_retry_at.clear()
+        mock_26037.side_effect = _rider_list_pages
+        response = client.get("/schedule/26037")
+        assert _rider_list_calls(mock_26037) == 2
+        assert "Entered" in response.text
+
+    def test_empty_rider_list_not_cached(self, client, mock_26037):
+        mock_26037.side_effect = lambda _client, path: ""
+        client.cookies.set("racer_name", "Brian Abers")
+        assert client.get("/schedule/26037").status_code == 200
+        assert _rider_list_retry_at
+        assert not _rider_lists
+
+    def test_whitespace_racer_name_skips_fetch(self, client, mock_26037):
+        encoded = base64.urlsafe_b64encode(b"   ").decode("ascii")
+        assert client.get(f"/schedule/26037?r={encoded}").status_code == 200
+        assert _rider_list_calls(mock_26037) == 0
+
+    def test_rider_list_matches_not_saved_to_palmares(self, client, mock_26037):
+        # ALVIS Norman (M6064, TP) matches the completed 55-64 Men Team Pursuit
+        # events from the Rider List; they have audit URLs but no start-list riders.
+        client.cookies.set("racer_name", "Norman Alvis")
+        with patch("app.main.save_palmares_entries") as save:
+            response = client.get("/schedule/26037")
+        assert response.status_code == 200
+        assert "55-64 Men Team Pursuit Qualifying" in response.text
+        assert "racer-row" in _event_row(response.text, "55-64 Men Team Pursuit Qualifying")["class"]
+        save.assert_not_called()
+
+    def test_tentative_event_rendering(self, client, mock_26037):
+        client.cookies.set("racer_name", "Brian Abers")
+        response = client.get("/schedule/26037")
+        row = _event_row(response.text, "60-64 Men Sprint 1/4 Final Ride 1")
+        assert "If advancing" in row.get_text()
+        assert row.get("aria-label") == "Your event, if advancing"
+        assert "racer-row" not in row.get("class", [])
+
+    def test_rider_list_banners(self, client, mock_26037):
+        client.cookies.set("racer_name", "Brian Abers")
+        text = " ".join(client.get("/schedule/26037").text.split())
+        assert 'Found 13 events for "Brian Abers" (10 if advancing)' in text
+        assert "Events without start lists matched from the Rider List (M6064: S, TS, TT)." in text
+        assert "do not yet have start lists" not in text
+        assert "Start lists are not yet published" not in text
+
+    def test_racer_not_in_rider_list(self, client, mock_26037):
+        client.cookies.set("racer_name", "Nobody Here")
+        text = client.get("/schedule/26037").text
+        assert "do not yet have start lists" in text
+        assert "matched from the Rider List" not in text
+
+    def test_next_race_from_rider_list(self, client, mock_26037):
+        client.cookies.set("racer_name", "Brian Abers")
+        text = " ".join(client.get("/schedule/26037").text.split())
+        assert re.search(r"Your next race: 60-64 Men Sprint Qualifying at \d{2}:\d{2}", text)
+        assert "60-64 Men Sprint Qualifying (if advancing)" not in text
+
+
+class TestFetchStartListsCaching:
+    """_fetch_start_lists refetch rules for empty and completed start lists."""
+
+    @pytest.fixture
+    def sessions(self):
+        return parse_schedule(_load_fixture("schedule-26037.json"))
+
+    @staticmethod
+    def _run(sessions, html):
+        page = AsyncMock(side_effect=lambda _client, _path: html)
+        with patch("app.main.fetch_page_html", page):
+            asyncio.run(_fetch_start_lists(None, 26037, sessions))
+        return page.call_count
+
+    def test_completed_empty_start_lists_fetched_once(self, sessions):
+        with_lists = [e for s in sessions for e in s.events if e.start_list_url]
+        completed = [e for e in with_lists if e.status == EventStatus.COMPLETED]
+        assert completed
+        assert self._run(sessions, "") == len(with_lists)
+        # Second pass: only non-completed events with empty lists are retried.
+        assert self._run(sessions, "") == len(with_lists) - len(completed)
+
+    def test_empty_parse_keeps_cached_riders(self, sessions, start_list_html):
+        self._run(sessions, start_list_html)
+        cached = {k: v for k, v in _start_list_riders.items() if v}
+        assert cached
+        _heat_counts.clear()  # force a refetch of every start list
+        self._run(sessions, "")
+        for key, riders in cached.items():
+            assert _start_list_riders[key] == riders
+
+
+class TestParallelQualifierRoute:
+    def test_be_ready_by(self, client, mock_26037):
+        client.cookies.set("racer_name", "Paul Baisch")
+        text = " ".join(client.get("/schedule/26037").text.split())
+        assert re.search(
+            r"Your next race: 55-59 Men Scratch Race Qualifier 1 \(or a later qualifier\), be ready by \d{2}:\d{2}",
+            text,
+        )
+        for name in ("55-59 Men Scratch Race Qualifier 1", "55-59 Men Scratch Race Qualifier 2"):
+            assert "Entered" in _event_row(client.get("/schedule/26037").text, name).get_text()

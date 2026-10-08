@@ -48,6 +48,7 @@ class TestPalmaresCollection:
             patch("app.main._fetch_start_lists", new_callable=AsyncMock),
             patch("app.main._fetch_result_pages", new_callable=AsyncMock),
             patch("app.main._fetch_live_heats", new_callable=AsyncMock),
+            patch("app.main._fetch_rider_list_if_needed", new_callable=AsyncMock, return_value=None),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}
@@ -64,6 +65,7 @@ class TestPalmaresCollection:
             patch("app.main._fetch_start_lists", new_callable=AsyncMock),
             patch("app.main._fetch_result_pages", new_callable=AsyncMock),
             patch("app.main._fetch_live_heats", new_callable=AsyncMock),
+            patch("app.main._fetch_rider_list_if_needed", new_callable=AsyncMock, return_value=None),
         ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
                 response = await client.get("/schedule/26008")
@@ -97,6 +99,7 @@ class TestPalmaresCollection:
             patch("app.main._fetch_start_lists", new_callable=AsyncMock),
             patch("app.main._fetch_result_pages", new_callable=AsyncMock),
             patch("app.main._fetch_live_heats", new_callable=AsyncMock),
+            patch("app.main._fetch_rider_list_if_needed", new_callable=AsyncMock, return_value=None),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": racer_name}

@@ -7,12 +7,14 @@ from app.models import (
     NextRace,
     Prediction,
     RiderEntry,
+    RiderListEntry,
     RiderMatch,
     SchedulePrediction,
     Session,
     SessionPrediction,
     normalize_rider_name,
 )
+from app.rider_list import find_rider, match_events
 
 # Disciplines that contribute zero minutes to the cumulative timeline
 _ZERO_DURATION_DISCIPLINES = {"end_of_session"}
@@ -46,6 +48,15 @@ _generated_times: dict[tuple[int, int, int], datetime] = {}
 # Parsed rider entries from start list pages.
 # Key: (competition_id, session_id, position), Value: list of RiderEntry
 _start_list_riders: dict[tuple[int, int, int], list[RiderEntry]] = {}
+
+# Parsed Rider Lists. The file is immutable for a competition, so entries never expire.
+# Key: Rider List relative URL, Value: non-empty list of RiderListEntry
+_rider_lists: dict[str, list[RiderListEntry]] = {}
+
+# Rider List URLs whose fetch failed or parsed to 0 rows, so they aren't retried on every poll.
+# Key: Rider List relative URL, Value: time.monotonic() after which to retry
+_rider_list_retry_at: dict[str, float] = {}
+RIDER_LIST_RETRY_SECONDS = 600.0
 
 
 def record_observed_duration(
@@ -148,13 +159,49 @@ def record_start_list_riders(
     position: int,
     riders: list[RiderEntry],
 ) -> None:
-    """Store parsed rider entries for an event's start list."""
-    _start_list_riders[(competition_id, session_id, position)] = riders
+    """Store parsed rider entries for an event's start list.
+
+    An empty list never replaces riders already cached, so a transient bad fetch
+    (e.g. while upstream regenerates the page) doesn't drop the racer's match.
+    """
+    key = (competition_id, session_id, position)
+    if riders or not _start_list_riders.get(key):
+        _start_list_riders[key] = riders
 
 
 def has_start_list_riders(competition_id: int, session_id: int, position: int) -> bool:
-    """Return True if rider entries have been cached for this event."""
+    """Return True if at least one rider has been cached for this event.
+
+    A start list that parsed to 0 riders counts as absent, so it is refetched and
+    the event can fall back to Rider List matching.
+    """
+    return bool(_start_list_riders.get((competition_id, session_id, position)))
+
+
+def is_start_list_cached(competition_id: int, session_id: int, position: int) -> bool:
+    """Return True if a start list has been fetched and parsed for this event, even with 0 riders."""
     return (competition_id, session_id, position) in _start_list_riders
+
+
+def record_rider_list(url: str, entries: list[RiderListEntry]) -> None:
+    """Store a parsed, non-empty Rider List, keyed by its relative URL."""
+    _rider_lists[url] = entries
+    _rider_list_retry_at.pop(url, None)
+
+
+def get_rider_list(url: str) -> list[RiderListEntry] | None:
+    """Return the cached Rider List for this URL, or None if not yet fetched."""
+    return _rider_lists.get(url)
+
+
+def record_rider_list_failure(url: str, now: float) -> None:
+    """Hold off refetching a Rider List that failed or was empty for RIDER_LIST_RETRY_SECONDS."""
+    _rider_list_retry_at[url] = now + RIDER_LIST_RETRY_SECONDS
+
+
+def rider_list_retry_pending(url: str, now: float) -> bool:
+    """True while a failed or empty Rider List is inside its retry interval."""
+    return now < _rider_list_retry_at.get(url, 0.0)
 
 
 def get_rider_match(
@@ -232,6 +279,13 @@ def _get_duration(discipline: str, use_learned: bool = False) -> float:
     return get_default_duration(discipline)
 
 
+def _on_day_of(now: datetime | None, t: time) -> datetime | None:
+    """Combine a predicted start time with now's date; None when there is no wall clock."""
+    if now is None:
+        return None
+    return now.replace(hour=t.hour, minute=t.minute, second=t.second, microsecond=0)
+
+
 def _time_to_minutes(t: time) -> float:
     return t.hour * 60.0 + t.minute + t.second / 60.0
 
@@ -287,6 +341,7 @@ def predict_session(
     now: datetime | None = None,
     racer_name: str | None = None,
     use_learned: bool = False,
+    rider_list_matches: dict[tuple[int, int], RiderMatch] | None = None,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -300,6 +355,8 @@ def predict_session(
     now: server wall-clock time used to estimate real-time delay.
          If None, no delay adjustment is applied (pre-event mode).
     racer_name: optional racer name for rider matching.
+    rider_list_matches: the racer's Rider List matches from rider_list.match_events,
+            keyed by (session_id, position); used for events without start-list riders.
     """
     # Pre-tokenize racer name once for the entire session (avoids re-normalizing per event)
     user_tokens = normalize_rider_name(racer_name) if racer_name and racer_name.strip() else None
@@ -430,28 +487,21 @@ def predict_session(
         if user_tokens and not event.is_special:
             if not has_start_list_riders(competition_id, session.session_id, event.position):
                 events_without_start_lists += 1
+                if rider_list_matches:
+                    rider_match = rider_list_matches.get((session.session_id, event.position))
             else:
-                # Build a datetime from predicted_start for heat time calculation
-                event_start_dt = None
-                if now is not None:
-                    event_start_dt = now.replace(
-                        hour=predicted_start.hour,
-                        minute=predicted_start.minute,
-                        second=predicted_start.second,
-                        microsecond=0,
-                    )
                 rider_match = get_rider_match(
                     competition_id,
                     session.session_id,
                     event.position,
                     user_tokens,
-                    event_start_dt,
+                    _on_day_of(now, predicted_start),
                     event.discipline,
                 )
-                if rider_match:
-                    has_racer_match = True
-                    if event.status != EventStatus.COMPLETED:
-                        has_pending_racer_match = True
+            if rider_match:
+                has_racer_match = True
+                if event.status != EventStatus.COMPLETED:
+                    has_pending_racer_match = True
 
         predictions.append(
             Prediction(
@@ -480,14 +530,23 @@ def predict_session(
     )
 
 
-def _build_next_race(pred: Prediction, match: RiderMatch) -> NextRace:
-    """Build a NextRace from a matched Prediction."""
+def _build_next_race(pred: Prediction, match: RiderMatch, now: datetime | None) -> NextRace:
+    """Build a NextRace from a matched Prediction.
+
+    Start-list matches use the racer's heat start. Rider List matches have no heat,
+    so they use the event's predicted start.
+    """
+    predicted_start = match.heat_predicted_start
+    if match.source == "rider_list":
+        predicted_start = _on_day_of(now, pred.predicted_start)
     return NextRace(
         event_name=pred.event.name,
         heat=match.heat,
         heat_count=match.heat_count,
-        predicted_start=match.heat_predicted_start,
+        predicted_start=predicted_start,
         is_active=pred.is_active,
+        tentative=match.tentative,
+        parallel_qualifier=match.parallel_qualifier,
     )
 
 
@@ -497,11 +556,21 @@ def predict_schedule(
     now: datetime | None = None,
     racer_name: str | None = None,
     use_learned: bool = False,
+    rider_list: list[RiderListEntry] | None = None,
 ) -> SchedulePrediction:
+    rider_entry = None
+    rider_list_matches = None
+    if rider_list and racer_name and racer_name.strip():
+        rider_entry = find_rider(rider_list, normalize_rider_name(racer_name))
+    if rider_entry is not None:
+        rider_list_matches = match_events(rider_entry, sessions)
+
     session_predictions = []
     total_events_without_start_lists = 0
     total_events = 0
     match_count = 0
+    tentative_match_count = 0
+    rider_list_match_count = 0
     active_candidate: Prediction | None = None
     upcoming_candidate: Prediction | None = None
 
@@ -512,6 +581,7 @@ def predict_schedule(
             now=now,
             racer_name=racer_name,
             use_learned=use_learned,
+            rider_list_matches=rider_list_matches,
         )
         session_predictions.append(sp)
         total_events_without_start_lists += sp.events_without_start_lists
@@ -521,6 +591,10 @@ def predict_schedule(
         for pred in sp.event_predictions:
             if pred.rider_match:
                 match_count += 1
+                if pred.rider_match.tentative:
+                    tentative_match_count += 1
+                if pred.rider_match.source == "rider_list":
+                    rider_list_match_count += 1
                 # Track next-race candidates: active takes priority over upcoming
                 if pred.is_active and active_candidate is None:
                     active_candidate = pred
@@ -529,7 +603,7 @@ def predict_schedule(
 
     # Active match takes priority; fall back to first upcoming match.
     best = active_candidate or upcoming_candidate
-    next_race = _build_next_race(best, best.rider_match) if best and best.rider_match else None
+    next_race = _build_next_race(best, best.rider_match, now) if best and best.rider_match else None
 
     return SchedulePrediction(
         competition_id=competition_id,
@@ -539,6 +613,9 @@ def predict_schedule(
         events_without_start_lists=total_events_without_start_lists,
         total_events=total_events,
         next_race=next_race,
+        tentative_match_count=tentative_match_count,
+        rider_list_match_count=rider_list_match_count,
+        rider_list_entry=rider_entry if rider_list_match_count else None,
     )
 
 

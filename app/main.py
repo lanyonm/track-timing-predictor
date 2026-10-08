@@ -3,6 +3,7 @@ import base64
 import binascii
 import logging
 import posixpath
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from urllib.parse import quote, unquote
@@ -21,7 +22,7 @@ from app.config import Settings, get_settings
 from app.database import check_health, get_all_learned_durations, init_db
 from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
 from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
-from app.models import PalmaresEntry, SchedulePrediction, Session
+from app.models import EventStatus, PalmaresEntry, RiderListEntry, SchedulePrediction, Session
 from app.palmares import (
     check_palmares_health,
     count_competition_palmares,
@@ -37,20 +38,27 @@ from app.parser import (
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_rider_list,
+    parse_rider_list_url,
     parse_schedule,
     parse_start_list_riders,
 )
 from app.predictor import (
     get_generated_time,
     get_heat_count,
+    get_rider_list,
     has_start_list_riders,
+    is_start_list_cached,
     latest_live_generated_time,
     predict_schedule,
     record_generated_time,
     record_heat_count,
     record_live_heat,
     record_observed_duration,
+    record_rider_list,
+    record_rider_list_failure,
     record_start_list_riders,
+    rider_list_retry_pending,
     update_status_cache,
 )
 
@@ -146,7 +154,8 @@ async def _fetch_start_lists(
     """
     Concurrently fetch start list pages for all events that have a start_list_url
     and whose heat count or rider list has not yet been cached.
-    Records heat counts and rider entries in-memory.
+    Records heat counts and rider entries in-memory. A completed event's start list
+    is fetched at most once, since it can't change.
     """
     to_fetch = [
         (competition_id, s.session_id, e.position, e.start_list_url, e.discipline)
@@ -157,6 +166,7 @@ async def _fetch_start_lists(
             get_heat_count(competition_id, s.session_id, e.position) is None
             or not has_start_list_riders(competition_id, s.session_id, e.position)
         )
+        and not (e.status == EventStatus.COMPLETED and is_start_list_cached(competition_id, s.session_id, e.position))
     ]
     if not to_fetch:
         return
@@ -233,6 +243,58 @@ async def _fetch_result_pages(
                 )
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
+
+
+async def _fetch_rider_list(client: httpx.AsyncClient, url: str) -> list[RiderListEntry] | None:
+    """
+    Return the parsed Rider List at url, fetching it on a cache miss.
+
+    The file doesn't change during a competition, so a non-empty parse is cached
+    for the life of the container. A failed fetch or a 0-row parse returns None and
+    isn't retried for RIDER_LIST_RETRY_SECONDS, so a broken link doesn't cost a
+    download (or a timeout) on every poll.
+    """
+    cached = get_rider_list(url)
+    if cached is not None:
+        return cached
+    if rider_list_retry_pending(url, time.monotonic()):
+        return None
+    try:
+        entries = parse_rider_list(await fetch_page_html(client, url))
+        if not entries:
+            raise ValueError("no rider rows")
+    except Exception:
+        logger.warning("Failed to fetch Rider List %s", url, exc_info=True)
+        record_rider_list_failure(url, time.monotonic())
+        return None
+    record_rider_list(url, entries)
+    return entries
+
+
+async def _fetch_rider_list_if_needed(
+    client: httpx.AsyncClient,
+    competition_id: int,
+    jxn_data: dict,
+    sessions: list[Session],
+    racer_name: str | None,
+) -> list[RiderListEntry] | None:
+    """
+    Fetch the Rider List when a racer is set and some race may lack start-list riders.
+
+    Runs alongside the start-list fetches, so it uses the pre-fetch approximation:
+    a non-special event with no start_list_url or no cached start-list riders.
+    """
+    if not racer_name or not racer_name.strip():
+        return None
+    if not any(
+        not e.is_special
+        and (not e.start_list_url or not has_start_list_riders(competition_id, s.session_id, e.position))
+        for s in sessions
+        for e in s.events
+    ):
+        return None
+    url = parse_rider_list_url(jxn_data)
+    return await _fetch_rider_list(client, url) if url else None
 
 
 def _use_learned(request: Request) -> bool:
@@ -338,7 +400,8 @@ def _collect_palmares_entries(
     """Collect palmares entries from schedule predictions.
 
     Filters for timed events (pursuits and time trials) where the racer
-    was matched, has an audit URL, and is not a special event.
+    was matched on a start list, has an audit URL, and is not a special event.
+    Rider List matches don't prove the racer rode, so they are skipped.
     """
     if not schedule.racer_name:
         return []
@@ -362,6 +425,7 @@ def _collect_palmares_entries(
         for pred in sp.event_predictions:
             if (
                 pred.rider_match
+                and pred.rider_match.source == "start_list"
                 and pred.event.audit_url
                 and not pred.event.is_special
                 and pred.event.discipline in _TIMED_DISCIPLINES
@@ -434,15 +498,18 @@ async def get_schedule(
             detail=f"No schedule found for event {event_id}.",
         )
 
-    await asyncio.gather(
+    racer_name = _resolve_racer_name(request, r)
+    _, _, _, rider_list = await asyncio.gather(
         _fetch_start_lists(client, event_id, sessions),
         _fetch_result_pages(client, event_id, sessions),
         _fetch_live_heats(client, event_id, sessions),
+        _fetch_rider_list_if_needed(client, event_id, jxn_data, sessions, racer_name),
     )
     now = venue_now(latest_live_generated_time(event_id, sessions))
     use_learned = _use_learned(request)
-    racer_name = _resolve_racer_name(request, r)
-    schedule = predict_schedule(event_id, sessions, now=now, racer_name=racer_name, use_learned=use_learned)
+    schedule = predict_schedule(
+        event_id, sessions, now=now, racer_name=racer_name, use_learned=use_learned, rider_list=rider_list
+    )
 
     # Determine name source for logging
     source = "none"
@@ -458,6 +525,8 @@ async def get_schedule(
             "match_count": schedule.match_count,
             "events_without_start_lists": schedule.events_without_start_lists,
             "total_events": schedule.total_events,
+            "rider_list_matches": schedule.rider_list_match_count,
+            "tentative_matches": schedule.tentative_match_count,
         },
     )
 
@@ -518,8 +587,9 @@ async def refresh_schedule(
         ) from None
 
     sessions = parse_schedule(jxn_data)
+    racer_name = _resolve_racer_name(request, r)
 
-    await asyncio.gather(
+    _, _, _, rider_list = await asyncio.gather(
         # Fetch any start lists not yet cached (e.g. newly published since initial load).
         _fetch_start_lists(client, event_id, sessions),
         # Fetch result pages for completed events not yet in the generated-time cache.
@@ -528,6 +598,8 @@ async def refresh_schedule(
         _fetch_result_pages(client, event_id, sessions),
         # Fetch live results page to get current heat number (changes each heat).
         _fetch_live_heats(client, event_id, sessions),
+        # Rider List for events without start-list riders; cached after the first fetch.
+        _fetch_rider_list_if_needed(client, event_id, jxn_data, sessions, racer_name),
     )
 
     now = venue_now(latest_live_generated_time(event_id, sessions))
@@ -535,8 +607,14 @@ async def refresh_schedule(
     # Track status transitions for wall-clock fallback learning.
     update_status_cache(event_id, sessions, now)
 
-    racer_name = _resolve_racer_name(request, r)
-    schedule = predict_schedule(event_id, sessions, now=now, racer_name=racer_name, use_learned=_use_learned(request))
+    schedule = predict_schedule(
+        event_id,
+        sessions,
+        now=now,
+        racer_name=racer_name,
+        use_learned=_use_learned(request),
+        rider_list=rider_list,
+    )
 
     palmares_count = _save_and_count_palmares(schedule, event_id)
     racer_encoded = _encode_racer_name(racer_name) if racer_name else None
