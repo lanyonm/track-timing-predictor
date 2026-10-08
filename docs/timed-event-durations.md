@@ -66,16 +66,16 @@ Per-heat durations come from the measured data in [Measured Per-Heat Durations](
 | Distance | Per-Heat Duration |
 |---|---|
 | 4 km | 7.5 min |
-| 3 km | 5.5 min |
-| 2 km | 4.5 min |
+| 3 km | 6.25 min |
+| 2 km | 5.0 min |
 
 When heat count is unknown, the default duration covers an assumed 2-heat final (the median heat count at 2 km and 4 km):
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|
 | `pursuit_4k` | 15.0 min | 2 heats × 7.5 min |
-| `pursuit_3k` | 11.0 min | 2 heats × 5.5 min |
-| `pursuit_2k` | 9.0 min | 2 heats × 4.5 min |
+| `pursuit_3k` | 12.5 min | 2 heats × 6.25 min |
+| `pursuit_2k` | 10.0 min | 2 heats × 5.0 min |
 
 ---
 
@@ -149,8 +149,8 @@ Per-heat duration = an event's Generated-timestamp gap (`generated_diff` observa
 
 | Discipline | 25022 | 25028 | 26002 | 26008 | 26009 | 26037 | All (median) | Previous | Now |
 |---|---|---|---|---|---|---|---|---|---|
-| `pursuit_2k` | 4.19 (5) | | 5.20 (5) | 4.54 (2) | 4.72 (3) | | 4.72 (15) | 3.0 | 4.5 |
-| `pursuit_3k` | 4.92 (1) | | 1.54 (1) | 5.71 (1) | 5.39 (1) | 6.20 (1) | 5.39 (5) | 4.0 | 5.5 |
+| `pursuit_2k` | 4.19 (5) | | 5.20 (5) | 4.54 (2) | 4.72 (3) | | 4.72 (15) | 3.0 | 5.0 |
+| `pursuit_3k` | 4.92 (1) | | 1.54 (1) | 5.71 (1) | 5.39 (1) | 6.20 (1) | 5.39 (5) | 4.0 | 6.25 |
 | `pursuit_4k` | 8.05 (3) | | 7.88 (3) | 6.80 (1) | | | 7.88 (7) | 5.0 | 7.5 |
 | `team_pursuit` | 5.93 (5) | | | 6.43 (5) | 8.07 (2) | 7.27 (1) | 6.90 (13) | 5.0 | 6.75 |
 | `team_sprint` | 4.50 (4) | 2.20 (1) | | 2.73 (4) | | | 3.01 (9) | 2.67 | 3.0 |
@@ -158,6 +158,8 @@ Per-heat duration = an event's Generated-timestamp gap (`generated_diff` observa
 | `time_trial_500` | 2.30 (5) | | 2.60 (1) | 3.02 (2) | 2.16 (1) | | 2.31 (9) | 2.33 | 2.33 |
 
 New values are the all-competition median rounded to a quarter-minute. They round down for `pursuit_2k`, `pursuit_4k` and `team_pursuit`, where single slower meets (26002 pursuits, 26009 team pursuit) pull the median up, so no one competition sets the value. The 26002 `pursuit_3k` value (1.54) is an outlier: a 3-heat event whose Generated gap was 4.6 min.
+
+`pursuit_2k` and `pursuit_3k` were later raised to 5.0 and 6.25 to fit masters data. At 26037 (masters worlds) over days 1–3, where the column above covers only day 1, 2 km qualifying rounds measured 4.45–7.64 min per heat (median 5.31, n = 7) and 3 km 5.90–6.85 (median 6.30, n = 4), against 4.5 and 5.5.
 
 The same method confirmed the existing values for `sprint_qualifying` (median 1.36 vs 1.25), `sprint_match` (3.00 vs 3.0) and `keirin` (4.53 vs 4.5), so those are unchanged.
 

@@ -95,8 +95,8 @@ DEFAULT_DURATIONS: dict[str, float] = {
     # Pursuit: one schedule slot (qualifying or final) for one category.
     # Two riders race simultaneously per heat; times below cover ~2-heat finals.
     "pursuit_4k": 15.0,  # 2 heats × 7.5 min per heat
-    "pursuit_3k": 11.0,  # 2 heats × 5.5 min per heat
-    "pursuit_2k": 9.0,  # 2 heats × 4.5 min per heat
+    "pursuit_3k": 12.5,  # 2 heats × 6.25 min per heat
+    "pursuit_2k": 10.0,  # 2 heats × 5.0 min per heat
     # Team pursuit: qualifying or final, ~2-3 rides
     "team_pursuit": 10.0,
     # Team sprint: ~4 rides × 2:40/ride per category
@@ -145,10 +145,11 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "sprint_match": 3.0,
     # Timed events below are rounded medians of Generated-timestamp gap / heat count across
     # 25022-26037 (docs/timed-event-durations.md); each includes ~1.5-2.5 min between heats.
-    # Individual pursuit: 2 riders race simultaneously per heat
+    # Individual pursuit: 2 riders race simultaneously per heat. 2 km and 3 km are set from
+    # masters data at 26037 (2 km median 5.3, 3 km 6.3) rather than the all-competition median.
     "pursuit_4k": 7.5,
-    "pursuit_3k": 5.5,
-    "pursuit_2k": 4.5,
+    "pursuit_3k": 6.25,
+    "pursuit_2k": 5.0,
     # Team pursuit: 2 teams race simultaneously per heat
     "team_pursuit": 6.75,
     # Team sprint: 2 teams per heat
