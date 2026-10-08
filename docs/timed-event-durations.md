@@ -135,6 +135,8 @@ Per-rider durations used:
 
 The 500 m value matches the measured median (2.31 min over 9 events). The 750 m value has one measurement (5.25 min at 26002) and is unchanged until there is more data.
 
+At 26037 (masters worlds) time trials ran **two riders per heat** (e.g. 12 riders in 6 heats), so the start-list heat count there is half the rider count. Before the start list is posted, a masters time trial takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `TT` code. This matched the start list for all 8 completed women's TTs and 3 of 6 men's; the other men's were 1–2 heats high from non-starters. Observed 500 m slots there ran about 3.3 min per two-rider heat (median of 5), above the 2.33 min per-heat constant; the constant hasn't been refit.
+
 When rider count is unknown, the default assumes ~7–8 riders:
 
 | Discipline Key | Default Duration | Assumed Basis |

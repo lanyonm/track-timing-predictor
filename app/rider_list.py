@@ -3,7 +3,7 @@
 Some competitions publish start lists only after per-session sign-on, but publish a
 Rider List up front with each rider's category and entered event codes. This module
 matches one rider's entry against schedule events by age band, gender and code, and
-sizes individual qualifying rounds from the number of entrants.
+sizes individual qualifying rounds and time trials from the number of entrants.
 
 Scope is the formats seen in EventId 26037 (masters world championships): categories
 ``[MW]`` + four digits (lo-hi) or two digits (lo and over), event names carrying
@@ -119,28 +119,38 @@ def match_events(entry: RiderListEntry, sessions: list[Session]) -> dict[tuple[i
     return matches
 
 
-# Individual qualifying rounds whose heat count follows from the number of entrants:
-# one sprint qualifier (flying 200) per rider, two pursuiters per heat.
-_RIDERS_PER_HEAT = {"sprint_qualifying": 1, "pursuit_2k": 2, "pursuit_3k": 2}
+# Individual events whose heat count follows from the number of entrants: one sprint
+# qualifier (flying 200) per rider, two riders per pursuit or time trial heat (26037).
+_RIDERS_PER_HEAT = {
+    "sprint_qualifying": 1,
+    "pursuit_2k": 2,
+    "pursuit_3k": 2,
+    "time_trial_500": 2,
+    "time_trial_750": 2,
+    "time_trial_kilo": 2,
+}
+# Time trials are a single round, so every entrant rides it; elsewhere only qualifying does.
+_SINGLE_ROUND = frozenset({"time_trial_500", "time_trial_750", "time_trial_kilo"})
 
 
 def needs_heat_estimate(event: Event) -> bool:
-    """True for an individual qualifying round that estimate_heats can size from the Rider List."""
+    """True for an individual event that estimate_heats can size from the Rider List."""
     return (
         not event.is_special
         and event.discipline in _RIDERS_PER_HEAT
-        and bool(_QUALIFYING_RE.search(event.name))
+        and (event.discipline in _SINGLE_ROUND or bool(_QUALIFYING_RE.search(event.name)))
         and event_band(event.name) is not None
     )
 
 
 def estimate_heats(entries: list[RiderListEntry], sessions: list[Session]) -> dict[tuple[int, int], int]:
-    """Heat counts for individual qualifying rounds from Rider List entrants, keyed by (session_id, position).
+    """Heat counts for individual events from Rider List entrants, keyed by (session_id, position).
 
-    Entrants are riders whose category band lies inside the event's band and who entered
-    its code. Against 26037's start lists this matches sprint qualifying within one rider
-    and pursuit qualifying within one heat (non-starters). Team events are left out: the
-    Rider List doesn't say who rides together. Events with no entrants are left out too.
+    Covers sprint and pursuit qualifying and time trials (needs_heat_estimate). Entrants
+    are riders whose category band lies inside the event's band and who entered its code.
+    Against 26037's start lists this matches sprint qualifying within one rider and pursuit
+    qualifying and time trials within a heat or two (non-starters). Team events are left
+    out: the Rider List doesn't say who rides together. Events with no entrants are left out too.
     """
     heats: dict[tuple[int, int], int] = {}
     for s in sessions:

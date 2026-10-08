@@ -287,11 +287,15 @@ class TestEstimateHeats:
         # 80+ Men: M8084 and older.
         assert heats["80+ Men Sprint Qualifying"] == 8
 
+    def test_time_trial_two_riders_per_heat(self, heats):
+        # A single-round final: 12 W4549 entrants rode 6 heats at 26037; 29 M4549 → 15.
+        assert heats["45-49 Women 750m Time Trial Final"] == 6
+        assert heats["45-49 Men 750m Time Trial Final"] == 15
+
     def test_finals_and_team_events_left_out(self, heats):
         assert "55-59 Men Pursuit Final" not in heats
         assert "55-59 Men Sprint 1/8 Final" not in heats
         assert "55+ Women Team Pursuit Qualifying" not in heats
-        assert "35-39 Women Kilo Time Trial Final" not in heats
 
     def test_no_entrants_left_out(self):
         event = Event(
