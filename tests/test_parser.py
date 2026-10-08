@@ -276,6 +276,15 @@ class TestParseHeatCount:
         html = "Heated debate\nHeathen\nHeat 1\nRider A\n"
         assert parse_heat_count(html) == 1
 
+    def test_sprint_final_counts_medal_matches(self):
+        # Sprint Final start lists label their matches "Final 3-4" and "Final 1-2", not "Heat N"
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_heat_count(html) == 2
+
+    def test_ignores_final_ranges_in_prose(self):
+        html = "<h5>Top 3 riders advance to Final 1-6, next 3 advance to Final 7-12</h5>\nHeat 1\nHeat 2\n"
+        assert parse_heat_count(html) == 2
+
 
 # ── parse_live_heat ────────────────────────────────────────────────────────────
 
