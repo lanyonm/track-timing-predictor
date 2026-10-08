@@ -10,7 +10,8 @@ GitHub Actions (CI/CD)
   └── CDK deploy
         ├── TrackTimingBase (shared)
         │     ├── ECR repository
-        │     └── GitHub Actions OIDC role
+        │     ├── GitHub Actions OIDC roles (prod, PR)
+        │     └── PR permissions boundary policy
         └── TrackTimingStack-{env} (per-environment)
               ├── DynamoDB tables (durations + palmares)
               ├── Lambda function (Docker image)
@@ -81,12 +82,15 @@ set, otherwise falls back to SQLite for local development.
 A single ECR repository (`track-timing-predictor`) is shared across all
 environments. Tags:
 - `prod-latest` — rolling tag updated on every main-branch deploy
-- `<git-sha>` — immutable tag per deploy for rollback capability
+- `<git-sha>` — immutable tag per prod deploy for rollback capability
+- `pr-<N>-<git-sha>` — PR environment images
 
-**Lifecycle rules:**
-- Untagged images: deleted after 1 day
-- All tagged images: keep the 10 most recently pushed (`prod-latest` is
-  retagged on every deploy so it is always among the newest)
+**Lifecycle rules** (an image counted by one rule isn't counted by later ones):
+1. Untagged images: deleted after 1 day
+2. `pr-` tags: keep the 5 most recently pushed
+3. Everything else (prod): keep the 10 most recently pushed (`prod-latest` is
+   retagged on every deploy so it is always among the newest). PR images can't
+   push prod rollback images out.
 
 ### Logging and Monitoring: CloudWatch
 
@@ -115,24 +119,51 @@ overnight) do not trigger false alerts.
 
 ## IAM Roles
 
-### GitHub Actions OIDC Role
+Both GitHub Actions roles use OIDC federation (no long-lived credentials),
+scoped to the `lanyonm/track-timing-predictor` repository by the `sub` claim.
+They're defined in `cdk/base_stack.py`.
 
-The `track-timing-github-actions` role uses OIDC federation (no long-lived
-credentials). It is scoped to the `lanyonm/track-timing-predictor` repository
-via the `sub` claim condition.
+### Prod Deploy Role (`track-timing-github-actions`)
 
-Trust: the `sub` claim may match any branch (`ref:refs/heads/*`) or any
-same-repo pull request.
+Trust: only `sub` = `repo:lanyonm/track-timing-predictor:environment:production`,
+i.e. jobs that declare `environment: production`. The GitHub `production`
+environment allows deployments from `main` only (Settings → Environments), so a
+workflow on another branch can't get this token.
 
-The role's inline `CdkDeployPolicy` grants only:
+The inline `CdkDeployPolicy` grants:
 - `sts:AssumeRole` on the CDK bootstrap roles (`cdk-hnb659fds-*`)
 - read-only CloudFormation describe calls
 - ECR auth plus push/pull on the `track-timing-predictor` repository
 - `ssm:GetParameter` on the CDK bootstrap version parameter
 
-CloudFormation changes are executed by the CDK bootstrap execution role, which
-has the bootstrap default (`AdministratorAccess`). Anyone who can run a workflow
-on a branch of this repo can therefore deploy arbitrary infrastructure.
+CloudFormation changes run as the CDK bootstrap execution role, which has the
+bootstrap default (`AdministratorAccess`).
+
+### PR Role (`track-timing-github-actions-pr`)
+
+Trust: `sub` = `…:pull_request` (same-repo PR workflows) or
+`…:ref:refs/heads/main` (the PR stack sweeper).
+
+PR stacks use `CliCredentialsStackSynthesizer`, so CloudFormation runs with this
+role's own credentials instead of the bootstrap roles, and this role has no
+`sts:AssumeRole`. Its inline `PrStackPolicy` is therefore the whole of what a PR
+workflow can do:
+- CloudFormation writes on `TrackTimingStack-pr-*` stacks only
+- `lambda:*`, `dynamodb:*` and `logs:*` on `track-timing-pr-*` /
+  `track-timing-palmares-pr-*` / `/aws/lambda/track-timing-pr-*` resources
+- IAM on `role/TrackTimingStack-pr-*` only: create a role or put an inline
+  policy only with the `track-timing-pr-boundary` permissions boundary, attach
+  only `AWSLambdaBasicExecutionRole`, and pass roles only to Lambda
+- S3 writes in the CDK bootstrap bucket under `pr/` only (PR templates use that
+  prefix). Keys are content hashes and the CLI skips existing keys, so a write
+  elsewhere could plant a future prod template.
+- ECR push/pull on the app repository
+
+`track-timing-pr-boundary` caps every PR Lambda role at its runtime needs: PR log
+groups, PR tables and pulling from the app repository.
+
+The CDK bootstrap roles trust the whole account, but only to principals whose
+own policy allows `sts:AssumeRole` on them, which this role's doesn't.
 
 ### Lambda Execution Role
 
@@ -144,11 +175,18 @@ CDK auto-generates the Lambda execution role with:
 
 ### Production Deploy (`.github/workflows/deploy.yml`)
 
-Triggered on push to `main` (independently of the test workflow; a failing
-test run does not block the deploy):
-1. Assume OIDC role
+Triggered by `workflow_run` when the Tests workflow completes; the job runs only
+if Tests succeeded for a push to `main`, so a red `main` doesn't deploy. It checks
+out and deploys the tested commit (`workflow_run.head_sha`). The job uses the
+`production` environment and the `deploy-prod` concurrency group
+(`cancel-in-progress: false`, so overlapping merges queue instead of racing).
+1. Assume the prod OIDC role
 2. Build Docker image, push to ECR with SHA tag + `prod-latest`
 3. `cdk deploy TrackTimingBase TrackTimingStack-prod --context image_tag=<sha>`
+   (`--require-approval never`; the `production` environment has no required
+   reviewer)
+
+A `[skip ci]` push skips Tests and therefore the deploy.
 
 Passing the SHA as `image_tag` context ensures CloudFormation detects the image
 change and updates the Lambda function.
@@ -156,17 +194,25 @@ change and updates the Lambda function.
 ### PR Environments (`.github/workflows/pr-environment.yml`)
 
 Triggered on PR open/sync/close against `main`, for PRs from branches in this
-repository only (fork PRs are skipped on deploy):
-- **open/synchronize:** Build image, push with SHA tag, deploy ephemeral
+repository only (fork PRs are skipped on deploy and destroy). Uses the PR role.
+Each PR's runs share the `pr-<N>` concurrency group, so a close waits for an
+in-flight deploy instead of racing it.
+- **open/synchronize:** Build image, push as `pr-<N>-<sha>`, deploy ephemeral
   `TrackTimingStack-pr-<N>` stack, comment the Function URL on the PR
 - **close:** `cdk destroy TrackTimingStack-pr-<N>` tears down all resources
 
 PR stacks use DESTROY removal policies so DynamoDB tables and log groups are
 cleaned up automatically.
 
+### PR Stack Sweeper (`.github/workflows/cleanup-pr-stacks.yml`)
+
+Weekly (Mondays 06:17 UTC) and on manual dispatch from `main`: lists
+`TrackTimingStack-pr-*` stacks and deletes each whose PR is closed, in case a
+`destroy-pr` run failed. Runs as the PR role.
+
 ### Tests (`.github/workflows/test.yml`)
 
-Triggered on push/PR to `main`. Both jobs install the hashed `requirements-dev.txt`
+Triggered on push/PR to `main`, with a read-only token (`contents: read`). Both jobs install the hashed `requirements-dev.txt`
 lock. `lint` runs `ruff check`, `ruff format --check` and `mypy`; `test` runs
 `pytest` with coverage and, on `main`, publishes the coverage percentage to a gist
 for the README badge (`GIST_TOKEN` secret).
@@ -234,8 +280,10 @@ DNS is managed at Name.com (not Route53). Two CNAME records are required:
 
 1. Create the OIDC provider: `aws iam create-open-id-connect-provider` for
    `token.actions.githubusercontent.com`
-2. Deploy base stack: `cdk deploy TrackTimingBase` (creates ECR repo + OIDC role)
-3. Add `AWS_ACCOUNT_ID` secret to the GitHub repo
+2. Deploy base stack: `cdk deploy TrackTimingBase` (creates ECR repo, OIDC roles and
+   the PR permissions boundary)
+3. Add `AWS_ACCOUNT_ID` secret to the GitHub repo, and create the `production`
+   environment (Settings → Environments) with deployment branches limited to `main`
 4. Deploy prod stack: `cdk deploy TrackTimingStack-prod --context image_tag=prod-latest`
    - The deploy will pause waiting for ACM certificate DNS validation
    - Add the ACM validation CNAME at Name.com (visible in AWS Console →

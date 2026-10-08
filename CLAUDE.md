@@ -69,9 +69,11 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 **Deployment:** AWS Lambda (Docker image from ECR, `Dockerfile`) behind a Function URL, adapted with Mangum (`handler` in `app/main.py`). Prod sits behind CloudFront at `ttp.lanyonm.org`, which uses OAC to sign requests to an `AWS_IAM` Function URL. Infra is CDK in `cdk/`; details are in `plans/hosting-plan.md`. **All routes must be GET.** CloudFront OAC can't sign POST bodies to Function URLs (403).
 
 **CI/CD** (`.github/workflows/`):
-- `test.yml`: on pushes and PRs to `main`, a `lint` job (ruff check, ruff format --check, mypy) and a `test` job (pytest with coverage); `test` updates the coverage badge gist on `main`.
-- `pr-environment.yml`: for same-repo PRs, builds the image and deploys `TrackTimingStack-pr-<N>` with a public Function URL, comments the URL on the PR, and destroys the stack on close.
-- `deploy.yml`: on push to `main`, builds the image (SHA tag + `prod-latest`) and runs `cdk deploy` for prod. It does not wait for `test.yml`.
+- `test.yml`: on pushes and PRs to `main`, a `lint` job (ruff check, ruff format --check, mypy) and a `test` job (pytest with coverage); `test` updates the coverage badge gist on `main`. Read-only token.
+- `deploy.yml`: runs via `workflow_run` after Tests succeeds for a push to `main`, so a red `main` doesn't deploy. Builds the tested commit's image (SHA tag + `prod-latest`) and runs `cdk deploy` for prod in the `production` environment (main only, no reviewer), serialised by the `deploy-prod` concurrency group.
+- `pr-environment.yml`: for same-repo PRs, builds the image (`pr-<N>-<sha>`), deploys `TrackTimingStack-pr-<N>` with a public Function URL, comments the URL on the PR, and destroys the stack on close. Runs serialised per PR.
+- `cleanup-pr-stacks.yml`: weekly sweep that deletes `TrackTimingStack-pr-*` stacks whose PR is closed.
+- Two OIDC roles (`cdk/base_stack.py`): the prod role trusts only the `production` environment and deploys through the CDK bootstrap roles; the PR role trusts PR and main-branch runs, and PR stacks deploy with its own credentials (`CliCredentialsStackSynthesizer`), so its policy limits PR workflows to `pr-*` stacks and resources. Details in `plans/hosting-plan.md`.
 
 **Configuration:** `app/config.py` exposes a module-level `settings` singleton and `get_settings()` for `Depends()`.
 
