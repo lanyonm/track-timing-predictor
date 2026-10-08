@@ -30,7 +30,7 @@ Ceremonies are forecast only when every final in their window has a masters age 
 
 ## How long they took
 
-There is no timestamp for a ceremony's end. The ceremony page is generated seconds after the previous result (16:24:36 → 16:24:42 for ceremony 1), so it marks the start. The end comes from the next result timestamp minus the races run in between: a bunch race's Finish Time plus ~7.7 min overhead (median of back-to-back bunch races, range 3.7–8.6), or measured per-heat times for other events. The predictor therefore never uses the Generated gap before a ceremony.
+There is no timestamp for a ceremony's end. The ceremony page is generated seconds after the previous result (16:24:36 → 16:24:42 for ceremony 1), so it marks the start. The end comes from the next result timestamp minus the races run in between: a bunch race's Finish Time plus ~7.7 min overhead (median of back-to-back bunch races, range 3.7–8.6), or measured per-heat times for other events. The predictor therefore never uses the Generated gap before a ceremony, nor the one after it, which includes the ceremony and would count it twice.
 
 | Ceremony | Podiums | Start | Next anchor | Duration |
 |---|---|---|---|---|

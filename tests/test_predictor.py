@@ -1088,6 +1088,41 @@ class TestCeremonyDuration:
         assert not ceremony.is_observed
         assert ceremony.podium_count == 2
 
+    def test_generated_gap_after_ceremony_ignored(self):
+        # The gap from a ceremony's Generated time (its start) to the next result includes the
+        # ceremony, so crediting it to the next event would count the ceremony twice.
+        events = [
+            Event(
+                position=0,
+                name="45-49 Men Pursuit Final",
+                discipline="pursuit_3k",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+            ),
+            Event(
+                position=1,
+                name="Medal Ceremonies",
+                discipline="ceremony",
+                status=EventStatus.COMPLETED,
+                is_special=True,
+            ),
+            Event(
+                position=2,
+                name="65-74 Men Team Pursuit Qualifying",
+                discipline="team_pursuit",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+            ),
+        ]
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        record_heat_count(26104, 1, 2, 6)
+        record_generated_time(26104, 1, 0, datetime(2026, 10, 6, 11, 0, 0))
+        record_generated_time(26104, 1, 1, datetime(2026, 10, 6, 11, 0, 6))
+        record_generated_time(26104, 1, 2, datetime(2026, 10, 6, 12, 6, 0))  # ceremony + 40 min of TP
+        tp = predict_schedule(26104, [session], now=None).sessions[0].event_predictions[2]
+        assert not tp.is_observed
+        assert tp.estimated_duration_minutes == pytest.approx(6 * PER_HEAT_DURATIONS["team_pursuit"])
+
     def test_unforecast_ceremony_keeps_default(self):
         session = self._session()
         session.events[0].name = "U17 Men Pursuit Final"

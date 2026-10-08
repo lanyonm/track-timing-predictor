@@ -123,7 +123,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 **Bunch changeover** (`predictor.bunch_changeover`, computed once per `predict_schedule`): for `FINISH_TIME_DISCIPLINES` (scratch, points, elimination, tempo, madison) the live predictor replaces the static `CHANGEOVER_MINUTES` (2.0) with the median of (Generated gap − Finish Time) over this competition's bunch races that follow another bunch race with its own result page, overheads in [0, `MAX_CHANGEOVER_MINUTES`] (20). It needs `MIN_CHANGEOVER_SAMPLES` (3); until then `LIVE_BUNCH_CHANGEOVER_MINUTES` (3.0). It applies to step 1, the distance estimate, and (shifted by calibrated − static) to defaults and learned averages. Keirin keeps its static 2.0. The learning database still records Finish Time + the static 2.0, so learned averages stay comparable across competitions.
 
-A medal ceremony with a podium forecast skips all four and uses `CEREMONY_BASE_MINUTES + podiums × CEREMONY_PER_PODIUM_MINUTES` (13 + 3.3, `disciplines.py`). Its Generated timestamp marks its start, so the gap before a ceremony is never used.
+A medal ceremony with a podium forecast skips all four and uses `CEREMONY_BASE_MINUTES + podiums × CEREMONY_PER_PODIUM_MINUTES` (13 + 3.3, `disciplines.py`). Its Generated timestamp marks its start, so neither the gap before a ceremony nor the one after it (which includes the ceremony) is used as an event's duration.
 
 The UI labels these as **obs.** (1–2), **N heats** (3), **N podiums** (ceremonies) and **est.** (4).
 

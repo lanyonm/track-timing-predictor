@@ -486,7 +486,7 @@ def predict_session(
          (a sprint Ride 3 uses its decider count, see _base_estimate)
       4. Default: learned average or DEFAULT_DURATIONS fallback
     A medal ceremony with forecast podiums uses ceremony_duration instead; its own
-    Generated timestamp marks when it starts, so the gap before it is never used.
+    Generated timestamp marks when it starts, so the gaps before and after it are never used.
 
     now: server wall-clock time used to estimate real-time delay.
          If None, no delay adjustment is applied (pre-event mode).
@@ -518,7 +518,9 @@ def predict_session(
     events = session.events
     gen_durations: dict[int, float] = {}
     for i in range(1, len(events)):
-        if events[i].discipline == "ceremony":
+        # A ceremony's Generated timestamp marks its start, so neither the gap ending at a
+        # ceremony nor the one starting at it is an event's duration.
+        if events[i].discipline == "ceremony" or events[i - 1].discipline == "ceremony":
             continue
         t0 = _generated_times.get((competition_id, session.session_id, events[i - 1].position))
         t1 = _generated_times.get((competition_id, session.session_id, events[i].position))
