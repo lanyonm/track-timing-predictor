@@ -7,12 +7,12 @@ from pathlib import Path
 import pytest
 
 from app.disciplines import (
+    BUNCH_RACE_KMH,
     CEREMONY_BASE_MINUTES,
     CEREMONY_PER_PODIUM_MINUTES,
     CHANGEOVER_MINUTES,
     DEFAULT_DURATIONS,
     PER_HEAT_DURATIONS,
-    POINTS_RACE_KMH,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
 )
@@ -1200,10 +1200,10 @@ class TestSprintRoundPairs:
         assert pred.heat_count == 1
 
 
-# ── Points race duration from distance ────────────────────────────────────────
+# ── Points and scratch race duration from distance ────────────────────────────────────────
 
 
-class TestPointsRaceDistance:
+class TestBunchRaceDistance:
     def _predict(self, competition_id: int, discipline: str):
         event = Event(position=0, name="Race", discipline=discipline, status=EventStatus.NOT_READY, is_special=False)
         session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=[event])
@@ -1213,16 +1213,22 @@ class TestPointsRaceDistance:
         record_race_distance(26131, 1, 0, 20.0)
         pred = self._predict(26131, "points_race")
         assert pred.estimated_duration_minutes == pytest.approx(
-            20.0 / POINTS_RACE_KMH * 60 + CHANGEOVER_MINUTES["points_race"]
+            20.0 / BUNCH_RACE_KMH * 60 + CHANGEOVER_MINUTES["points_race"]
         )
         assert not pred.is_observed
 
     def test_no_distance_uses_default(self):
         assert self._predict(26132, "points_race").estimated_duration_minutes == DEFAULT_DURATIONS["points_race"]
 
-    def test_other_bunch_races_unaffected(self):
+    def test_scratch_race_distance(self):
         record_race_distance(26133, 1, 0, 5.0)
-        assert self._predict(26133, "scratch_race").estimated_duration_minutes == DEFAULT_DURATIONS["scratch_race"]
+        assert self._predict(26133, "scratch_race").estimated_duration_minutes == pytest.approx(
+            5.0 / BUNCH_RACE_KMH * 60 + CHANGEOVER_MINUTES["scratch_race"]
+        )
+
+    def test_unmeasured_bunch_races_unaffected(self):
+        record_race_distance(26135, 1, 0, 3.0)
+        assert self._predict(26135, "tempo_race").estimated_duration_minutes == DEFAULT_DURATIONS["tempo_race"]
 
     def test_finish_time_wins(self):
         record_race_distance(26134, 1, 0, 20.0)

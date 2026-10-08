@@ -104,17 +104,19 @@ Points races award sprint points every N laps; the distance varies widely by cat
 | U11 & U13 | 4 km | 6:12 | E26008 | |
 | **Short tier** | **4 km** | **6:12** | | **~8 min** |
 
-### Duration from distance
+---
 
-Every points race start list titles the race with its distance and laps (`50+ Women Points Race Final - 10km - 40 Laps`, sometimes with `- Sprint Every 5 Laps` after), in the same form at 26002, 26008, 26009, 26010 and 26037. Once the start list is posted, the slot is
+## Points and Scratch Races: Duration from Distance
+
+Every points and scratch race start list titles the race with its distance and laps (`50+ Women Points Race Final - 10km - 40 Laps`, sometimes with `- Sprint Every 5 Laps` after), in the same form at 26002, 26008, 26009, 26010 and 26037. Once the start list is posted, the slot is
 
 ```
-slot = km / POINTS_RACE_KMH × 60 + 2 min changeover   (POINTS_RACE_KMH = 46)
+slot = km / BUNCH_RACE_KMH × 60 + 2 min changeover   (BUNCH_RACE_KMH = 46)
 ```
 
-46 km/h is the median Finish Time speed of 32 points races at 26002, 26008, 26009 and 26037. Speed depends on the field: elite men 50–52.5 km/h, masters men 45–50, elite and masters women 41–46, youth and some masters women 35–41. A single speed is within ~5 min on every measured race (slower fields come out short, the safe direction); the flat 20-minute default was off by up to 17. At 26037 it's within 1.7 min of all 10 points races (7.5–30 km).
+46 km/h is the median Finish Time speed of both disciplines across 26002–26037: 32 points races (35–52.5 km/h) and 38 scratch races (36–54.5 km/h). Speed depends on the field: elite men 50–53 km/h, masters men 45–50, elite and masters women 41–46, youth and some masters women 35–41. A single speed is within ~5 min on every measured race (slower fields come out short, the safe direction); the flat defaults were off by up to 17 min (points, 20) and 9 min (scratch, 12). At 26037 it's within 1.7 min of all 10 points races (7.5–30 km).
 
-Start lists appear about an hour before the race, so earlier views still use the default.
+Start lists appear about an hour before the race, so earlier views still use the defaults. Tempo races carry a distance too but haven't been measured, so they keep their default.
 
 ---
 

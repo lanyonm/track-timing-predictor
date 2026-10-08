@@ -3,7 +3,8 @@ from datetime import datetime, time, timedelta
 from app.ceremonies import ceremony_duration, forecast_podiums
 from app.database import get_learned_duration, record_live_duration
 from app.disciplines import (
-    POINTS_RACE_KMH,
+    BUNCH_RACE_KMH,
+    DISTANCE_DISCIPLINES,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
     get_changeover,
@@ -232,14 +233,16 @@ def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) 
 def _base_estimate(competition_id: int, session_id: int, event: Event, use_learned: bool) -> tuple[float, int | None]:
     """Pre-result duration and heat count: heat count × per-heat + changeover, else the default.
 
-    A points race with a start-list distance runs at POINTS_RACE_KMH.
+    A points or scratch race with a start-list distance runs at BUNCH_RACE_KMH.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs).
     A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
     decider once Ride 2 is posted (the count is reported as its heat count), else per
     expected decider (pairs × SPRINT_DECIDER_RATE).
     """
-    if event.discipline == "points_race" and (km := _race_distances.get((competition_id, session_id, event.position))):
-        return km / POINTS_RACE_KMH * 60 + get_changeover(event.discipline), None
+    if event.discipline in DISTANCE_DISCIPLINES and (
+        km := _race_distances.get((competition_id, session_id, event.position))
+    ):
+        return km / BUNCH_RACE_KMH * 60 + get_changeover(event.discipline), None
     hc = get_heat_count(competition_id, session_id, event.position)
     is_sprint = event.discipline == "sprint_match"
     pairs = hc if hc is not None or not is_sprint else sprint_round_pairs(event.name)
