@@ -170,6 +170,9 @@ own policy allows `sts:AssumeRole` on them, which this role's doesn't.
 CDK auto-generates the Lambda execution role with:
 - `AWSLambdaBasicExecutionRole` (CloudWatch Logs)
 - DynamoDB read/write scoped to the environment's two tables
+- ECR pull on the app repository
+
+In PR stacks it also carries the `track-timing-pr-boundary` permissions boundary.
 
 ## CI/CD
 
@@ -251,7 +254,7 @@ when `DYNAMODB_TABLE` is not set.
 At expected traffic levels (a few concurrent users during race events):
 - **Lambda:** Well within free tier (1M requests/month, 400K GB-seconds)
 - **DynamoDB:** Well within free tier (25 GB storage, 25 WCU/RCU)
-- **ECR:** Minimal storage (~300 MB for 5 images)
+- **ECR:** ~250 MB per image; the lifecycle rules keep up to 15 (10 prod, 5 PR), about 3.7 GB, or roughly $0.40/month at $0.10/GB-month
 - **CloudWatch:** Minimal log volume
 
 ### Custom Domain: CloudFront + ACM (prod only)

@@ -28,7 +28,7 @@ TrackTimingStack(
 # Ephemeral PR stacks — deployed ad-hoc from CI with --context flags:
 #   cdk deploy TrackTimingStack-pr-42 \
 #     --context env_name=pr-42 \
-#     --context image_tag=<sha>
+#     --context image_tag=pr-42-<sha>
 env_name = app.node.try_get_context("env_name")
 image_tag = app.node.try_get_context("image_tag")
 if env_name and env_name != "prod":
