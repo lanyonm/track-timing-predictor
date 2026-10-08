@@ -1,7 +1,8 @@
 import os
 
 import aws_cdk as cdk
-from base_stack import TrackTimingBaseStack
+from aws_cdk import aws_iam as iam
+from base_stack import PR_ASSET_PREFIX, PR_BOUNDARY_NAME, TrackTimingBaseStack
 from track_timing_stack import TrackTimingStack
 
 app = cdk.App()
@@ -27,17 +28,24 @@ TrackTimingStack(
 # Ephemeral PR stacks — deployed ad-hoc from CI with --context flags:
 #   cdk deploy TrackTimingStack-pr-42 \
 #     --context env_name=pr-42 \
-#     --context image_tag=<sha>
+#     --context image_tag=pr-42-<sha>
 env_name = app.node.try_get_context("env_name")
 image_tag = app.node.try_get_context("image_tag")
 if env_name and env_name != "prod":
-    TrackTimingStack(
+    # PR stacks deploy with the caller's credentials (the scoped PR role), not the
+    # CDK bootstrap roles, and every IAM role in them carries the PR boundary.
+    pr_stack = TrackTimingStack(
         app,
         f"TrackTimingStack-{env_name}",
         env_name=env_name,
         repo=base.repo,
         image_tag=image_tag,
         env=env,
+        # PR templates go under pr/ in the bootstrap bucket; the PR role can only write there
+        synthesizer=cdk.CliCredentialsStackSynthesizer(bucket_prefix=PR_ASSET_PREFIX),
+    )
+    iam.PermissionsBoundary.of(pr_stack).apply(
+        iam.ManagedPolicy.from_managed_policy_name(pr_stack, "PrBoundary", PR_BOUNDARY_NAME)
     )
 
 app.synth()

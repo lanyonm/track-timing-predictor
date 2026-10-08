@@ -4,20 +4,33 @@ name: Deploy to Production
 #   1. aws iam create-open-id-connect-provider for token.actions.githubusercontent.com
 #   2. cdk deploy TrackTimingBase TrackTimingStack-prod --context image_tag=prod-latest  (from CLI with human IAM user)
 #   3. Add AWS_ACCOUNT_ID secret to the GitHub repo
+#   4. In Settings > Environments > production, limit deployment branches to main
+#      (the prod role only trusts jobs in this environment)
 
+# Runs only after Tests succeeds for a push to main, and deploys the tested commit.
 on:
-  push:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
     branches: [main]
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       id-token: write   # Required for OIDC token exchange
       contents: read
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
@@ -33,7 +46,7 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: track-timing-predictor
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         run: |
           docker buildx build \
             --platform linux/amd64 \
@@ -64,4 +77,4 @@ jobs:
         run: |
           cdk deploy TrackTimingBase TrackTimingStack-prod \
             --require-approval never \
-            --context image_tag=${{ github.sha }}
+            --context image_tag=${{ github.event.workflow_run.head_sha }}

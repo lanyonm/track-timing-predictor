@@ -176,4 +176,4 @@ See [docs/duration-data-import.md](docs/duration-data-import.md) for full docume
 
 ## Deployment
 
-Production runs on AWS Lambda behind CloudFront at [ttp.lanyonm.org](https://ttp.lanyonm.org), deployed by GitHub Actions with AWS CDK on every push to `main`. Pull requests from branches in this repo get an ephemeral environment. See [plans/hosting-plan.md](plans/hosting-plan.md).
+Production runs on AWS Lambda behind CloudFront at [ttp.lanyonm.org](https://ttp.lanyonm.org), deployed by GitHub Actions with AWS CDK after the tests pass on each push to `main`. Pull requests from branches in this repo get an ephemeral environment. See [plans/hosting-plan.md](plans/hosting-plan.md).
