@@ -95,7 +95,7 @@ Tests use a temporary SQLite database and captured fixtures in `tests/fixtures/`
 | `/` | Enter an Event ID |
 | `/schedule/{id}` | Predicted schedule for an event (`?r=` highlights a racer) |
 | `/palmares` | A racer's timed-event results across competitions, with per-event CSV export |
-| `/defaults` | Built-in default durations |
+| `/defaults` | Built-in default and per-heat durations, plus the rules that replace them (distance, changeover, deciders, ceremonies) |
 | `/learned` | Learned duration averages |
 | `/health` | Health check (JSON) |
 

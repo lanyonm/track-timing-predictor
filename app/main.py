@@ -21,7 +21,19 @@ from app.ceremonies import needs_categories
 from app.clock import venue_now
 from app.config import Settings, get_settings
 from app.database import check_health, get_all_learned_durations, init_db
-from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS, split_ride
+from app.disciplines import (
+    BUNCH_RACE_KMH,
+    CEREMONY_BASE_MINUTES,
+    CEREMONY_PER_PODIUM_MINUTES,
+    CHANGEOVER_MINUTES,
+    DEFAULT_DURATIONS,
+    LIVE_BUNCH_CHANGEOVER_MINUTES,
+    MIN_CHANGEOVER_SAMPLES,
+    PER_HEAT_DURATIONS,
+    SPRINT_DECIDER_MINUTES,
+    SPRINT_DECIDER_RATE,
+    split_ride,
+)
 from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
 from app.models import EventStatus, PalmaresEntry, RiderListEntry, SchedulePrediction, Session
 from app.palmares import (
@@ -820,7 +832,17 @@ async def default_durations(request: Request) -> Response:
         {"discipline": d, "default": DEFAULT_DURATIONS[d], "per_heat": PER_HEAT_DURATIONS.get(d)}
         for d in DEFAULT_DURATIONS
     ]
-    return templates.TemplateResponse(request, "defaults.html", {"rows": rows})
+    rules = {
+        "ceremony_base": CEREMONY_BASE_MINUTES,
+        "ceremony_per_podium": CEREMONY_PER_PODIUM_MINUTES,
+        "bunch_kmh": BUNCH_RACE_KMH,
+        "decider_minutes": SPRINT_DECIDER_MINUTES,
+        "decider_rate": SPRINT_DECIDER_RATE,
+        "live_changeover": LIVE_BUNCH_CHANGEOVER_MINUTES,
+        "min_changeover_samples": MIN_CHANGEOVER_SAMPLES,
+        "static_changeover": CHANGEOVER_MINUTES["scratch_race"],
+    }
+    return templates.TemplateResponse(request, "defaults.html", {"rows": rows, "rules": rules})
 
 
 @app.get("/learned", response_class=HTMLResponse)

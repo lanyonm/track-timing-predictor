@@ -107,7 +107,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 | `/palmares/export` | CSV of one rider's (or team's) audit data; `audit_url` must start with `results/` after percent-decoding and `normpath`; pages over 2M chars give 502; `Content-Disposition` carries an ASCII `filename` plus RFC 5987 `filename*` |
 | `/palmares/rename` | Rename a competition; requires `racer_name` cookie |
 | `/palmares/remove` | Delete a competition's entries; requires `racer_name` cookie (403 otherwise) |
-| `/defaults` | Built-in default durations |
+| `/defaults` | Built-in default and per-heat durations, plus the rules that replace them (distance, changeover, deciders, ceremonies) |
 | `/learned` | Learned duration averages |
 | `/health` | Always 200; per-component `healthy`/`degraded` |
 

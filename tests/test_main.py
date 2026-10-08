@@ -640,3 +640,12 @@ class TestFetchResultPagesDeciders:
         assert completed_rounds
         assert {k[1] for k in _sprint_deciders} == completed_rounds
         assert set(_sprint_deciders.values()) == {1}
+
+
+class TestDefaultsPage:
+    def test_lists_duration_rules(self, client):
+        text = " ".join(client.get("/defaults").text.split())
+        assert "13.0 min + 3.3 min per podium" in text
+        assert "46.0 km/h" in text
+        assert "4.25 min per decider" in text
+        assert "3.0 min until" in text

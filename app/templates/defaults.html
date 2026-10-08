@@ -28,6 +28,18 @@
     </div>
   </div>
 
+  <div class="card bg-base-100 shadow-md">
+    <div class="card-body text-sm gap-2">
+      <h3 class="font-semibold">Rules that replace the table</h3>
+      <ul class="list-disc pl-5 space-y-1">
+        <li><strong>Points and scratch races</strong> with a posted start list: distance at {{ rules.bunch_kmh }} km/h, plus changeover.</li>
+        <li><strong>Bunch-race changeover</strong> (scratch, points, elimination, tempo, madison): the competition's median gap between back-to-back races minus Finish Time, once there are {{ rules.min_changeover_samples }}; {{ rules.live_changeover }} min until then. It replaces the {{ rules.static_changeover }} min included in the defaults above.</li>
+        <li><strong>Sprint Ride 3</strong> (decider): {{ rules.decider_minutes }} min per decider once Ride 2 is posted, otherwise {{ (rules.decider_rate * 100) | round | int }}% of the pairs. Sprint 1/2 Finals and Finals count 2 pairs and 1/4 Finals 4 before their start list is posted.</li>
+        <li><strong>Medal ceremonies</strong> at masters competitions: {{ rules.ceremony_base }} min + {{ rules.ceremony_per_podium }} min per podium awarded.</li>
+      </ul>
+    </div>
+  </div>
+
   <p><a href="/" class="link link-hover text-sm">&larr; Back</a></p>
 </div>
 {% endblock %}
