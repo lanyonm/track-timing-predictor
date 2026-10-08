@@ -14,7 +14,7 @@ The learning mechanism (SQLite) accumulates observed durations per discipline ke
 
 ## Data Source
 
-Defaults are derived from finish times collected across multiple events. Race durations cover the period from the starting gun to the last rider crossing the finish line. A 2-minute changeover (setup / warm-down) is added to obtain the schedule slot estimate.
+Defaults are derived from finish times collected across multiple events. Race durations cover the period from the starting gun to the last rider crossing the finish line. A 2-minute changeover (setup / warm-down) is added to obtain the schedule slot estimate. The live predictor swaps that 2 minutes for the competition's calibrated changeover (see [Changeover](#changeover)); the "Slot (+ 2 min)" columns below are the static values that learned durations and `tools/` use.
 
 Each data row below includes a source event tag (e.g. `[E26008]`) for traceability.
 
@@ -106,6 +106,20 @@ Points races award sprint points every N laps; the distance varies widely by cat
 
 ---
 
+## Points and Scratch Races: Duration from Distance
+
+Every points and scratch race start list titles the race with its distance and laps (`50+ Women Points Race Final - 10km - 40 Laps`, sometimes with `- Sprint Every 5 Laps` after), in the same form at 26002, 26008, 26009, 26010 and 26037. Once the start list is posted, the slot is
+
+```
+slot = km / BUNCH_RACE_KMH × 60 + changeover   (BUNCH_RACE_KMH = 46)
+```
+
+46 km/h is the median Finish Time speed of both disciplines across 26002–26037: 32 points races (35–52.5 km/h) and 38 scratch races (36–54.5 km/h). Speed depends on the field: elite men 50–53 km/h, masters men 45–50, elite and masters women 41–46, youth and some masters women 35–41. A single speed is within ~5 min on every measured race (slower fields come out short, the safe direction); the flat defaults were off by up to 17 min (points, 20) and 9 min (scratch, 12). At 26037 it's within 1.7 min of all 10 points races (7.5–30 km).
+
+Start lists appear about an hour before the race, so earlier views still use the defaults. Tempo races carry a distance too but haven't been measured, so they keep their default.
+
+---
+
 ## Madison
 
 The Madison is a team event where pairs of riders alternate laps via a hand-sling. Points are awarded for sprints every 10 laps. Race distances vary widely by category and event level, making duration prediction less consistent than for other mass start disciplines.
@@ -130,6 +144,34 @@ Madison uses a single flat default (no distance tiers) since category and distan
 | `madison` | 22.0 min | ~15–20 km race + 2 min changeover |
 
 The learning mechanism will improve this as observed durations accumulate per venue/level.
+
+---
+
+## Changeover
+
+The changeover is everything in a bunch race's slot that isn't racing: clearing the previous race, staging the field, the neutral lap, and publishing results. It's measured as Generated gap minus Finish Time, where the Generated gap is the time between the previous event's result and this race's result.
+
+Measured across 68 bunch races at 26002, 26008, 26009, 26010 and 26037 (in minutes):
+
+| | n | Median |
+|---|---|---|
+| 26037 (masters worlds) | 13 | 8.2 |
+| 26002 | 6 | 4.2 |
+| 26008 | 27 | 3.4 |
+| 26009 | 21 | 2.6 |
+| 26010 | 1 | 5.0 |
+| After another bunch race | 58 | 3.2 |
+| After a sprint or timed event | 10 | 11.3 |
+
+The static 2 minutes is close for national omnium sessions, where bunch races run back to back, and far short at a championship. So the live predictor calibrates it per competition (`predictor.bunch_changeover`):
+
+- Samples: a scratch, points, elimination, tempo or madison race with a Finish Time, straight after another of those with its own result page, with an overhead between 0 and 20 min (outside that, result pages were uploaded out of order or regenerated). A race after a sprint or timed event also includes staging the field, so it's left out.
+- With 3 or more samples the changeover is their median; before that, 3 min (the all-competition median after a bunch race).
+- It's added to Finish Times for completed races, to distance estimates, and to defaults and learned averages in place of their static 2 minutes. Keirin keeps its static 2 minutes; it has no Finish Time to calibrate from.
+
+On the full results, the calibration settles at 7.95 min for 26037, 3.38 for 26008 and 2.5 for 26009; 26002 has too few back-to-back bunch races and keeps 3.
+
+The learning database still records Finish Time + the static 2 minutes, so learned averages stay comparable across competitions; the predictor shifts them like the defaults.
 
 ---
 
@@ -160,4 +202,4 @@ The predictor uses keyword-phrase matching on the lowercased event name. Keyword
 
 - **Limited sample**: the tier averages and slot estimates come from the finish times listed above. Once results are posted, observed Finish Times replace these estimates for live predictions.
 - **Rider count is not used**: elimination race duration scales with the number of starters, but the estimate does not use the start list's rider count.
-- **Distance in event names**: tracktiming.live schedule event names do not include distance (e.g. "Elite/Junior Men Scratch Race / Omni I"), so durations come from the tier lookup rather than a speed-based calculation.
+- **Distance before the start list**: schedule event names don't include distance (e.g. "Elite/Junior Men Scratch Race / Omni I"). Points and scratch races switch to a speed-based estimate once the start list (whose title has the distance) is posted, about an hour ahead; until then, and for other bunch races, the tier defaults apply.

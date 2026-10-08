@@ -66,9 +66,9 @@ python -m tools.extract_competition <competition_id>
 
 The extractor fetches a competition's schedule from the tracktiming.live Jaxon API, then iterates over each completed event to extract durations using the same priority as the live app:
 
-1. **Finish Time** — from the result page (`Finish Time: MM:SS`) plus a discipline-specific changeover allowance. Available for bunch races (scratch, points, elimination, tempo, madison, keirin).
+1. **Finish Time** — from the result page (`Finish Time: MM:SS`) plus the static discipline changeover (`CHANGEOVER_MINUTES`; the live predictor calibrates its own per competition, see `docs/mass-start-race-durations.md`). Available for bunch races (scratch, points, elimination, tempo, madison, keirin).
 2. **Generated timestamp diff** — the difference between consecutive `Generated:` timestamps on result pages. A plausibility filter rejects diffs outside [0.5x, 2.0x] of the static default for that discipline.
-3. **Heat count** — from the start-list page (`Heat N` labels), computed as `heat_count * per_heat_duration + changeover`.
+3. **Heat count** — from the start-list page (`Heat N` labels, or the `Final N-M` and `For Bronze`/`For Gold` headings on medal finals), computed as `heat_count * per_heat_duration + changeover`.
 
 Each event name is also decomposed into structured categories by the categorizer (see [Event Name Categorization](#event-name-categorization) below).
 

@@ -13,16 +13,19 @@ import pytest
 from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
-from app.main import _fetch_start_lists, app
+from app.main import _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
 from app.models import EventStatus
 from app.parser import parse_schedule
 from app.predictor import (
+    _finish_times,
     _generated_times,
     _heat_counts,
     _live_heats,
-    _observed_durations,
+    _race_distances,
     _rider_list_retry_at,
     _rider_lists,
+    _sprint_deciders,
+    _start_list_categories,
     _start_list_riders,
     _status_cache,
 )
@@ -60,16 +63,19 @@ def start_list_html():
 def clear_predictor_caches():
     """Clear all in-memory predictor caches before each test."""
     _status_cache.clear()
-    _observed_durations.clear()
+    _finish_times.clear()
     _heat_counts.clear()
     _live_heats.clear()
     _generated_times.clear()
     _start_list_riders.clear()
+    _start_list_categories.clear()
+    _sprint_deciders.clear()
+    _race_distances.clear()
     _rider_lists.clear()
     _rider_list_retry_at.clear()
     yield
     _status_cache.clear()
-    _observed_durations.clear()
+    _finish_times.clear()
     _heat_counts.clear()
     _live_heats.clear()
     _generated_times.clear()
@@ -471,9 +477,18 @@ class TestRiderListRoutes:
         assert client.get("/schedule/26037/refresh").status_code == 200
         assert _rider_list_calls(mock_26037) == 1
 
-    def test_not_fetched_without_racer(self, client, mock_26037):
-        assert client.get("/schedule/26037").status_code == 200
-        assert _rider_list_calls(mock_26037) == 0
+    def test_fetched_without_racer_for_podiums(self, client, mock_26037):
+        # Combined-age finals without start-list categories need the Rider List to forecast podiums.
+        text = client.get("/schedule/26037").text
+        assert _rider_list_calls(mock_26037) == 1
+        assert "8 podiums" in _event_row(text, "Medal Ceremonies").get_text()
+
+    def test_not_fetched_without_racer_or_masters_finals(self):
+        sessions = parse_schedule(_load_fixture("sample-event-output.json"))
+        page = AsyncMock()
+        with patch("app.main.fetch_page_html", page):
+            assert asyncio.run(_fetch_rider_list_if_needed(None, 26008, {}, sessions, None)) is None
+        page.assert_not_called()
 
     def test_fetch_failure_degrades_then_retries(self, client, mock_26037):
         def failing(_client, path):
@@ -506,10 +521,12 @@ class TestRiderListRoutes:
         assert _rider_list_retry_at
         assert not _rider_lists
 
-    def test_whitespace_racer_name_skips_fetch(self, client, mock_26037):
-        encoded = base64.urlsafe_b64encode(b"   ").decode("ascii")
-        assert client.get(f"/schedule/26037?r={encoded}").status_code == 200
-        assert _rider_list_calls(mock_26037) == 0
+    def test_whitespace_racer_name_skips_fetch(self):
+        sessions = parse_schedule(_load_fixture("sample-event-output.json"))
+        page = AsyncMock()
+        with patch("app.main.fetch_page_html", page):
+            assert asyncio.run(_fetch_rider_list_if_needed(None, 26008, {}, sessions, "   ")) is None
+        page.assert_not_called()
 
     def test_rider_list_matches_not_saved_to_palmares(self, client, mock_26037):
         # ALVIS Norman (M6064, TP) matches the completed 55-64 Men Team Pursuit
@@ -573,6 +590,18 @@ class TestFetchStartListsCaching:
         # Second pass: only non-completed events with empty lists are retried.
         assert self._run(sessions, "") == len(with_lists) - len(completed)
 
+    def test_records_categories(self, sessions):
+        html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
+        self._run(sessions, html)
+        assert _start_list_categories
+        assert set(_start_list_categories.values()) == {frozenset({"W5054", "W5559", "W6064", "W6569", "W7074"})}
+
+    def test_records_race_distance(self, sessions):
+        html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
+        self._run(sessions, html)
+        assert _race_distances
+        assert set(_race_distances.values()) == {10.0}
+
     def test_empty_parse_keeps_cached_riders(self, sessions, start_list_html):
         self._run(sessions, start_list_html)
         cached = {k: v for k, v in _start_list_riders.items() if v}
@@ -593,3 +622,30 @@ class TestParallelQualifierRoute:
         )
         for name in ("55-59 Men Scratch Race Qualifier 1", "55-59 Men Scratch Race Qualifier 2"):
             assert "Entered" in _event_row(client.get("/schedule/26037").text, name).get_text()
+
+
+class TestFetchResultPagesDeciders:
+    def test_records_deciders_from_completed_rides(self):
+        sessions = parse_schedule(_load_fixture("schedule-26037.json"))
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
+        page = AsyncMock(side_effect=lambda _client, _path: html)
+        with patch("app.main.fetch_page_html", page):
+            asyncio.run(_fetch_result_pages(None, 26037, sessions))
+        completed_rounds = {
+            e.name.rsplit(" Ride ", 1)[0]
+            for s in sessions
+            for e in s.events
+            if e.discipline == "sprint_match" and " Ride " in e.name and e.result_url
+        }
+        assert completed_rounds
+        assert {k[1] for k in _sprint_deciders} == completed_rounds
+        assert set(_sprint_deciders.values()) == {1}
+
+
+class TestDefaultsPage:
+    def test_lists_duration_rules(self, client):
+        text = " ".join(client.get("/defaults").text.split())
+        assert "13.0 min + 3.3 min per podium" in text
+        assert "46.0 km/h" in text
+        assert "4.25 min per decider" in text
+        assert "3.0 min until" in text

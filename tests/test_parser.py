@@ -5,6 +5,7 @@ from datetime import datetime, time
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from app.disciplines import detect_discipline
 from app.models import EventStatus
@@ -14,9 +15,12 @@ from app.parser import (
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
+    parse_sprint_deciders,
+    parse_start_list_categories,
     parse_start_list_riders,
 )
 
@@ -275,6 +279,101 @@ class TestParseHeatCount:
         # "Heated" or "Heathen" should not match
         html = "Heated debate\nHeathen\nHeat 1\nRider A\n"
         assert parse_heat_count(html) == 1
+
+    def test_sprint_final_counts_medal_matches(self):
+        # Sprint Final start lists label their matches "Final 3-4" and "Final 1-2", not "Heat N"
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_heat_count(html) == 2
+
+    def test_medal_final_counts_bronze_and_gold_rides(self):
+        # Pursuit, team pursuit and team sprint finals label their heats "For Bronze" and "For Gold"
+        html = (FIXTURE_DIR / "start-list-pursuit-final-26037.html").read_text()
+        assert parse_heat_count(html) == 2
+
+    def test_ignores_final_ranges_in_prose(self):
+        html = "<h5>Top 3 riders advance to Final 1-6, next 3 advance to Final 7-12</h5>\nHeat 1\nHeat 2\n"
+        assert parse_heat_count(html) == 2
+
+
+# ── parse_start_list_categories ───────────────────────────────────────────────
+
+
+class TestParseStartListCategories:
+    def test_combined_race_categories(self):
+        html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
+        assert parse_start_list_categories(html) == frozenset({"W5054", "W5559", "W6064", "W6569", "W7074"})
+
+    def test_no_category_column(self):
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_start_list_categories(html) == frozenset()
+
+
+# ── parse_race_distance_km ────────────────────────────────────────────────────
+
+
+class TestParseRaceDistanceKm:
+    def test_points_race_header(self):
+        # "50+ Women Points Race Final   - 10km - 40 Laps"
+        html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
+        assert parse_race_distance_km(html) == 10.0
+
+    def test_decimal_distance(self):
+        # "55-59 Men Scratch Race Qualifier 1 - 3.75km - 15 Laps"
+        html = (FIXTURE_DIR / "start-list-scratch-race-26037.html").read_text()
+        assert parse_race_distance_km(html) == 3.75
+
+    def test_title_suffix(self):
+        # "U11 & U13 Points Race Omni IV - 4km - 16 Laps - Sprint Every 5 Laps"
+        html = (FIXTURE_DIR / "start-list-points-race-26008.html").read_text()
+        assert parse_race_distance_km(html) == 4.0
+
+    def test_metre_distance_ignored(self):
+        html = (FIXTURE_DIR / "start-list-sprint-qualifying-26009.html").read_text()
+        assert parse_race_distance_km(html) is None
+
+
+# ── parse_sprint_deciders ─────────────────────────────────────────────────────
+
+
+def _blank_rides(html: str, keep: int) -> str:
+    """Blank every ride column after the first ``keep`` (Ride 1, Ride 2, Decider) in a sprint result page.
+
+    The captured pages were saved after the decider was ridden; this recreates the page
+    as it stood earlier in the round.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    tbody = soup.find("tbody")
+    for row in tbody.find_all("tr"):
+        for td in row.find_all("td", recursive=False)[-3:][keep:]:
+            td.clear()
+    return str(soup)
+
+
+class TestParseSprintDeciders:
+    def test_quarter_final_with_relegation_decider(self):
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) == 1
+
+    def test_semi_final_without_deciders(self):
+        html = (FIXTURE_DIR / "result-sprint-semi-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) == 0
+
+    def test_final_headings(self):
+        # Final pages label their pairs "Final 3-4" and "Final 1-2" instead of "Heat N"
+        html = (FIXTURE_DIR / "result-sprint-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) == 1
+
+    def test_tied_pairs_after_ride_2(self):
+        html = _blank_rides((FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text(), keep=2)
+        assert parse_sprint_deciders(html) == 1
+
+    def test_unknown_after_ride_1(self):
+        html = _blank_rides((FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text(), keep=1)
+        assert parse_sprint_deciders(html) is None
+
+    def test_non_sprint_page(self):
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_sprint_deciders(html) is None
 
 
 # ── parse_live_heat ────────────────────────────────────────────────────────────

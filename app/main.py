@@ -17,10 +17,23 @@ from mangum import Mangum
 from pythonjsonlogger.json import JsonFormatter
 
 from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
+from app.ceremonies import needs_categories
 from app.clock import venue_now
 from app.config import Settings, get_settings
 from app.database import check_health, get_all_learned_durations, init_db
-from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
+from app.disciplines import (
+    BUNCH_RACE_KMH,
+    CEREMONY_BASE_MINUTES,
+    CEREMONY_PER_PODIUM_MINUTES,
+    CHANGEOVER_MINUTES,
+    DEFAULT_DURATIONS,
+    LIVE_BUNCH_CHANGEOVER_MINUTES,
+    MIN_CHANGEOVER_SAMPLES,
+    PER_HEAT_DURATIONS,
+    SPRINT_DECIDER_MINUTES,
+    SPRINT_DECIDER_RATE,
+    split_ride,
+)
 from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
 from app.models import EventStatus, PalmaresEntry, RiderListEntry, SchedulePrediction, Session
 from app.palmares import (
@@ -38,15 +51,19 @@ from app.parser import (
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
+    parse_sprint_deciders,
+    parse_start_list_categories,
     parse_start_list_riders,
 )
 from app.predictor import (
     get_generated_time,
     get_heat_count,
     get_rider_list,
+    has_start_list_categories,
     has_start_list_riders,
     is_start_list_cached,
     latest_live_generated_time,
@@ -55,8 +72,11 @@ from app.predictor import (
     record_heat_count,
     record_live_heat,
     record_observed_duration,
+    record_race_distance,
     record_rider_list,
     record_rider_list_failure,
+    record_sprint_deciders,
+    record_start_list_categories,
     record_start_list_riders,
     rider_list_retry_pending,
     update_status_cache,
@@ -188,6 +208,9 @@ async def _fetch_start_lists(
                     record_heat_count(ev_id, sess_id, pos, count)
                 riders = parse_start_list_riders(html)
                 record_start_list_riders(ev_id, sess_id, pos, riders)
+                record_start_list_categories(ev_id, sess_id, pos, parse_start_list_categories(html))
+                if (km := parse_race_distance_km(html)) is not None:
+                    record_race_distance(ev_id, sess_id, pos, km)
             except Exception:
                 logger.warning(
                     "Failed to parse start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
@@ -237,6 +260,10 @@ async def _fetch_result_pages(
                 finish_time = parse_finish_time(html)
                 if finish_time is not None:
                     record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name)
+                if discipline == "sprint_match" and (ride := split_ride(name)) is not None:
+                    deciders = parse_sprint_deciders(html)
+                    if deciders is not None:
+                        record_sprint_deciders(ev_id, ride[0], deciders)
             except Exception:
                 logger.warning(
                     "Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
@@ -279,19 +306,29 @@ async def _fetch_rider_list_if_needed(
     racer_name: str | None,
 ) -> list[RiderListEntry] | None:
     """
-    Fetch the Rider List when a racer is set and some race may lack start-list riders.
+    Fetch the Rider List when it can change the prediction: a racer is set and some
+    race may lack start-list riders, or a combined-age final has no cached start-list
+    categories to forecast its ceremony podiums from.
 
     Runs alongside the start-list fetches, so it uses the pre-fetch approximation:
     a non-special event with no start_list_url or no cached start-list riders.
     """
-    if not racer_name or not racer_name.strip():
-        return None
-    if not any(
-        not e.is_special
-        and (not e.start_list_url or not has_start_list_riders(competition_id, s.session_id, e.position))
+    needed_for_racer = (
+        racer_name is not None
+        and racer_name.strip() != ""
+        and any(
+            not e.is_special
+            and (not e.start_list_url or not has_start_list_riders(competition_id, s.session_id, e.position))
+            for s in sessions
+            for e in s.events
+        )
+    )
+    needed_for_podiums = any(
+        needs_categories(e) and not has_start_list_categories(competition_id, s.session_id, e.position)
         for s in sessions
         for e in s.events
-    ):
+    )
+    if not (needed_for_racer or needed_for_podiums):
         return None
     url = parse_rider_list_url(jxn_data)
     return await _fetch_rider_list(client, url) if url else None
@@ -795,7 +832,17 @@ async def default_durations(request: Request) -> Response:
         {"discipline": d, "default": DEFAULT_DURATIONS[d], "per_heat": PER_HEAT_DURATIONS.get(d)}
         for d in DEFAULT_DURATIONS
     ]
-    return templates.TemplateResponse(request, "defaults.html", {"rows": rows})
+    rules = {
+        "ceremony_base": CEREMONY_BASE_MINUTES,
+        "ceremony_per_podium": CEREMONY_PER_PODIUM_MINUTES,
+        "bunch_kmh": BUNCH_RACE_KMH,
+        "decider_minutes": SPRINT_DECIDER_MINUTES,
+        "decider_rate": SPRINT_DECIDER_RATE,
+        "live_changeover": LIVE_BUNCH_CHANGEOVER_MINUTES,
+        "min_changeover_samples": MIN_CHANGEOVER_SAMPLES,
+        "static_changeover": CHANGEOVER_MINUTES["scratch_race"],
+    }
+    return templates.TemplateResponse(request, "defaults.html", {"rows": rows, "rules": rules})
 
 
 @app.get("/learned", response_class=HTMLResponse)

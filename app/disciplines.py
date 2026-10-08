@@ -95,8 +95,8 @@ DEFAULT_DURATIONS: dict[str, float] = {
     # Pursuit: one schedule slot (qualifying or final) for one category.
     # Two riders race simultaneously per heat; times below cover ~2-heat finals.
     "pursuit_4k": 15.0,  # 2 heats × 7.5 min per heat
-    "pursuit_3k": 11.0,  # 2 heats × 5.5 min per heat
-    "pursuit_2k": 9.0,  # 2 heats × 4.5 min per heat
+    "pursuit_3k": 12.5,  # 2 heats × 6.25 min per heat
+    "pursuit_2k": 10.0,  # 2 heats × 5.0 min per heat
     # Team pursuit: qualifying or final, ~2-3 rides
     "team_pursuit": 10.0,
     # Team sprint: ~4 rides × 2:40/ride per category
@@ -125,6 +125,13 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "unknown": 10.0,
 }
 
+# Medal ceremony length from the podiums it awards (app/ceremonies.py forecasts the count).
+# Least-squares fit to the three mid-session ceremonies at EventId 26037 that a following
+# result timestamp brackets: 4, 8 and 11 podiums took ~23, ~46 and ~45 min
+# (docs/medal-ceremony-durations.md). The flat "ceremony" default stays for unforecast ones.
+CEREMONY_BASE_MINUTES = 13.0
+CEREMONY_PER_PODIUM_MINUTES = 3.3
+
 SPECIAL_EVENT_NAMES = {"break", "pause", "end of session", "medal ceremonies", "medal ceremony"}
 
 # Per-heat durations in minutes for use when heat count is known from a start list.
@@ -138,10 +145,11 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "sprint_match": 3.0,
     # Timed events below are rounded medians of Generated-timestamp gap / heat count across
     # 25022-26037 (docs/timed-event-durations.md); each includes ~1.5-2.5 min between heats.
-    # Individual pursuit: 2 riders race simultaneously per heat
+    # Individual pursuit: 2 riders race simultaneously per heat. 2 km and 3 km are set from
+    # masters data at 26037 (2 km median 5.3, 3 km 6.3) rather than the all-competition median.
     "pursuit_4k": 7.5,
-    "pursuit_3k": 5.5,
-    "pursuit_2k": 4.5,
+    "pursuit_3k": 6.25,
+    "pursuit_2k": 5.0,
     # Team pursuit: 2 teams race simultaneously per heat
     "team_pursuit": 6.75,
     # Team sprint: 2 teams per heat
@@ -165,8 +173,28 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "time_trial_generic": 3.0,
 }
 
+# Points and scratch race speed for a duration from the start list's distance: the median
+# Finish Time speed of both, 32 points races (35-52.5 km/h) and 38 scratch races (36-54.5)
+# across 26002-26037; elite men fastest, youth and some masters women slowest.
+# docs/mass-start-race-durations.md.
+BUNCH_RACE_KMH = 46.0
+DISTANCE_DISCIPLINES = frozenset({"points_race", "scratch_race"})
+
+# Share of best-of-3 sprint pairs tied 1-1 after Ride 2, so riding a decider (Ride 3).
+# 4 of 32 pairs in completed 26037 rounds (docs/sprint-durations.md). Used for a Ride 3
+# until Ride 2's results show how many pairs are tied.
+SPRINT_DECIDER_RATE = 0.12
+# Minutes per decider ride: median of the one-decider Ride 3 slots at 26037 (2.6-7.3 min,
+# median 4.23), longer than a match's share of a full round (sprint_match per-heat 3.0).
+SPRINT_DECIDER_MINUTES = 4.25
+
+_RIDE_RE = re.compile(r"^(.*\S)\s+Ride\s+(\d+)\s*$")
+
 # Minutes to add to a result-page Finish Time to account for changeover between events.
 # Only applicable to disciplines where "Finish Time" appears in result pages (mass start races).
+# Learned-duration records (live and tools/) use these static values. The live predictor
+# replaces them for FINISH_TIME_DISCIPLINES with a per-competition calibration
+# (predictor.bunch_changeover); keirin always uses its static value.
 CHANGEOVER_MINUTES: dict[str, float] = {
     "scratch_race": 2.0,
     "points_race": 2.0,
@@ -175,6 +203,53 @@ CHANGEOVER_MINUTES: dict[str, float] = {
     "madison": 2.0,
     "keirin": 2.0,
 }
+
+
+# Bunch races whose result pages carry a Finish Time; their live changeover is calibrated.
+FINISH_TIME_DISCIPLINES = frozenset({"scratch_race", "points_race", "elimination_race", "tempo_race", "madison"})
+
+# Live bunch-race changeover until a competition has MIN_CHANGEOVER_SAMPLES back-to-back
+# bunch races to calibrate from: the median (Generated gap − Finish Time) after another
+# bunch race across 26002-26037 (3.2 min, n = 58). docs/mass-start-race-durations.md.
+LIVE_BUNCH_CHANGEOVER_MINUTES = 3.0
+MIN_CHANGEOVER_SAMPLES = 3
+# Samples outside [0, MAX] come from out-of-order or regenerated result pages.
+MAX_CHANGEOVER_MINUTES = 20.0
+
+
+def split_ride(event_name: str) -> tuple[str, int] | None:
+    """Split a best-of-3 ride's name into its round and ride number, or None for other events.
+
+    "55-59 Men Sprint 1/4 Final Ride 2" → ("55-59 Men Sprint 1/4 Final", 2)
+    """
+    m = _RIDE_RE.match(event_name)
+    return (m.group(1), int(m.group(2))) if m else None
+
+
+# Placement finals ("Sprint 5-8 Final", "Keirin 7-12 Final") rank riders outside the medals.
+# A range starting at 1 ("Keirin 1-6 Final") is the medal final.
+_PLACEMENT_FINAL_RE = re.compile(r"\b(?:[2-9]|\d{2,})-\d+\s+Final\b")
+
+
+def is_placement_final(event_name: str) -> bool:
+    """True for a classification final that awards no medals, e.g. '40-44 Men Sprint 5-8 Final'."""
+    return _PLACEMENT_FINAL_RE.search(event_name) is not None
+
+
+_SPRINT_ROUND_RE = re.compile(r"\b(?:1/(\d+)\s+)?Final\b")
+_SPRINT_ROUND_PAIRS = {None: 2, "2": 2, "4": 4}
+
+
+def sprint_round_pairs(event_name: str) -> int | None:
+    """Pairs in a sprint round by its name: 2 for a 1/2 Final or Final, 4 for a 1/4 Final.
+
+    For use without a start list. Other rounds (1/8 Finals) vary with byes and field
+    size, and placement finals (5-8) are one race, so they return None.
+    """
+    if is_placement_final(event_name):
+        return None
+    m = _SPRINT_ROUND_RE.search(event_name)
+    return _SPRINT_ROUND_PAIRS.get(m.group(1)) if m else None
 
 
 def get_changeover(discipline: str) -> float:

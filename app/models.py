@@ -106,6 +106,7 @@ class Prediction(BaseModel):
     cumulative_delay_minutes: float
     is_observed: bool = False  # True when duration comes from a result-page Finish Time
     heat_count: int | None = None  # Set when duration is derived from start-list heat count
+    podium_count: int | None = None  # Set when a medal ceremony's duration comes from forecast podiums
     is_active: bool = False  # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event
     rider_match: RiderMatch | None = None

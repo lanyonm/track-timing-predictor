@@ -276,14 +276,96 @@ def parse_rider_list(html: str) -> list[RiderListEntry]:
     return entries
 
 
+def parse_start_list_categories(html: str) -> frozenset[str]:
+    """
+    Distinct values of a start list's Category column.
+
+    Only combined-age races carry the column (e.g. 50+ Women Points Race lists
+    W5054 … W7074), and each category gets its own podium. Returns an empty set
+    when there is no Category column.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    categories: set[str] = set()
+    for table in soup.find_all("table"):
+        headers = [th.get_text(strip=True) for th in table.find_all("th")]
+        if "Category" not in headers:
+            continue
+        col = headers.index("Category")
+        for row in table.find_all("tr"):
+            cells = row.find_all("td")
+            if len(cells) == len(headers) and (value := cells[col].get_text(strip=True)):
+                categories.add(value)
+    return frozenset(categories)
+
+
+_RACE_DISTANCE_RE = re.compile(r"-\s*(\d+(?:\.\d+)?)\s*km\s*-\s*\d+(?:\.\d+)?\s*Laps\b", re.IGNORECASE)
+
+
+def parse_race_distance_km(html: str) -> float | None:
+    """
+    Race distance in km from a start list's title, e.g. 'Points Race Final - 10km - 40 Laps'.
+
+    Some titles add a suffix ('- Sprint Every 5 Laps'). Distances in metres (sprints,
+    time trials) return None.
+    """
+    for h3 in BeautifulSoup(html, "html.parser").find_all("h3"):
+        if m := _RACE_DISTANCE_RE.search(h3.get_text(" ", strip=True)):
+            return float(m.group(1))
+    return None
+
+
+_SPRINT_PAIR_RE = re.compile(r"^(?:Heat\s+\d+|Final\s+\d+-\d+)$")
+
+
+def parse_sprint_deciders(html: str) -> int | None:
+    """
+    Count the pairs in a best-of-3 sprint round that need (or rode) a decider.
+
+    All rides of a round share one result page with Ride 1, Ride 2 and Decider
+    columns. Each pair has a header row ('Heat N', or 'Final 3-4'/'Final 1-2' on a
+    Final) whose last three cells hold each ride's 200m time, then one row per
+    rider whose last three cells hold 'Winner' or a gap (a relegated rider shows
+    'REL'). A pair needs a decider when it rode one or each rider won once.
+
+    Returns None until every pair has ridden Ride 2, or for any other page.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    headers = [th.get_text(strip=True) for th in soup.find_all("th")]
+    if "Decider" not in headers:
+        return None
+    tbody = soup.find("tbody")
+    if tbody is None:
+        return None
+
+    pairs: list[tuple[int, list[int]]] = []  # (rides timed, wins per rider)
+    for row in tbody.find_all("tr"):
+        cells = row.find_all("td", recursive=False)
+        if len(cells) < 3:
+            continue
+        rides = cells[-3:]
+        if _SPRINT_PAIR_RE.match(cells[0].get_text(" ", strip=True)):
+            pairs.append((sum(1 for c in rides if "km/h" in c.get_text()), []))
+        elif pairs:
+            pairs[-1][1].append(sum(1 for c in rides if c.get_text(strip=True) == "Winner"))
+
+    if not pairs or any(timed < 2 for timed, _ in pairs):
+        return None
+    return sum(1 for timed, wins in pairs if timed >= 3 or wins == [1, 1])
+
+
 def parse_heat_count(html: str) -> int | None:
     """
     Count the number of heats in a start list page.
 
-    Each sequential time slot is labeled 'Heat N' in the page text.
+    Each sequential time slot is labeled 'Heat N' in the page text. Medal
+    finals label theirs with '<h4>' headings instead: 'Final 3-4' and
+    'Final 1-2' for sprints, 'For Bronze' and 'For Gold' for pursuits, team
+    pursuit and team sprint. Only headings count, since keirin pages mention
+    'Final 1-6' in qualification-rule prose.
     Returns None if no heats are found (e.g., page unavailable or format changed).
     """
     heats = re.findall(r"\bHeat\s+\d+\b", html)
+    heats += re.findall(r"<h4>(?:<strong>)?\s*(?:Final\s+\d+-\d+|For\s+(?:Bronze|Gold))\b", html, re.IGNORECASE)
     return len(heats) if heats else None
 
 
