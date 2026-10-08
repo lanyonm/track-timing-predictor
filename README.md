@@ -56,12 +56,12 @@ The `r=` parameter is passed through to the HTMX refresh endpoint so highlightin
 ## Setup
 
 ```bash
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt   # runtime deps + test tooling
+pip install --require-hashes -r requirements-dev.txt   # runtime deps + test and lint tooling
 ```
 
-Requires Python 3.11.
+Requires Python 3.13. `requirements*.txt` are hashed locks generated from `pyproject.toml`; see `CLAUDE.md` for how to regenerate them.
 
 ## Running
 
@@ -110,12 +110,14 @@ app/
 ├── categorizer.py   # Compositional event name parser (bilingual, used by tools/)
 ├── database.py      # SQLite/DynamoDB storage for learned durations
 ├── palmares.py      # SQLite/DynamoDB storage for racer palmares
+├── aws_errors.py    # Shared botocore exception handling (optional dependency)
 ├── audit_parser.py  # Audit result parsing and CSV formatting
 ├── models.py        # Pydantic data models
 └── templates/       # Jinja2 HTML templates (DaisyUI + HTMX)
 tools/
 ├── extract_competition.py  # CLI: competition ID → JSON report
-└── load_durations.py       # CLI: JSON reports → learning database
+├── load_durations.py       # CLI: JSON reports → learning database
+└── rebuild_aggregates.py   # CLI: recompute DynamoDB aggregates from OBS# items
 data/
 └── competitions/    # Extracted JSON reports (gitignored)
 static/
@@ -130,7 +132,7 @@ specs/               # Feature specs (speckit), historical
 Each event's slot duration is determined by the first available source:
 
 1. **Observed** — once results are posted, the race's `Finish Time` (actual race duration) plus a discipline-specific changeover allowance is used. Shown as **obs.** in the UI.
-2. **Generated timestamps** — for completed events without a Finish Time, the gap between consecutive result pages' `Generated` timestamps (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
+2. **Generated timestamps** — for completed events without a Finish Time, the gap between its result page's `Generated` timestamp and the previous event's (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
 3. **Heat count** — on page load, start list pages are fetched concurrently for every event. The number of heats × a per-heat duration constant gives the slot estimate. Shown as **N heats** in the UI.
 4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
 
@@ -154,6 +156,8 @@ The extraction script decomposes event names (e.g. `"Elite/Junior Women Scratch 
 
 The loader validates each observation against [0.5x, 2.0x] bounds of the expected duration (heat-count-derived when available, static default otherwise) and writes to the learning database with structured category info. On first run against an existing database with duplicate rows from live learning, it prompts to deduplicate (or use `--force` to skip the prompt). Re-loading corrected data overwrites previous values. The database stores averages at four levels of granularity (discipline + classification + gender down to discipline only), and `get_learned_duration_cascading()` can query them. The live app currently reads only the discipline-level average.
 
+If the DynamoDB aggregates ever drift from the stored observations, `python -m tools.rebuild_aggregates` recomputes them (dry run by default, `--apply` to write).
+
 See [docs/duration-data-import.md](docs/duration-data-import.md) for full documentation including the categorization rules, output format, database schema changes, and reference competitions.
 
 ## Configuration
@@ -167,7 +171,9 @@ See [docs/duration-data-import.md](docs/duration-data-import.md) for full docume
 | `AWS_REGION` | `us-east-1` | DynamoDB region |
 | `REFRESH_INTERVAL_SECONDS` | `30` | Live refresh interval |
 | `MIN_LEARNED_SAMPLES` | `3` | Observations required before a learned average is used |
+| `VENUE_TZ` | `America/Toronto` | Fallback venue timezone; during a live session the offset is inferred from result-page timestamps |
+| `PUBLIC_BASE_URL` | *(empty)* | Origin for the palmares share link; empty uses the request host |
 
 ## Deployment
 
-Production runs on AWS Lambda behind CloudFront at [ttp.lanyonm.org](https://ttp.lanyonm.org), deployed by GitHub Actions with AWS CDK on every push to `main`. Pull requests from branches in this repo get an ephemeral environment. See [plans/hosting-plan.md](plans/hosting-plan.md).
+Production runs on AWS Lambda behind CloudFront at [ttp.lanyonm.org](https://ttp.lanyonm.org), deployed by GitHub Actions with AWS CDK after the tests pass on each push to `main`. Pull requests from branches in this repo get an ephemeral environment. See [plans/hosting-plan.md](plans/hosting-plan.md).

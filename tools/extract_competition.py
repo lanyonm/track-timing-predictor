@@ -16,14 +16,14 @@ import asyncio
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 
 from app.categorizer import categorize_event
 from app.config import settings
-from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
+from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration, pursuit_discipline_from_urls
 from app.fetcher import fetch_initial_layout, fetch_page_html
 from app.models import (
     CompetitionMeta,
@@ -35,6 +35,7 @@ from app.models import (
     UncategorizedEntry,
 )
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_schedule
+from app.predictor import generated_gap_duration
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ OUTPUT_DIR = Path("data/competitions")
 # ---------------------------------------------------------------------------
 # Duration extraction helpers
 # ---------------------------------------------------------------------------
+
 
 def extract_finish_time_duration(result_html: str, discipline: str) -> float | None:
     """Extract observed duration from a result page Finish Time + changeover.
@@ -66,19 +68,10 @@ def extract_generated_diff_duration(
     Applies a [0.5x, 2.0x] plausibility filter against the static default.
     Returns duration in minutes, or None if implausible or timestamps missing.
     """
-    if prev_generated is None or curr_generated is None:
-        return None
-    diff = (curr_generated - prev_generated).total_seconds() / 60.0
-    if diff <= 0:
-        return None
-    default = get_default_duration(discipline)
-    if not (0.5 * default <= diff <= 2.0 * default):
-        logger.info(
-            "Generated diff %.1f min for %s outside [%.1f, %.1f] plausibility range — skipping",
-            diff, discipline, 0.5 * default, 2.0 * default,
-        )
-        return None
-    return diff
+    dur = generated_gap_duration(prev_generated, curr_generated, get_default_duration(discipline))
+    if dur is None and prev_generated is not None and curr_generated is not None:
+        logger.info("Generated diff for %s outside plausibility range — skipping", discipline)
+    return dur
 
 
 def extract_heat_count_duration(start_list_html: str, discipline: str) -> tuple[float | None, int | None]:
@@ -116,6 +109,7 @@ def select_best_duration(
 # CLI orchestration
 # ---------------------------------------------------------------------------
 
+
 async def _fetch_with_retry(coro_factory, description: str, retries: int = 1):
     """Execute an async fetch with one retry on failure.
 
@@ -149,7 +143,8 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
         return result
 
     client = httpx.AsyncClient(
-        base_url=settings.tracktiming_base_url, timeout=15.0,
+        base_url=settings.tracktiming_base_url,
+        timeout=15.0,
     )
 
     try:
@@ -202,6 +197,15 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
             # Second pass: extract durations and build event reports
             for event in session.events:
                 category, residual = categorize_event(event.name)
+                if category.discipline.startswith("pursuit_"):
+                    url_discipline = pursuit_discipline_from_urls(
+                        event.result_url,
+                        event.start_list_url,
+                        event.audit_url,
+                        event.live_url,
+                    )
+                    if url_discipline:
+                        category = category.model_copy(update={"discipline": url_discipline})
 
                 finish_time_dur = None
                 generated_diff_dur = None
@@ -220,23 +224,31 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
                     prev_gen = generated_times[prev_pos] if prev_pos is not None else None
                     curr_gen = generated_times.get(event.position)
                     generated_diff_dur = extract_generated_diff_duration(
-                        prev_gen, curr_gen, category.discipline,
+                        prev_gen,
+                        curr_gen,
+                        category.discipline,
                     )
 
                     if start_list_html:
                         heat_count_dur, heat_count = extract_heat_count_duration(
-                            start_list_html, category.discipline,
+                            start_list_html,
+                            category.discipline,
                         )
 
                 duration_minutes, duration_source = select_best_duration(
-                    finish_time_dur, generated_diff_dur, heat_count_dur,
+                    finish_time_dur,
+                    generated_diff_dur,
+                    heat_count_dur,
                 )
 
                 # Flag outliers
                 if duration_minutes is not None and duration_minutes > 120:
                     logger.warning(
                         "Outlier duration %.1f min for %s (session %d, pos %d)",
-                        duration_minutes, event.name, session.session_id, event.position,
+                        duration_minutes,
+                        event.name,
+                        session.session_id,
+                        event.position,
                     )
 
                 event_report = EventReport(
@@ -252,19 +264,25 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
                 event_reports.append(event_report)
 
                 # Build duration observation for completed events with durations
-                if (duration_minutes is not None and duration_source is not None
-                        and event.status == EventStatus.COMPLETED and not event.is_special):
-                    duration_observations.append(DurationRecord(
-                        category=category,
-                        event_name=event.name,
-                        heat_count=heat_count,
-                        duration_minutes=duration_minutes,
-                        per_heat_duration_minutes=None,  # computed by loader, not extractor
-                        duration_source=duration_source,
-                        competition_id=competition_id,
-                        session_id=session.session_id,
-                        event_position=event.position,
-                    ))
+                if (
+                    duration_minutes is not None
+                    and duration_source is not None
+                    and event.status == EventStatus.COMPLETED
+                    and not event.is_special
+                ):
+                    duration_observations.append(
+                        DurationRecord(
+                            category=category,
+                            event_name=event.name,
+                            heat_count=heat_count,
+                            duration_minutes=duration_minutes,
+                            per_heat_duration_minutes=None,  # computed by loader, not extractor
+                            duration_source=duration_source,
+                            competition_id=competition_id,
+                            session_id=session.session_id,
+                            event_position=event.position,
+                        )
+                    )
 
                 # Track uncategorized events
                 if residual:
@@ -283,12 +301,14 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
                     if heat_count:
                         uncategorized_counts[key]["has_heats"] = True
 
-            session_reports.append(SessionReport(
-                session_id=session.session_id,
-                day=session.day,
-                scheduled_start=session.scheduled_start.strftime("%H:%M"),
-                events=event_reports,
-            ))
+            session_reports.append(
+                SessionReport(
+                    session_id=session.session_id,
+                    day=session.day,
+                    scheduled_start=session.scheduled_start.strftime("%H:%M"),
+                    events=event_reports,
+                )
+            )
 
         # Build uncategorized summary
         uncategorized_summary: list[UncategorizedEntry] = []
@@ -296,18 +316,20 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
             avg_dur = None
             if info["frequency"] > 0 and info["total_duration"] > 0:
                 avg_dur = info["total_duration"] / info["frequency"]
-            uncategorized_summary.append(UncategorizedEntry(
-                event_name=event_name,
-                partial_category=info["partial_category"],
-                unresolved_text=info["unresolved_text"],
-                frequency=info["frequency"],
-                avg_duration_minutes=avg_dur,
-                has_heats=info["has_heats"],
-            ))
+            uncategorized_summary.append(
+                UncategorizedEntry(
+                    event_name=event_name,
+                    partial_category=info["partial_category"],
+                    unresolved_text=info["unresolved_text"],
+                    frequency=info["frequency"],
+                    avg_duration_minutes=avg_dur,
+                    has_heats=info["has_heats"],
+                )
+            )
 
         report = CompetitionReport(
             version="1.0",
-            extracted_at=datetime.now(timezone.utc),
+            extracted_at=datetime.now(UTC),
             competition=CompetitionMeta(
                 competition_id=competition_id,
                 name=f"Competition {competition_id}",

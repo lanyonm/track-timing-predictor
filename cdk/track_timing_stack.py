@@ -42,9 +42,7 @@ class TrackTimingStack(Stack):
             self,
             "Durations",
             table_name=f"track-timing-{env_name}",
-            partition_key=dynamodb.Attribute(
-                name="pk", type=dynamodb.AttributeType.STRING
-            ),
+            partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=is_prod,
@@ -57,12 +55,8 @@ class TrackTimingStack(Stack):
             self,
             "Palmares",
             table_name=f"track-timing-palmares-{env_name}",
-            partition_key=dynamodb.Attribute(
-                name="pk", type=dynamodb.AttributeType.STRING
-            ),
-            sort_key=dynamodb.Attribute(
-                name="sk", type=dynamodb.AttributeType.STRING
-            ),
+            partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="sk", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             point_in_time_recovery_specification=dynamodb.PointInTimeRecoverySpecification(
                 point_in_time_recovery_enabled=is_prod,
@@ -83,14 +77,14 @@ class TrackTimingStack(Stack):
             self,
             "Handler",
             function_name=f"track-timing-{env_name}",
-            code=lambda_.DockerImageCode.from_ecr(
-                repository=repo, tag_or_digest=image_tag
-            ),
+            code=lambda_.DockerImageCode.from_ecr(repository=repo, tag_or_digest=image_tag),
             memory_size=512,
             timeout=Duration.seconds(60),
             environment={
                 "DYNAMODB_TABLE": f"track-timing-{env_name}",
                 "PALMARES_TABLE": f"track-timing-palmares-{env_name}",
+                # PR envs serve from their public Function URL, so share links use the request host
+                **({"PUBLIC_BASE_URL": "https://ttp.lanyonm.org"} if is_prod else {}),
             },
             log_group=log_group,
         )

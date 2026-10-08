@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -12,14 +12,12 @@ from app.database import (
     DuplicateRowsError,
     deduplicate_event_durations,
     get_db,
-    get_learned_duration,
     get_learned_duration_cascading,
     init_db,
     record_duration_structured,
 )
 from app.models import CompetitionReport, DurationRecord
-from tools.load_durations import load_report, _validate_duration_bounds, _compute_per_heat_duration
-
+from tools.load_durations import _compute_per_heat_duration, _validate_duration_bounds, load_report
 
 # ---------------------------------------------------------------------------
 # Schema migration tests
@@ -54,7 +52,8 @@ def old_schema_db(tmp_path):
     conn.executescript(_OLD_SCHEMA)
     # Insert a sample row with old schema
     conn.execute(
-        "INSERT INTO event_durations (competition_id, session_id, event_position, event_name, discipline, duration_minutes) "
+        "INSERT INTO event_durations "
+        "(competition_id, session_id, event_position, event_name, discipline, duration_minutes) "
         "VALUES (1, 1, 0, 'test event', 'sprint_match', 12.0)"
     )
     conn.commit()
@@ -193,6 +192,7 @@ class TestSchemaMigration:
 # Loader integration tests
 # ---------------------------------------------------------------------------
 
+
 def _make_duration_record(**kwargs) -> DurationRecord:
     """Factory helper for DurationRecord with sensible defaults.
 
@@ -230,7 +230,7 @@ def _make_report(observations: list[DurationRecord]) -> CompetitionReport:
     """Create a minimal CompetitionReport with given observations."""
     return CompetitionReport(
         version="1.0",
-        extracted_at=datetime(2026, 3, 21, tzinfo=timezone.utc),
+        extracted_at=datetime(2026, 3, 21, tzinfo=UTC),
         competition={"competition_id": 26008, "name": "Test", "url": "http://test"},
         sessions=[],
         duration_observations=observations,
@@ -275,10 +275,14 @@ class TestLoaderIntegration:
         # Insert 3+ records at different levels
         for i in range(3):
             record_duration_structured(
-                competition_id=99000, session_id=1, event_position=100 + i,
-                event_name="test", discipline="keirin",
+                competition_id=99000,
+                session_id=1,
+                event_position=100 + i,
+                event_name="test",
+                discipline="keirin",
                 duration_minutes=6.0 + i * 0.5,
-                classification="elite", gender="men",
+                classification="elite",
+                gender="men",
             )
 
         # Level 4: discipline+classification+gender
@@ -407,8 +411,11 @@ class TestLoaderIntegration:
         settings.db_path = "/nonexistent/path/to/db.sqlite"
         try:
             result = record_duration_structured(
-                competition_id=99999, session_id=1, event_position=0,
-                event_name="test", discipline="sprint_match",
+                competition_id=99999,
+                session_id=1,
+                event_position=0,
+                event_name="test",
+                discipline="sprint_match",
                 duration_minutes=12.0,
             )
             assert result == "error"
@@ -420,10 +427,14 @@ class TestLoaderIntegration:
         # Use a unique discipline to avoid polluting other tests' learned durations
         for i in range(3):
             record_duration_structured(
-                competition_id=99001, session_id=1, event_position=110 + i,
-                event_name="test", discipline="test_disc_lvl3",
+                competition_id=99001,
+                session_id=1,
+                event_position=110 + i,
+                event_name="test",
+                discipline="test_disc_lvl3",
                 duration_minutes=15.0 + i,
-                classification="elite", gender="men" if i < 2 else "women",
+                classification="elite",
+                gender="men" if i < 2 else "women",
             )
         # Level 3 (disc+classification=elite) has 3 records
         result = get_learned_duration_cascading("test_disc_lvl3", "elite", "women")
@@ -434,10 +445,14 @@ class TestLoaderIntegration:
         # Use a unique discipline to avoid polluting other tests' learned durations
         for i in range(3):
             record_duration_structured(
-                competition_id=99002, session_id=1, event_position=120 + i,
-                event_name="test", discipline="test_disc_lvl2",
+                competition_id=99002,
+                session_id=1,
+                event_position=120 + i,
+                event_name="test",
+                discipline="test_disc_lvl2",
                 duration_minutes=20.0 + i,
-                classification=f"class_{i}", gender="women",
+                classification=f"class_{i}",
+                gender="women",
             )
         # Level 2 (disc+gender=women) has 3 records
         result = get_learned_duration_cascading("test_disc_lvl2", "class_new", "women")

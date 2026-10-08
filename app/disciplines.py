@@ -1,4 +1,5 @@
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -7,20 +8,20 @@ logger = logging.getLogger(__name__)
 
 # Keyword matching: most specific phrases must come before less specific ones.
 DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
-    ("poursuite par équipe", "team_pursuit"),     # French: team pursuit
+    ("poursuite par équipe", "team_pursuit"),  # French: team pursuit
     ("team pursuit", "team_pursuit"),
     ("team sprint", "team_sprint"),
     ("madison", "madison"),
     ("flying mile", "scratch_race"),
     ("scratch race", "scratch_race"),
     ("omnium qualifier", "points_race"),
-    ("course aux points", "points_race"),         # French: points race
+    ("course aux points", "points_race"),  # French: points race
     ("points race", "points_race"),
     ("miss and out", "elimination_race"),
     ("elimination race", "elimination_race"),
     ("american tempo", "tempo_race"),
     ("point a lap", "tempo_race"),
-    ("course tempo", "tempo_race"),               # French: tempo race
+    ("course tempo", "tempo_race"),  # French: tempo race
     ("tempo race", "tempo_race"),
     ("keirin", "keirin"),
     # Pursuit: distance varies by category; detect most-specific first.
@@ -46,32 +47,32 @@ DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
     ("master d men pursuit", "pursuit_2k"),
     ("master e men individual pursuit", "pursuit_2k"),
     ("master e men pursuit", "pursuit_2k"),
-    ("women individual pursuit", "pursuit_2k"),   # junior women, U17/U15 women, master women
+    ("women individual pursuit", "pursuit_2k"),  # junior women, U17/U15 women, master women
     ("women pursuit", "pursuit_2k"),
     ("2000m individual pursuit", "pursuit_2k"),
     ("2000m pursuit", "pursuit_2k"),
-    ("individual pursuit", "pursuit_3k"),         # men (U17/U15/unmatched masters) fallback
-    ("pursuit", "pursuit_3k"),                    # generic fallback
-    ("poursuite", "pursuit_3k"),                  # French: generic pursuit fallback
+    ("individual pursuit", "pursuit_3k"),  # men (U17/U15/unmatched masters) fallback
+    ("pursuit", "pursuit_3k"),  # generic fallback
+    ("poursuite", "pursuit_3k"),  # French: generic pursuit fallback
     ("500m time trial", "time_trial_500"),
-    ("500m clm", "time_trial_500"),               # French: 500m contre-la-montre
+    ("500m clm", "time_trial_500"),  # French: 500m contre-la-montre
     ("750m time trial", "time_trial_750"),
-    ("750m clm", "time_trial_750"),               # French: 750m contre-la-montre
+    ("750m clm", "time_trial_750"),  # French: 750m contre-la-montre
     ("kilo time trial", "time_trial_kilo"),
-    ("kilo clm", "time_trial_kilo"),              # French: kilo contre-la-montre
+    ("kilo clm", "time_trial_kilo"),  # French: kilo contre-la-montre
     ("1000m time trial", "time_trial_kilo"),
-    ("1000m clm", "time_trial_kilo"),             # French: 1000m contre-la-montre
+    ("1000m clm", "time_trial_kilo"),  # French: 1000m contre-la-montre
     ("time trial", "time_trial_generic"),
-    ("clm", "time_trial_generic"),                # French: generic contre-la-montre
+    ("clm", "time_trial_generic"),  # French: generic contre-la-montre
     ("flying 200m", "sprint_qualifying"),
     ("sprint qualifying", "sprint_qualifying"),
     ("vitesse qualifying", "sprint_qualifying"),  # French: sprint qualifying
     ("sprint", "sprint_match"),
-    ("vitesse", "sprint_match"),                  # French: sprint match
-    ("200m", "sprint_qualifying"),                # bare 200m = sprint qualifying
+    ("vitesse", "sprint_match"),  # French: sprint match
+    ("200m", "sprint_qualifying"),  # bare 200m = sprint qualifying
     ("medal ceremonies", "ceremony"),
     ("medal ceremony", "ceremony"),
-    ("pause", "break_"),                          # French: break
+    ("pause", "break_"),  # French: break
     ("break", "break_"),
     ("end of session", "end_of_session"),
 ]
@@ -93,9 +94,9 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "sprint_match": 12.0,
     # Pursuit: one schedule slot (qualifying or final) for one category.
     # Two riders race simultaneously per heat; times below cover ~2-heat finals.
-    "pursuit_4k": 12.0,   # elite men 4km: ~4:15/ride × 2 heats + gaps
-    "pursuit_3k": 9.0,    # elite women / junior men 3km: ~3:25/ride × 2 heats + gaps
-    "pursuit_2k": 6.0,    # junior/U17 women 2km: ~2:20/ride × 2 heats + gaps
+    "pursuit_4k": 15.0,  # 2 heats × 7.5 min per heat
+    "pursuit_3k": 11.0,  # 2 heats × 5.5 min per heat
+    "pursuit_2k": 9.0,  # 2 heats × 4.5 min per heat
     # Team pursuit: qualifying or final, ~2-3 rides
     "team_pursuit": 10.0,
     # Team sprint: ~4 rides × 2:40/ride per category
@@ -113,9 +114,9 @@ DEFAULT_DURATIONS: dict[str, float] = {
     # Keirin: 4:30 race + 2:00 changeover
     "keirin": 6.5,
     # Time trials (one category, sequential starts): per-rider time × ~8 riders
-    "time_trial_500": 20.0,   # 500m: 2:20/rider
-    "time_trial_750": 22.0,   # 750m: 2:40/rider
-    "time_trial_kilo": 22.0,  # 1000m: 2:30/rider
+    "time_trial_500": 20.0,  # 500m: 2:20/rider
+    "time_trial_750": 22.0,  # 750m: 2:40/rider
+    "time_trial_kilo": 22.0,  # 1000m: ~7 riders × 3:00
     "time_trial_generic": 20.0,
     # Non-race:
     "ceremony": 20.0,
@@ -135,14 +136,16 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "sprint_qualifying": 1.25,
     # Sprint match: one 2-rider match per heat (~3:00 + recovery)
     "sprint_match": 3.0,
+    # Timed events below are rounded medians of Generated-timestamp gap / heat count across
+    # 25022-26037 (docs/timed-event-durations.md); each includes ~1.5-2.5 min between heats.
     # Individual pursuit: 2 riders race simultaneously per heat
-    "pursuit_4k": 5.0,    # elite men 4km: ~4:15/ride per heat
-    "pursuit_3k": 4.0,    # elite women / junior men 3km: ~3:25/ride per heat
-    "pursuit_2k": 3.0,    # junior/U17 women 2km: ~2:20/ride per heat
-    # Team pursuit: 2 teams race simultaneously per heat (~4:30-5 min/ride)
-    "team_pursuit": 5.0,
-    # Team sprint: 2 teams per heat (~2:40 ride + setup)
-    "team_sprint": 2.67,
+    "pursuit_4k": 7.5,
+    "pursuit_3k": 5.5,
+    "pursuit_2k": 4.5,
+    # Team pursuit: 2 teams race simultaneously per heat
+    "team_pursuit": 6.75,
+    # Team sprint: 2 teams per heat
+    "team_sprint": 3.0,
     # Mass start races are almost always 1 heat; per-heat ≈ full race duration
     "scratch_race": 12.0,
     # Assumes 60 laps on a 250m track at ~50 km/h average speed
@@ -156,9 +159,9 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     # Keirin: one heat of ~6 riders (~4:30 race + recovery between heats)
     "keirin": 4.5,
     # Time trials: one rider per heat; per-rider time + small gap between starts
-    "time_trial_500": 2.33,    # 500m: ~2:20/rider
-    "time_trial_750": 2.67,    # 750m: ~2:40/rider
-    "time_trial_kilo": 2.5,   # 1000m: ~2:30/rider
+    "time_trial_500": 2.33,  # 500m: ~2:20/rider
+    "time_trial_750": 2.67,  # 750m: ~2:40/rider
+    "time_trial_kilo": 3.0,  # 1000m: measured ~3:05/rider
     "time_trial_generic": 3.0,
 }
 
@@ -186,6 +189,25 @@ def detect_discipline(event_name: str) -> str:
             return key
     logger.warning("Unrecognized discipline, falling back to default duration", extra={"event_name": event_name})
     return "unknown"
+
+
+# Individual pursuit page URLs encode the distance ridden, e.g. W4044-IP-3000-Q-0-R.htm.
+# Team pursuit uses -TP-, so it never matches.
+_PURSUIT_URL_DISTANCE = re.compile(r"-IP-(2000|3000|4000)-")
+_PURSUIT_BY_METRES = {"2000": "pursuit_2k", "3000": "pursuit_3k", "4000": "pursuit_4k"}
+
+
+def pursuit_discipline_from_urls(*urls: str | None) -> str | None:
+    """Return the pursuit distance key from the first event URL that encodes one.
+
+    Event names often omit the distance (e.g. masters "40-44 Women Pursuit"), and
+    the name-based keywords guess wrong for many categories, so the URL wins
+    whenever the event has any link.
+    """
+    for url in urls:
+        if url and (m := _PURSUIT_URL_DISTANCE.search(url)):
+            return _PURSUIT_BY_METRES[m.group(1)]
+    return None
 
 
 def get_default_duration(discipline: str) -> float:

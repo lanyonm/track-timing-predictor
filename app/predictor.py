@@ -1,9 +1,8 @@
 from datetime import datetime, time, timedelta
 
-from app.database import get_learned_duration, record_duration
+from app.database import get_learned_duration, record_live_duration
 from app.disciplines import get_changeover, get_default_duration, get_per_heat_duration
 from app.models import (
-    Event,
     EventStatus,
     NextRace,
     Prediction,
@@ -55,6 +54,7 @@ def record_observed_duration(
     position: int,
     finish_time_minutes: float,
     discipline: str,
+    event_name: str,
 ) -> None:
     """
     Store an observed slot duration derived from a result-page Finish Time.
@@ -63,13 +63,14 @@ def record_observed_duration(
     """
     slot = finish_time_minutes + get_changeover(discipline)
     _observed_durations[(competition_id, session_id, position)] = slot
-    record_duration(
+    record_live_duration(
         competition_id=competition_id,
         session_id=session_id,
         event_position=position,
-        event_name=discipline,
+        event_name=event_name,
         discipline=discipline,
         duration_minutes=slot,
+        source="observed",
     )
 
 
@@ -106,6 +107,30 @@ def record_generated_time(
 ) -> None:
     """Store the result-page Generated timestamp for a completed event."""
     _generated_times[(competition_id, session_id, position)] = generated_at
+
+
+def latest_live_generated_time(
+    competition_id: int,
+    sessions: list[Session],
+) -> datetime | None:
+    """Newest cached Generated timestamp among sessions that are in progress.
+
+    A session is in progress when it has both completed and pending non-special
+    events. Finished sessions are ignored so that yesterday's results can't skew
+    the venue offset inferred by ``clock.venue_now``.
+    """
+    latest = None
+    for s in sessions:
+        real = [e for e in s.events if not e.is_special]
+        if not any(e.status == EventStatus.COMPLETED for e in real):
+            continue
+        if all(e.status == EventStatus.COMPLETED for e in real):
+            continue
+        for e in s.events:
+            t = _generated_times.get((competition_id, s.session_id, e.position))
+            if t is not None and (latest is None or t > latest):
+                latest = t
+    return latest
 
 
 def get_generated_time(
@@ -178,7 +203,27 @@ def get_observed_duration(competition_id: int, session_id: int, position: int) -
     return _observed_durations.get((competition_id, session_id, position))
 
 
-def _get_duration(discipline: str, use_learned: bool = True) -> float:
+def generated_gap_duration(
+    prev_generated: datetime | None,
+    curr_generated: datetime | None,
+    expected: float,
+) -> float | None:
+    """Duration of an event from its own and the previous event's Generated timestamps.
+
+    Generated marks when an event's results were published (roughly its end), so the
+    gap between consecutive timestamps belongs to the later event. Returns None when a
+    timestamp is missing or the gap is outside [0.5x, 2.0x] of ``expected``. Shared by
+    the live predictor and ``tools.extract_competition``.
+    """
+    if prev_generated is None or curr_generated is None:
+        return None
+    mins = (curr_generated - prev_generated).total_seconds() / 60.0
+    if mins <= 0 or not (0.5 * expected <= mins <= 2.0 * expected):
+        return None
+    return mins
+
+
+def _get_duration(discipline: str, use_learned: bool = False) -> float:
     """Return learned duration if available and enabled, otherwise use the default."""
     if use_learned:
         learned = get_learned_duration(discipline)
@@ -241,7 +286,7 @@ def predict_session(
     session: Session,
     now: datetime | None = None,
     racer_name: str | None = None,
-    use_learned: bool = True,
+    use_learned: bool = False,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -264,8 +309,8 @@ def predict_session(
     heat_count_list: list[int | None] = []
 
     # Pre-compute generated-time derived durations.
-    # Duration of event[i] = generated_time[i+1] - generated_time[i], when both
-    # neighbours have a cached Generated timestamp and the gap is plausible.
+    # Duration of event[i] = generated_time[i] - generated_time[i-1], when both
+    # have a cached Generated timestamp and the gap is plausible.
     #
     # Plausibility is validated relative to the expected slot duration.  At track
     # cycling championships, result pages for events that share a session block
@@ -275,23 +320,21 @@ def predict_session(
     # within [0.5×, 2.0×] the discipline's expected duration is considered reliable.
     events = session.events
     gen_durations: dict[int, float] = {}
-    for i in range(len(events) - 1):
-        t0 = _generated_times.get((competition_id, session.session_id, events[i].position))
-        t1 = _generated_times.get((competition_id, session.session_id, events[i + 1].position))
-        if t0 is not None and t1 is not None:
-            mins = (t1 - t0).total_seconds() / 60.0
-            # Expected duration: use heat-count estimate if available, else the
-            # STATIC default (not learned averages).  Learned data may itself be
-            # corrupted by bad gen-duration observations from earlier runs, so it
-            # must not influence the bounds used to validate new observations.
-            key_i = (competition_id, session.session_id, events[i].position)
-            hc_i = _heat_counts.get(key_i)
-            if hc_i is not None:
-                expected = hc_i * get_per_heat_duration(events[i].discipline) + get_changeover(events[i].discipline)
-            else:
-                expected = get_default_duration(events[i].discipline)
-            if 0.5 * expected <= mins <= 2.0 * expected:
-                gen_durations[i] = mins
+    for i in range(1, len(events)):
+        t0 = _generated_times.get((competition_id, session.session_id, events[i - 1].position))
+        t1 = _generated_times.get((competition_id, session.session_id, events[i].position))
+        # Expected duration: use heat-count estimate if available, else the
+        # STATIC default (not learned averages).  Learned data may itself be
+        # corrupted by bad gen-duration observations from earlier runs, so it
+        # must not influence the bounds used to validate new observations.
+        hc_i = _heat_counts.get((competition_id, session.session_id, events[i].position))
+        if hc_i is not None:
+            expected = hc_i * get_per_heat_duration(events[i].discipline) + get_changeover(events[i].discipline)
+        else:
+            expected = get_default_duration(events[i].discipline)
+        mins = generated_gap_duration(t0, t1, expected)
+        if mins is not None:
+            gen_durations[i] = mins
 
     for i, e in enumerate(events):
         observed = get_observed_duration(competition_id, session.session_id, e.position)
@@ -323,8 +366,10 @@ def predict_session(
             break
 
     # Only compute delay when the session is actively in progress:
-    # some events are done and at least one event is still pending.
-    has_pending = any(e.status != EventStatus.COMPLETED for e in session.events)
+    # some events are done and at least one race is still pending. Special
+    # events don't count, so a finished session whose End of Session row is
+    # still NOT_READY isn't treated as live (matches SessionPrediction.is_complete).
+    has_pending = any(e.status != EventStatus.COMPLETED for e in session.events if not e.is_special)
     delay_minutes = 0.0
     if now is not None and completed_count > 0 and has_pending:
         delay_minutes = _compute_delay(session, durations, completed_count, now)
@@ -363,15 +408,12 @@ def predict_session(
             if live_heat is not None:
                 # live_heat = count of finished heats; the running heat is the next one.
                 next_heat = live_heat + 1
-                if heat_count_list[i] is not None:
-                    active_heat = min(next_heat, heat_count_list[i])
-                else:
-                    active_heat = next_heat
-            elif heat_count_list[i] is not None:
+                hc = heat_count_list[i]
+                active_heat = min(next_heat, hc) if hc is not None else next_heat
+            elif (hc := heat_count_list[i]) is not None:
                 # Time-based fallback: elapsed since scheduled event start ÷ per-heat duration.
                 # Uses scheduled (not delay-adjusted) start so prior-event overrun doesn't
                 # incorrectly advance the heat counter.
-                hc = heat_count_list[i]
                 phd = get_per_heat_duration(event.discipline)
                 sched_start_minutes = _time_to_minutes(session.scheduled_start)
                 now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
@@ -399,26 +441,32 @@ def predict_session(
                         microsecond=0,
                     )
                 rider_match = get_rider_match(
-                    competition_id, session.session_id, event.position,
-                    user_tokens, event_start_dt, event.discipline,
+                    competition_id,
+                    session.session_id,
+                    event.position,
+                    user_tokens,
+                    event_start_dt,
+                    event.discipline,
                 )
                 if rider_match:
                     has_racer_match = True
                     if event.status != EventStatus.COMPLETED:
                         has_pending_racer_match = True
 
-        predictions.append(Prediction(
-            event=event,
-            predicted_start=predicted_start,
-            estimated_duration_minutes=durations[i],
-            is_adjusted=(applied_delay != 0.0),
-            cumulative_delay_minutes=applied_delay,
-            is_observed=is_observed_list[i],
-            heat_count=heat_count_list[i],
-            is_active=is_active,
-            active_heat=active_heat,
-            rider_match=rider_match,
-        ))
+        predictions.append(
+            Prediction(
+                event=event,
+                predicted_start=predicted_start,
+                estimated_duration_minutes=durations[i],
+                is_adjusted=(applied_delay != 0.0),
+                cumulative_delay_minutes=applied_delay,
+                is_observed=is_observed_list[i],
+                heat_count=heat_count_list[i],
+                is_active=is_active,
+                active_heat=active_heat,
+                rider_match=rider_match,
+            )
+        )
         if event.discipline not in _ZERO_DURATION_DISCIPLINES:
             cumulative += durations[i]
 
@@ -432,13 +480,13 @@ def predict_session(
     )
 
 
-def _build_next_race(pred: Prediction) -> NextRace:
+def _build_next_race(pred: Prediction, match: RiderMatch) -> NextRace:
     """Build a NextRace from a matched Prediction."""
     return NextRace(
         event_name=pred.event.name,
-        heat=pred.rider_match.heat,
-        heat_count=pred.rider_match.heat_count,
-        predicted_start=pred.rider_match.heat_predicted_start,
+        heat=match.heat,
+        heat_count=match.heat_count,
+        predicted_start=match.heat_predicted_start,
         is_active=pred.is_active,
     )
 
@@ -448,7 +496,7 @@ def predict_schedule(
     sessions: list[Session],
     now: datetime | None = None,
     racer_name: str | None = None,
-    use_learned: bool = True,
+    use_learned: bool = False,
 ) -> SchedulePrediction:
     session_predictions = []
     total_events_without_start_lists = 0
@@ -459,7 +507,11 @@ def predict_schedule(
 
     for s in sessions:
         sp = predict_session(
-            competition_id, s, now=now, racer_name=racer_name, use_learned=use_learned,
+            competition_id,
+            s,
+            now=now,
+            racer_name=racer_name,
+            use_learned=use_learned,
         )
         session_predictions.append(sp)
         total_events_without_start_lists += sp.events_without_start_lists
@@ -477,7 +529,7 @@ def predict_schedule(
 
     # Active match takes priority; fall back to first upcoming match.
     best = active_candidate or upcoming_candidate
-    next_race = _build_next_race(best) if best else None
+    next_race = _build_next_race(best, best.rider_match) if best and best.rider_match else None
 
     return SchedulePrediction(
         competition_id=competition_id,
@@ -514,10 +566,7 @@ def update_status_cache(
             if cached is None:
                 _status_cache[key] = {"status": event.status, "seen_at": now}
 
-            elif (
-                cached["status"] == EventStatus.UPCOMING
-                and event.status == EventStatus.COMPLETED
-            ):
+            elif cached["status"] == EventStatus.UPCOMING and event.status == EventStatus.COMPLETED:
                 # Wall-clock fallback: record elapsed time for disciplines
                 # that don't have a result-page Finish Time.
                 # Upper bound is 3× the static default duration for the discipline.
@@ -531,21 +580,20 @@ def update_status_cache(
                 elapsed = (now - cached["seen_at"]).total_seconds() / 60.0
                 max_elapsed = 3.0 * get_default_duration(event.discipline)
                 if 0.5 <= elapsed <= max_elapsed:
-                    record_duration(
+                    record_live_duration(
                         competition_id=competition_id,
                         session_id=session.session_id,
                         event_position=event.position,
                         event_name=event.name,
                         discipline=event.discipline,
                         duration_minutes=elapsed,
+                        source="wall_clock",
                     )
                 _status_cache[key] = {"status": event.status, "seen_at": now}
 
                 # Signal caller to fetch result page if URL is available.
                 if event.result_url:
-                    newly_completed.append(
-                        (competition_id, session.session_id, event.position, event.result_url)
-                    )
+                    newly_completed.append((competition_id, session.session_id, event.position, event.result_url))
 
             elif cached["status"] != event.status:
                 _status_cache[key] = {"status": event.status, "seen_at": now}

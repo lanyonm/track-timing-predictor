@@ -1,0 +1,41 @@
+name: Clean Up PR Stacks
+
+# Deletes TrackTimingStack-pr-<N> stacks whose PR is closed, in case destroy-pr failed.
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  id-token: write       # OIDC; the PR role trusts main-branch runs
+  contents: read
+  pull-requests: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/track-timing-github-actions-pr
+          aws-region: us-east-1
+
+      - name: Delete stacks for closed PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          stacks=$(aws cloudformation list-stacks \
+            --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE UPDATE_ROLLBACK_COMPLETE ROLLBACK_COMPLETE DELETE_FAILED \
+            --query "StackSummaries[?starts_with(StackName, 'TrackTimingStack-pr-')].StackName" --output text)
+          for stack in $stacks; do
+            pr=${stack#TrackTimingStack-pr-}
+            [[ "$pr" =~ ^[0-9]+$ ]] || { echo "Skipping ${stack}"; continue; }
+            state=$(gh api "repos/${{ github.repository }}/pulls/${pr}" --jq .state 2>/dev/null || echo unknown)
+            echo "${stack}: PR #${pr} is ${state}"
+            if [ "$state" = "closed" ]; then
+              aws cloudformation delete-stack --stack-name "$stack"
+              aws cloudformation wait stack-delete-complete --stack-name "$stack"
+              echo "Deleted ${stack}"
+            fi
+          done

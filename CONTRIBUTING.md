@@ -15,21 +15,21 @@ Please open an issue with:
 ```bash
 git clone https://github.com/lanyonm/track-timing-predictor.git
 cd track-timing-predictor
-python3 -m venv .venv
+python3.13 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.txt
 pytest
 uvicorn app.main:app --reload
 ```
 
-Python 3.11 is required.
+Python 3.13 is required. To add or change a dependency, edit `pyproject.toml` and regenerate the locks (commands in `CLAUDE.md`).
 
 ## Making changes
 
 1. Fork the repository and create a branch from `main`
 2. Make your changes, with tests (parsing changes need a captured fixture in `tests/fixtures/`)
 3. Update any documentation the change affects (`README.md`, `CLAUDE.md`, `plans/hosting-plan.md`, `docs/`)
-4. Run `pytest` and test against a live or recent tracktiming.live event
+4. Run `pytest`, `ruff check .`, `ruff format --check .` and `mypy`, and test against a live or recent tracktiming.live event
 5. Open a pull request with a clear description of what changed and why
 
 ## Areas where contributions are especially welcome
@@ -41,6 +41,7 @@ Python 3.11 is required.
 
 ## Code style
 
+- Run `ruff check .`, `ruff format .` and `mypy` before opening a PR; CI fails on any of them
 - Follow existing patterns in the codebase
 - Keep functions small and focused
 - Avoid adding dependencies without a clear reason

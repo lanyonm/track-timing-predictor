@@ -6,22 +6,47 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install --require-hashes -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check --output-format=github .
+
+      - name: Ruff format
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install --require-hashes -r requirements-dev.txt
 
       - name: Run tests with coverage
-        run: python -m pytest tests/ -v --cov=app --cov-report=term --cov-report=json
+        run: python -m pytest -v --cov=app --cov-report=term --cov-report=json
 
       - name: Extract coverage percentage
         if: github.ref == 'refs/heads/main'
@@ -32,7 +57,7 @@ jobs:
 
       - name: Update coverage badge
         if: github.ref == 'refs/heads/main'
-        uses: schneegans/dynamic-badges-action@v1.7.0
+        uses: schneegans/dynamic-badges-action@e9a478b16159b4d31420099ba146cdc50f134483 # v1.7.0
         with:
           auth: ${{ secrets.GIST_TOKEN }}
           gistID: ${{ vars.COVERAGE_GIST_ID }}

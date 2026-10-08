@@ -3,35 +3,16 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
-try:
-    from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-    _BotoError = (BotoCoreError, ClientError)
-    _AUTH_ERROR_CODES = frozenset({
-        "ExpiredTokenException", "UnrecognizedClientException",
-        "AccessDeniedException", "InvalidSignatureException",
-    })
-except ImportError:  # boto3 not installed (local dev without AWS deps)
-    _BotoError = ()  # type: ignore[assignment]
-    NoCredentialsError = None  # type: ignore[assignment,misc]
-    _AUTH_ERROR_CODES = frozenset()
-
-
-def _raise_if_auth_error(exc: Exception) -> None:
-    """Re-raise credential/config errors that should not be silently caught."""
-    if NoCredentialsError is not None and isinstance(exc, NoCredentialsError):
-        raise exc
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code", "")
-        if code in _AUTH_ERROR_CODES:
-            raise exc
-
+from app.aws_errors import BotoError as _BotoError, ClientError, raise_if_auth_error as _raise_if_auth_error
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 RecordOutcome = Literal["created", "updated", "unchanged", "error"]
+# How the live app measured a duration. Loader rows have no source.
+LiveSource = Literal["observed", "wall_clock"]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS event_durations (
@@ -45,6 +26,7 @@ CREATE TABLE IF NOT EXISTS event_durations (
     classification   TEXT DEFAULT NULL,
     gender           TEXT DEFAULT NULL,
     per_heat_duration_minutes REAL DEFAULT NULL,
+    source           TEXT DEFAULT NULL,
     recorded_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -62,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_event_durations_discipline
 # ---------------------------------------------------------------------------
 # SQLite backend
 # ---------------------------------------------------------------------------
+
 
 @contextmanager
 def get_db():
@@ -84,6 +67,7 @@ def init_db() -> None:
 
 class DuplicateRowsError(Exception):
     """Raised when the unique index cannot be created due to duplicate rows."""
+
     def __init__(self, duplicate_count: int):
         self.duplicate_count = duplicate_count
         super().__init__(
@@ -94,7 +78,7 @@ class DuplicateRowsError(Exception):
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
-    """Add classification, gender, per_heat_duration_minutes columns if missing.
+    """Add classification, gender, per_heat_duration_minutes, source columns if missing.
 
     Safe for production DBs created before structured categories existed.
     Existing rows keep NULL for new columns — correct behavior since they
@@ -110,6 +94,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         ("classification", "TEXT DEFAULT NULL"),
         ("gender", "TEXT DEFAULT NULL"),
         ("per_heat_duration_minutes", "REAL DEFAULT NULL"),
+        ("source", "TEXT DEFAULT NULL"),
     ]:
         if col not in existing_columns:
             conn.execute(f"ALTER TABLE event_durations ADD COLUMN {col} {col_type}")
@@ -124,7 +109,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_event_durations_natural_key
             ON event_durations(competition_id, session_id, event_position)
         """)
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as exc:
         dup_count = conn.execute("""
             SELECT COUNT(*) FROM event_durations
             WHERE id NOT IN (
@@ -132,7 +117,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
                 GROUP BY competition_id, session_id, event_position
             )
         """).fetchone()[0]
-        raise DuplicateRowsError(dup_count)
+        raise DuplicateRowsError(dup_count) from exc
 
 
 def deduplicate_event_durations() -> int:
@@ -168,38 +153,23 @@ def deduplicate_event_durations() -> int:
 #   AGGREGATE#<disc>#<class>               — Level 3: discipline + classification
 #   AGGREGATE#<disc>#<class>#<gender>      — Level 4: most specific
 #   OVERRIDE#<disc> (through #<class>#<gender>) — manual override at each level
-#   OBS#<comp_id>#<sess_id>#<pos>          — observation item for idempotent upsert
+#   OBS#<comp_id>#<sess_id>#<pos>          — observation item for idempotent upsert;
+#                                            live writes set source (observed/wall_clock),
+#                                            loader writes leave it unset
 # ---------------------------------------------------------------------------
 
-_dynamo_table_cache = None
+# boto3 DynamoDB Table resource; boto3 ships no type stubs
+_dynamo_table_cache: Any = None
 
 
-def _dynamo_table():
+def _dynamo_table() -> Any:
     global _dynamo_table_cache
     if _dynamo_table_cache is None:
         import boto3
+
         dynamodb = boto3.resource("dynamodb", region_name=settings.aws_region)
         _dynamo_table_cache = dynamodb.Table(settings.dynamodb_table)
     return _dynamo_table_cache
-
-
-def _dynamo_record_duration(
-    discipline: str,
-    duration_minutes: float,
-) -> None:
-    try:
-        _dynamo_table().update_item(
-            Key={"pk": f"AGGREGATE#{discipline}"},
-            UpdateExpression="ADD total_minutes :d, #cnt :one",
-            ExpressionAttributeNames={"#cnt": "count"},
-            ExpressionAttributeValues={
-                ":d": Decimal(str(duration_minutes)),
-                ":one": 1,
-            },
-        )
-    except _BotoError as exc:
-        _raise_if_auth_error(exc)
-        logger.error("DynamoDB error recording duration for %s", discipline, exc_info=True)
 
 
 def _dynamo_get_learned_duration(discipline: str) -> float | None:
@@ -210,7 +180,9 @@ def _dynamo_get_learned_duration(discipline: str) -> float | None:
             try:
                 return float(override["duration_minutes"])
             except (ValueError, TypeError):
-                logger.error("Malformed override value for %s: %r", discipline, override.get("duration_minutes"), exc_info=True)
+                logger.error(
+                    "Malformed override value for %s: %r", discipline, override.get("duration_minutes"), exc_info=True
+                )
         item = table.get_item(Key={"pk": f"AGGREGATE#{discipline}"}).get("Item")
         if item:
             count = int(item.get("count", 0))
@@ -271,6 +243,7 @@ def _dynamo_record_duration_structured(
     competition_id: int,
     session_id: int,
     event_position: int,
+    source: LiveSource | None = None,
 ) -> RecordOutcome:
     """Write structured duration to DynamoDB with multi-level aggregates.
 
@@ -296,8 +269,9 @@ def _dynamo_record_duration_structured(
 
         if existing:
             # Branch 2: identical data — no writes needed
-            if _obs_fields_match(existing, discipline, duration_minutes,
-                                 classification, gender, per_heat_duration_minutes):
+            if _obs_fields_match(
+                existing, discipline, duration_minutes, classification, gender, per_heat_duration_minutes
+            ):
                 return "unchanged"
 
             # Branch 3: correction path — compute deltas and fix aggregates
@@ -307,8 +281,8 @@ def _dynamo_record_duration_structured(
             raw_old_duration = existing.get("duration_minutes")
             if raw_old_duration is None:
                 logger.error(
-                    "OBS item %s missing duration_minutes — cannot compute correction "
-                    "delta; overwriting with new data", obs_key,
+                    "OBS item %s missing duration_minutes — cannot compute correction delta; overwriting with new data",
+                    obs_key,
                 )
                 old_duration = 0.0
             else:
@@ -369,11 +343,16 @@ def _dynamo_record_duration_structured(
                 obs_item["gender"] = gender
             if per_heat_duration_minutes is not None:
                 obs_item["per_heat_duration_minutes"] = Decimal(str(per_heat_duration_minutes))
+            if source:
+                obs_item["source"] = source
             table.put_item(Item=obs_item)
 
             logger.info(
                 "Corrected OBS %s: discipline=%s duration=%.1f→%.1f",
-                obs_key, discipline, old_duration, duration_minutes,
+                obs_key,
+                discipline,
+                old_duration,
+                duration_minutes,
             )
             return "updated"
 
@@ -401,6 +380,8 @@ def _dynamo_record_duration_structured(
             obs_item["gender"] = gender
         if per_heat_duration_minutes is not None:
             obs_item["per_heat_duration_minutes"] = Decimal(str(per_heat_duration_minutes))
+        if source:
+            obs_item["source"] = source
         try:
             table.put_item(
                 Item=obs_item,
@@ -423,9 +404,10 @@ def _dynamo_record_duration_structured(
                 except _BotoError as rollback_exc:
                     _raise_if_auth_error(rollback_exc)
                     logger.error(
-                        "Failed to roll back aggregate increments for %s; "
-                        "aggregates may be over-counted for keys: %s",
-                        obs_key, aggregate_keys, exc_info=True,
+                        "Failed to roll back aggregate increments for %s; aggregates may be over-counted for keys: %s",
+                        obs_key,
+                        aggregate_keys,
+                        exc_info=True,
                     )
                 return "unchanged"
             raise
@@ -435,9 +417,49 @@ def _dynamo_record_duration_structured(
         logger.error(
             "DynamoDB error recording structured duration for %s; "
             "partial aggregate updates may have occurred and will self-correct on re-load",
-            discipline, exc_info=True,
+            discipline,
+            exc_info=True,
         )
         return "error"
+
+
+def _replaces(existing_source: str | None, source: LiveSource) -> bool:
+    """A live write replaces an existing observation only when observed beats wall-clock.
+
+    Loader observations (no source) are never replaced: the loader's categorisation is
+    richer than the live app's, and replacing it would flip aggregates back and forth.
+    """
+    return existing_source == "wall_clock" and source == "observed"
+
+
+def _dynamo_record_live_duration(
+    competition_id: int,
+    session_id: int,
+    event_position: int,
+    discipline: str,
+    duration_minutes: float,
+    source: LiveSource,
+) -> RecordOutcome:
+    obs_key = f"OBS#{competition_id}#{session_id}#{event_position}"
+    try:
+        existing = _dynamo_table().get_item(Key={"pk": obs_key}).get("Item")
+    except _BotoError as exc:
+        _raise_if_auth_error(exc)
+        logger.error("DynamoDB error recording live duration for %s", discipline, exc_info=True)
+        return "error"
+    if existing is not None and not _replaces(existing.get("source"), source):
+        return "unchanged"
+    return _dynamo_record_duration_structured(
+        discipline,
+        duration_minutes,
+        None,
+        None,
+        None,
+        competition_id,
+        session_id,
+        event_position,
+        source=source,
+    )
 
 
 def _build_aggregate_keys(
@@ -493,7 +515,9 @@ def _dynamo_get_learned_duration_cascading(
                 try:
                     return float(item["duration_minutes"])
                 except (ValueError, TypeError):
-                    logger.error("Malformed override value for %s: %r", override_key, item.get("duration_minutes"), exc_info=True)
+                    logger.error(
+                        "Malformed override value for %s: %r", override_key, item.get("duration_minutes"), exc_info=True
+                    )
 
         # Check aggregates at each level (most specific to broadest)
         for agg_key in levels:
@@ -503,8 +527,13 @@ def _dynamo_get_learned_duration_cascading(
                     count = int(item.get("count", 0))
                     total = float(item.get("total_minutes", 0))
                 except (ValueError, TypeError):
-                    logger.error("Malformed aggregate values for %s: count=%r total=%r",
-                                 agg_key, item.get("count"), item.get("total_minutes"), exc_info=True)
+                    logger.error(
+                        "Malformed aggregate values for %s: count=%r total=%r",
+                        agg_key,
+                        item.get("count"),
+                        item.get("total_minutes"),
+                        exc_info=True,
+                    )
                     continue
                 if count >= settings.min_learned_samples:
                     return total / count
@@ -517,6 +546,7 @@ def _dynamo_get_learned_duration_cascading(
 def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
     try:
         from boto3.dynamodb.conditions import Attr
+
         table = _dynamo_table()
         filter_expr = Attr("pk").begins_with("AGGREGATE#")
         response = table.scan(FilterExpression=filter_expr)
@@ -529,7 +559,7 @@ def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
             items.extend(response.get("Items", []))
         result = {}
         for item in items:
-            discipline = item["pk"][len("AGGREGATE#"):]
+            discipline = item["pk"][len("AGGREGATE#") :]
             if "#" in discipline:
                 continue  # Skip Level 2/3/4 aggregate keys
             count = int(item.get("count", 0))
@@ -548,36 +578,65 @@ def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
 # otherwise falls back to SQLite for local development.
 # ---------------------------------------------------------------------------
 
-def record_duration(
+
+def record_live_duration(
     competition_id: int,
     session_id: int,
     event_position: int,
     event_name: str,
     discipline: str,
     duration_minutes: float,
-) -> None:
-    """Insert one observed event duration into the database."""
+    source: LiveSource,
+) -> RecordOutcome:
+    """Record a duration the live app measured, at most once per event.
+
+    Every cold start, container and viewer re-records the same events, so this is
+    keyed by (competition, session, position) like the loader. An existing record is
+    kept unless an observed value is replacing a wall-clock one (see ``_replaces``).
+    """
     if settings.dynamodb_table:
-        _dynamo_record_duration(discipline, duration_minutes)
-        return
+        return _dynamo_record_live_duration(
+            competition_id,
+            session_id,
+            event_position,
+            discipline,
+            duration_minutes,
+            source,
+        )
     try:
         with get_db() as conn:
+            existing = conn.execute(
+                """
+                SELECT source FROM event_durations
+                WHERE competition_id = ? AND session_id = ? AND event_position = ?
+                """,
+                (competition_id, session_id, event_position),
+            ).fetchone()
+            if existing is not None and not _replaces(existing["source"], source):
+                return "unchanged"
             conn.execute(
                 """
-                INSERT INTO event_durations
-                    (competition_id, session_id, event_position, event_name, discipline, duration_minutes)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO event_durations
+                    (competition_id, session_id, event_position, event_name,
+                     discipline, duration_minutes, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (competition_id, session_id, event_position, event_name, discipline, duration_minutes),
+                (competition_id, session_id, event_position, event_name, discipline, duration_minutes, source),
             )
+        return "created" if existing is None else "updated"
     except sqlite3.Error:
         logger.error(
-            "SQLite error recording duration for %s (db=%s) "
+            "SQLite error recording live duration for %s (db=%s) "
             "competition_id=%d session_id=%d event_position=%d event_name=%r",
-            discipline, settings.db_path,
-            competition_id, session_id, event_position, event_name,
+            discipline,
+            settings.db_path,
+            competition_id,
+            session_id,
+            event_position,
+            event_name,
             exc_info=True,
         )
+        return "error"
 
 
 def get_learned_duration(discipline: str) -> float | None:
@@ -609,7 +668,9 @@ def get_learned_duration(discipline: str) -> float | None:
         if row and row["cnt"] >= settings.min_learned_samples:
             return row["avg_dur"]
     except sqlite3.Error:
-        logger.error("SQLite error reading learned duration for %s (db=%s)", discipline, settings.db_path, exc_info=True)
+        logger.error(
+            "SQLite error reading learned duration for %s (db=%s)", discipline, settings.db_path, exc_info=True
+        )
     return None
 
 
@@ -637,8 +698,14 @@ def record_duration_structured(
     """
     if settings.dynamodb_table:
         return _dynamo_record_duration_structured(
-            discipline, duration_minutes, classification, gender,
-            per_heat_duration_minutes, competition_id, session_id, event_position,
+            discipline,
+            duration_minutes,
+            classification,
+            gender,
+            per_heat_duration_minutes,
+            competition_id,
+            session_id,
+            event_position,
         )
     try:
         with get_db() as conn:
@@ -650,15 +717,25 @@ def record_duration_structured(
                      per_heat_duration_minutes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (competition_id, session_id, event_position, event_name,
-                 discipline, duration_minutes, classification, gender,
-                 per_heat_duration_minutes),
+                (
+                    competition_id,
+                    session_id,
+                    event_position,
+                    event_name,
+                    discipline,
+                    duration_minutes,
+                    classification,
+                    gender,
+                    per_heat_duration_minutes,
+                ),
             )
         return "created"
     except sqlite3.Error:
         logger.error(
             "SQLite error recording structured duration for %s (db=%s)",
-            discipline, settings.db_path, exc_info=True,
+            discipline,
+            settings.db_path,
+            exc_info=True,
         )
         return "error"
 
@@ -729,8 +806,7 @@ def get_learned_duration_cascading(
                 return override["duration_minutes"]
 
             row = conn.execute(
-                "SELECT AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt "
-                "FROM event_durations WHERE discipline = ?",
+                "SELECT AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt FROM event_durations WHERE discipline = ?",
                 (discipline,),
             ).fetchone()
             if row and row["cnt"] >= settings.min_learned_samples:
@@ -739,7 +815,9 @@ def get_learned_duration_cascading(
     except sqlite3.Error:
         logger.error(
             "SQLite error in cascading fallback for %s (db=%s)",
-            discipline, settings.db_path, exc_info=True,
+            discipline,
+            settings.db_path,
+            exc_info=True,
         )
     return None
 
@@ -776,9 +854,11 @@ async def check_health() -> dict[str, str]:
         if settings.dynamodb_table:
             await asyncio.to_thread(lambda: _dynamo_table().table_status)
         else:
+
             def _check_sqlite():
                 with get_db() as conn:
                     conn.execute("SELECT 1")
+
             await asyncio.to_thread(_check_sqlite)
         return {"status": "healthy"}
     except Exception:

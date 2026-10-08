@@ -1,4 +1,5 @@
 """Tests for palmares SQLite backend."""
+
 from app.models import PalmaresEntry
 from app.palmares import (
     count_competition_palmares,
@@ -8,10 +9,17 @@ from app.palmares import (
 )
 
 
-def _make_entry(racer="charlie pittard", comp_id=26008, comp_name="Ontario Track Championships",
-                comp_date="2026-02-28", session_id=1, session_name="Friday",
-                position=3, event_name="U17 Women Pursuit Final",
-                audit_url="results/E26008/W1516-IP-2000-F-0-AUDIT-R.htm"):
+def _make_entry(
+    racer="charlie pittard",
+    comp_id=26008,
+    comp_name="Ontario Track Championships",
+    comp_date="2026-02-28",
+    session_id=1,
+    session_name="Friday",
+    position=3,
+    event_name="U17 Women Pursuit Final",
+    audit_url="results/E26008/W1516-IP-2000-F-0-AUDIT-R.htm",
+):
     return PalmaresEntry(
         racer_name=racer,
         competition_id=comp_id,
@@ -51,10 +59,22 @@ class TestSavePalmaresEntries:
 
     def test_multiple_competitions(self):
         entries = [
-            _make_entry(racer="test racer multi", comp_id=25022, comp_name="Series 1",
-                        comp_date="2026-01-15", position=1, event_name="Event A"),
-            _make_entry(racer="test racer multi", comp_id=25023, comp_name="Series 2",
-                        comp_date="2026-02-20", position=1, event_name="Event B"),
+            _make_entry(
+                racer="test racer multi",
+                comp_id=25022,
+                comp_name="Series 1",
+                comp_date="2026-01-15",
+                position=1,
+                event_name="Event A",
+            ),
+            _make_entry(
+                racer="test racer multi",
+                comp_id=25023,
+                comp_name="Series 2",
+                comp_date="2026-02-20",
+                position=1,
+                event_name="Event B",
+            ),
         ]
         save_palmares_entries(entries)
         result = get_palmares("test racer multi")
@@ -104,8 +124,7 @@ class TestDeleteCompetition:
 
 class TestTeamNameFields:
     def test_team_name_round_trip(self):
-        entry = _make_entry(racer="team fields racer", position=1,
-                            event_name="Team Pursuit Final")
+        entry = _make_entry(racer="team fields racer", position=1, event_name="Team Pursuit Final")
         entry = entry.model_copy(update={"team_name": "Ontario A"})
         save_palmares_entries([entry])
         result = get_palmares("team fields racer")
