@@ -1,8 +1,9 @@
 """Medal ceremony podium forecasting: how many podiums each ceremony awards.
 
 A ceremony awards the finals held since the previous ceremony, in schedule order and
-across sessions. A sprint Final counts after its last scheduled ride. Team events are
-one podium whatever their age range. A combined-age bunch race (``35-49 Women Points
+across sessions. Rounds (1/N Finals) and placement finals (5-8, 7-12) award nothing.
+A sprint Final counts after its last scheduled ride. Team events are one podium
+whatever their age range. A combined-age bunch race (``35-49 Women Points
 Race``, ``50+ Women``) awards one podium per category entered, taken from the start
 list's Category column, else the Rider List, else the five-year bands in the name.
 
@@ -15,7 +16,7 @@ Pure functions, no I/O.
 import re
 from collections.abc import Mapping
 
-from app.disciplines import CEREMONY_BASE_MINUTES, CEREMONY_PER_PODIUM_MINUTES, split_ride
+from app.disciplines import CEREMONY_BASE_MINUTES, CEREMONY_PER_PODIUM_MINUTES, is_placement_final, split_ride
 from app.models import Event, RiderListEntry, Session
 from app.rider_list import AgeBand, category_band, event_band, event_code
 
@@ -33,7 +34,12 @@ def ceremony_duration(podiums: int) -> float:
 
 def _final_key(event: Event) -> str | None:
     """The medal final an event belongs to (rides collapsed), or None for anything else."""
-    if event.is_special or not _FINAL_RE.search(event.name) or _ROUND_RE.search(event.name):
+    if (
+        event.is_special
+        or not _FINAL_RE.search(event.name)
+        or _ROUND_RE.search(event.name)
+        or is_placement_final(event.name)
+    ):
         return None
     ride = split_ride(event.name)
     return ride[0] if ride else event.name

@@ -22,7 +22,7 @@ The forecast rules that follow from this:
 - A sprint Final is awarded after its last scheduled ride (some Finals list only Rides 1–2).
 - Team events are one podium whatever their age range (55-64 Men TP).
 - Combined-age bunch races are one podium per category entered. Their start lists carry a Category column (`W5054` … `W7074`); before the start list is posted, the Rider List gives the categories entered with that event code. With neither, the forecast counts the five-year bands in the name (one for an open band such as `50+`).
-- Rounds (`1/2 Final`, `1/4 Final`, `1/8 Final`) award nothing.
+- Rounds (`1/2 Final`, `1/4 Final`, `1/8 Final`) and placement finals (`40-44 Men Sprint 5-8 Final` at 25022, `Keirin 7-12 Final`) award nothing. A range starting at 1 (`Keirin 1-6 Final`) is a medal final.
 
 The only miss is ceremony 3: the 40-44 Men Points Race result was regenerated about an hour later (presumably a protest) and its podium moved to ceremony 4.
 

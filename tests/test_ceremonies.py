@@ -89,6 +89,11 @@ class TestForecastPodiumsRules:
         assert (1, 1) not in podiums
         assert podiums[(1, 4)] == 1
 
+    def test_placement_finals_are_not_podiums(self):
+        # 25022 runs "40-44 Men Sprint 5-8 Final"; keirin "1-6 Final" is the medal final.
+        session = _session("40-44 Men Sprint 5-8 Final", "45-49 Men Keirin 7-12 Final", "Medal Ceremonies")
+        assert forecast_podiums([session], {}, None) == {}
+
     def test_rounds_are_not_podiums(self):
         session = _session("45-49 Men Sprint 1/2 Final Ride 1", "50-54 Men Sprint 1/8 Final", "Medal Ceremonies")
         assert forecast_podiums([session], {}, None) == {}

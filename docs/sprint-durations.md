@@ -90,7 +90,7 @@ slot = heat_count × per_heat_duration
 |---|---|
 | `sprint_match` | 3.0 min |
 
-When heat count is unknown, the round name gives the pairs where it's fixed (`disciplines.sprint_round_pairs`): a 1/2 Final or Final has 2 (6 min), a 1/4 Final 4 (12 min). Their start lists only appear once the previous round is done, so this covers day-ahead views. Other rounds (1/8 Finals: 4 heats at 26008 with byes, 8 at 26037) use the default:
+When heat count is unknown, the round name gives the pairs where it's fixed (`disciplines.sprint_round_pairs`): a 1/2 Final or Final has 2 (6 min), a 1/4 Final 4 (12 min). Their start lists only appear once the previous round is done, so this covers day-ahead views. Other rounds (1/8 Finals: 4 heats at 26008 with byes, 8 at 26037) and placement finals (`5-8 Final`, one race) use the default:
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|

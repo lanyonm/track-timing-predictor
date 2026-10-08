@@ -226,6 +226,16 @@ def split_ride(event_name: str) -> tuple[str, int] | None:
     return (m.group(1), int(m.group(2))) if m else None
 
 
+# Placement finals ("Sprint 5-8 Final", "Keirin 7-12 Final") rank riders outside the medals.
+# A range starting at 1 ("Keirin 1-6 Final") is the medal final.
+_PLACEMENT_FINAL_RE = re.compile(r"\b(?:[2-9]|\d{2,})-\d+\s+Final\b")
+
+
+def is_placement_final(event_name: str) -> bool:
+    """True for a classification final that awards no medals, e.g. '40-44 Men Sprint 5-8 Final'."""
+    return _PLACEMENT_FINAL_RE.search(event_name) is not None
+
+
 _SPRINT_ROUND_RE = re.compile(r"\b(?:1/(\d+)\s+)?Final\b")
 _SPRINT_ROUND_PAIRS = {None: 2, "2": 2, "4": 4}
 
@@ -234,8 +244,10 @@ def sprint_round_pairs(event_name: str) -> int | None:
     """Pairs in a sprint round by its name: 2 for a 1/2 Final or Final, 4 for a 1/4 Final.
 
     For use without a start list. Other rounds (1/8 Finals) vary with byes and field
-    size, so they return None.
+    size, and placement finals (5-8) are one race, so they return None.
     """
+    if is_placement_final(event_name):
+        return None
     m = _SPRINT_ROUND_RE.search(event_name)
     return _SPRINT_ROUND_PAIRS.get(m.group(1)) if m else None
 

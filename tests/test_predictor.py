@@ -1197,6 +1197,11 @@ class TestSprintRoundPairs:
         pred = self._predict(26122, "65+ Women Sprint 1/2 Final Ride 3")
         assert pred.estimated_duration_minutes == pytest.approx(2 * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
 
+    def test_placement_final_keeps_default(self):
+        # A sprint 5-8 Final is one race of 4 riders, not 2 pairs.
+        pred = self._predict(26125, "40-44 Men Sprint 5-8 Final")
+        assert pred.estimated_duration_minutes == DEFAULT_DURATIONS["sprint_match"]
+
     def test_other_rounds_keep_default(self):
         # 1/8 Finals vary with byes (4 heats at 26008, 8 at 26037), so they keep the default.
         pred = self._predict(26123, "65-69 Men Sprint 1/8 Final")
