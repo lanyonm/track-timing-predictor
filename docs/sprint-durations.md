@@ -90,7 +90,7 @@ slot = heat_count × per_heat_duration
 |---|---|
 | `sprint_match` | 3.0 min |
 
-When heat count is unknown:
+When heat count is unknown, the round name gives the pairs where it's fixed (`disciplines.sprint_round_pairs`): a 1/2 Final or Final has 2 (6 min), a 1/4 Final 4 (12 min). Their start lists only appear once the previous round is done, so this covers day-ahead views. Other rounds (1/8 Finals: 4 heats at 26008 with byes, 8 at 26037) use the default:
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|
@@ -106,7 +106,7 @@ Ride 3 is the decider, ridden only by pairs tied 1–1. In completed 26037 round
 slot = heat_count × per_heat_duration × SPRINT_DECIDER_RATE   (0.12)
 ```
 
-(1.44 min for a 4-pair round, 0.72 for 2 pairs; without a start list, the 12-minute default × 0.12.) Expected value rather than "one match" because overestimating pushes every later event's predicted start too late.
+(1.44 min for a 4-pair round, 0.72 for 2 pairs; without a start list, the pairs come from the round name.) Expected value rather than "one match" because overestimating pushes every later event's predicted start too late.
 
 Once Ride 2 is posted, the shared result page shows which pairs are tied, and the Ride 3 uses the exact count: `deciders × per_heat_duration`, shown as **N heats** (0 when none). `parser.parse_sprint_deciders` reads it: each pair's header row (`Heat N`, or `Final 3-4`/`Final 1-2` on a Final) carries a 200m time per ride ridden, and each rider row a `Winner` (or a gap, or `REL` for a relegated rider) per ride. A pair needs a decider if it rode one or each rider won once. Upstream drops a Ride 3 row from the schedule when no pair needs it.
 

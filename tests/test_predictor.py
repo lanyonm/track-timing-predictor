@@ -1148,3 +1148,45 @@ class TestSprintRide3:
         ride3 = predict_session(26116, self._session(EventStatus.COMPLETED)).event_predictions[1]
         assert ride3.is_observed
         assert ride3.estimated_duration_minutes == pytest.approx(3.2)
+
+
+# ── Sprint round size from the round name ─────────────────────────────────────
+
+
+class TestSprintRoundPairs:
+    """Without a start list, a sprint round's pairs come from its name (1/2 Final and Final have 2)."""
+
+    def _predict(self, competition_id: int, name: str):
+        event = Event(position=0, name=name, discipline="sprint_match", status=EventStatus.NOT_READY, is_special=False)
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=[event])
+        return predict_session(competition_id, session).event_predictions[0]
+
+    @pytest.mark.parametrize(
+        ("name", "pairs"),
+        [
+            ("65-69 Men Sprint Final Ride 1", 2),
+            ("35-39 Women Sprint 1/2 Final Ride 2", 2),
+            ("70-74 Men Sprint 1/4 Final Ride 1", 4),
+        ],
+    )
+    def test_pairs_from_round_name(self, name, pairs):
+        pred = self._predict(26121, name)
+        assert pred.estimated_duration_minutes == pytest.approx(pairs * PER_HEAT_DURATIONS["sprint_match"])
+        assert pred.heat_count is None
+
+    def test_decider_scaled_from_round_name(self):
+        pred = self._predict(26122, "65+ Women Sprint 1/2 Final Ride 3")
+        assert pred.estimated_duration_minutes == pytest.approx(
+            2 * PER_HEAT_DURATIONS["sprint_match"] * SPRINT_DECIDER_RATE
+        )
+
+    def test_other_rounds_keep_default(self):
+        # 1/8 Finals vary with byes (4 heats at 26008, 8 at 26037), so they keep the default.
+        pred = self._predict(26123, "65-69 Men Sprint 1/8 Final")
+        assert pred.estimated_duration_minutes == DEFAULT_DURATIONS["sprint_match"]
+
+    def test_start_list_wins(self):
+        record_heat_count(26124, 1, 0, 1)
+        pred = self._predict(26124, "65-69 Men Sprint Final Ride 1")
+        assert pred.estimated_duration_minutes == pytest.approx(PER_HEAT_DURATIONS["sprint_match"])
+        assert pred.heat_count == 1

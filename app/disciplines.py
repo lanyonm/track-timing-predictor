@@ -201,6 +201,20 @@ def split_ride(event_name: str) -> tuple[str, int] | None:
     return (m.group(1), int(m.group(2))) if m else None
 
 
+_SPRINT_ROUND_RE = re.compile(r"\b(?:1/(\d+)\s+)?Final\b")
+_SPRINT_ROUND_PAIRS = {None: 2, "2": 2, "4": 4}
+
+
+def sprint_round_pairs(event_name: str) -> int | None:
+    """Pairs in a sprint round by its name: 2 for a 1/2 Final or Final, 4 for a 1/4 Final.
+
+    For use without a start list. Other rounds (1/8 Finals) vary with byes and field
+    size, so they return None.
+    """
+    m = _SPRINT_ROUND_RE.search(event_name)
+    return _SPRINT_ROUND_PAIRS.get(m.group(1)) if m else None
+
+
 def get_changeover(discipline: str) -> float:
     return CHANGEOVER_MINUTES.get(discipline, 0.0)
 
