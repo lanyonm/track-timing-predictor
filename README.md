@@ -16,7 +16,7 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 5. Falls back to built-in defaults (or, if you opt in, learned averages) when no start list is available
 6. Computes a predicted start time for every event in the session
 7. During live events, adjusts predictions based on how far ahead or behind schedule the session is running
-8. When results are posted, refines completed-event durations using the race's actual Finish Time, or the gap between consecutive result-page timestamps
+8. When results are posted, refines completed-event durations using the race's actual Finish Time, or the gap between consecutive result-page timestamps, and calibrates the competition's bunch-race changeover from them
 9. Auto-refreshes every 30 seconds so predictions stay current throughout the day
 
 The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N podiums** (medal ceremonies), or **est.** (default/learned fallback).
@@ -139,12 +139,19 @@ specs/               # Feature specs (speckit), historical
 
 Each event's slot duration is determined by the first available source:
 
-1. **Observed** — once results are posted, the race's `Finish Time` (actual race duration) plus a discipline-specific changeover allowance is used. Shown as **obs.** in the UI.
+1. **Observed** — once results are posted, a bunch race's `Finish Time` (actual race duration) plus the competition's changeover (below). Shown as **obs.** in the UI.
 2. **Generated timestamps** — for completed events without a Finish Time, the gap between its result page's `Generated` timestamp and the previous event's (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
-3. **Heat count** — on page load, start list pages are fetched concurrently for every event. The number of heats × a per-heat duration constant gives the slot estimate. Shown as **N heats** in the UI.
-4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
+3. **Start list** — on page load, start list pages are fetched concurrently for every event. Shown as **N heats** in the UI where a heat count is used.
+   - Heat count × a per-heat duration constant. Medal finals label their heats `Final 3-4`/`Final 1-2` (sprints) or `For Bronze`/`For Gold` (pursuits, team events).
+   - Points and scratch races use their distance from the start list title (`- 10km - 40 Laps`) at 46 km/h, plus changeover.
+   - A best-of-3 sprint `Ride 3` is ridden only by pairs tied 1–1: 4.25 min per decider once Ride 2's results show how many, else 12% of the pairs.
+4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Sprint 1/2 Finals and Finals count 2 pairs (and 1/4 Finals 4) before their start list is posted. Shown as **est.** in the UI.
 
 **Medal ceremonies** at masters competitions take 13 min plus 3.3 min per podium. The podium count is forecast from the finals since the previous ceremony, with combined-age races split by category. Shown as **N podiums** in the UI. See [docs/medal-ceremony-durations.md](docs/medal-ceremony-durations.md).
+
+**Bunch-race changeover** (the time between one bunch race's result and the next race's start) is calibrated per competition: the median of Generated gap minus Finish Time over back-to-back bunch races, once there are three. Until then it's 3 min. It came out at ~8 min at the 2026 masters worlds and 2.5–3.4 min at national events. See [docs/mass-start-race-durations.md](docs/mass-start-race-durations.md).
+
+Rationale and data for each constant: [sprint](docs/sprint-durations.md), [mass start](docs/mass-start-race-durations.md), [timed events](docs/timed-event-durations.md) and [medal ceremonies](docs/medal-ceremony-durations.md).
 
 Learned averages are stored in SQLite locally and DynamoDB in production.
 

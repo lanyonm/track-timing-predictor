@@ -192,6 +192,9 @@ _RIDE_RE = re.compile(r"^(.*\S)\s+Ride\s+(\d+)\s*$")
 
 # Minutes to add to a result-page Finish Time to account for changeover between events.
 # Only applicable to disciplines where "Finish Time" appears in result pages (mass start races).
+# Learned-duration records (live and tools/) use these static values. The live predictor
+# replaces them for FINISH_TIME_DISCIPLINES with a per-competition calibration
+# (predictor.bunch_changeover); keirin always uses its static value.
 CHANGEOVER_MINUTES: dict[str, float] = {
     "scratch_race": 2.0,
     "points_race": 2.0,
@@ -200,6 +203,18 @@ CHANGEOVER_MINUTES: dict[str, float] = {
     "madison": 2.0,
     "keirin": 2.0,
 }
+
+
+# Bunch races whose result pages carry a Finish Time; their live changeover is calibrated.
+FINISH_TIME_DISCIPLINES = frozenset({"scratch_race", "points_race", "elimination_race", "tempo_race", "madison"})
+
+# Live bunch-race changeover until a competition has MIN_CHANGEOVER_SAMPLES back-to-back
+# bunch races to calibrate from: the median (Generated gap − Finish Time) after another
+# bunch race across 26002-26037 (3.2 min, n = 58). docs/mass-start-race-durations.md.
+LIVE_BUNCH_CHANGEOVER_MINUTES = 3.0
+MIN_CHANGEOVER_SAMPLES = 3
+# Samples outside [0, MAX] come from out-of-order or regenerated result pages.
+MAX_CHANGEOVER_MINUTES = 20.0
 
 
 def split_ride(event_name: str) -> tuple[str, int] | None:

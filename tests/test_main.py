@@ -17,10 +17,10 @@ from app.main import _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_st
 from app.models import EventStatus
 from app.parser import parse_schedule
 from app.predictor import (
+    _finish_times,
     _generated_times,
     _heat_counts,
     _live_heats,
-    _observed_durations,
     _race_distances,
     _rider_list_retry_at,
     _rider_lists,
@@ -63,7 +63,7 @@ def start_list_html():
 def clear_predictor_caches():
     """Clear all in-memory predictor caches before each test."""
     _status_cache.clear()
-    _observed_durations.clear()
+    _finish_times.clear()
     _heat_counts.clear()
     _live_heats.clear()
     _generated_times.clear()
@@ -75,7 +75,7 @@ def clear_predictor_caches():
     _rider_list_retry_at.clear()
     yield
     _status_cache.clear()
-    _observed_durations.clear()
+    _finish_times.clear()
     _heat_counts.clear()
     _live_heats.clear()
     _generated_times.clear()

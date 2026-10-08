@@ -1,7 +1,7 @@
 """Tests for app/predictor.py prediction logic."""
 
 import json
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,6 +12,7 @@ from app.disciplines import (
     CEREMONY_PER_PODIUM_MINUTES,
     CHANGEOVER_MINUTES,
     DEFAULT_DURATIONS,
+    LIVE_BUNCH_CHANGEOVER_MINUTES,
     PER_HEAT_DURATIONS,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
@@ -21,6 +22,7 @@ from app.parser import parse_schedule
 from app.predictor import (
     _add_minutes,
     _compute_delay,
+    bunch_changeover,
     latest_live_generated_time,
     predict_schedule,
     predict_session,
@@ -169,6 +171,12 @@ class TestComputeDelay:
 
 
 # ── predict_session ───────────────────────────────────────────────────────────
+
+
+# Finish-Time races swap the static changeover in their defaults for the live one, which is
+# LIVE_BUNCH_CHANGEOVER_MINUTES until a competition has enough races to calibrate it.
+BUNCH_SHIFT = LIVE_BUNCH_CHANGEOVER_MINUTES - CHANGEOVER_MINUTES["scratch_race"]
+SCRATCH_SLOT = DEFAULT_DURATIONS["scratch_race"] + BUNCH_SHIFT
 
 
 def _make_event(position: int, status: EventStatus, discipline: str = "scratch_race") -> Event:
@@ -320,7 +328,7 @@ class TestPredictSession:
         sp = predict_session(99, session, now=now)
 
         assert sp.event_predictions[0].predicted_start == time(9, 0)
-        assert sp.event_predictions[1].predicted_start == time(9, 12)
+        assert sp.event_predictions[1].predicted_start == _add_minutes(time(9, 0), SCRATCH_SLOT)
         assert not sp.event_predictions[0].is_adjusted
         assert not sp.event_predictions[1].is_adjusted
         # Third event should be shifted by ~10 min
@@ -712,11 +720,11 @@ class TestGeneratedTimeDuration:
         record_generated_time(self.EVENT_ID, 55, 12, datetime(2026, 1, 1, 8, 35, 0))
 
     def test_first_event_falls_back_to_default(self):
-        """pos 10 has no previous generated time → uses default (scratch_race = 12 min)."""
+        """pos 10 has no previous generated time → uses the scratch_race default."""
         self._setup()
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
-        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(12.0)
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(SCRATCH_SLOT)
         assert sp.event_predictions[0].is_observed is False
 
     def test_generated_duration_used_for_middle_event(self):
@@ -747,8 +755,8 @@ class TestGeneratedTimeDuration:
         self._setup()
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
-        # Event 2 starts at 08:00 + 12 (default) + 12 (generated) = 08:24
-        assert sp.event_predictions[2].predicted_start == time(8, 24)
+        # Event 2 starts at 08:00 + scratch default + 12 (generated)
+        assert sp.event_predictions[2].predicted_start == _add_minutes(time(8, 0), SCRATCH_SLOT + 12)
 
     def test_observed_takes_priority_over_generated(self):
         """Finish-Time observed duration overrides the generated-time derived one."""
@@ -759,8 +767,8 @@ class TestGeneratedTimeDuration:
         record_observed_duration(self.EVENT_ID, 55, 10, 7.0, "scratch_race", "E10")
         session = self._make_session([EventStatus.COMPLETED, EventStatus.COMPLETED, EventStatus.UPCOMING])
         sp = predict_session(self.EVENT_ID, session, now=None)
-        # scratch_race changeover = 2.0 → slot = 7.0 + 2.0 = 9.0
-        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(9.0)
+        # slot = Finish Time + the live (uncalibrated) bunch changeover
+        assert sp.event_predictions[0].estimated_duration_minutes == pytest.approx(7.0 + LIVE_BUNCH_CHANGEOVER_MINUTES)
 
     def test_implausible_gap_falls_back_to_default(self):
         """A generated-time gap > 2× the expected slot duration is discarded."""
@@ -979,16 +987,17 @@ class TestUseLearnedDefault:
 
     def test_default_ignores_learned(self, learned_scratch_race):
         sp = predict_session(7003, self._session())
-        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), DEFAULT_DURATIONS["scratch_race"])
+        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), SCRATCH_SLOT)
 
     def test_opt_in_uses_learned(self, learned_scratch_race):
         sp = predict_session(7003, self._session(), use_learned=True)
-        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), 99.0)
+        # The learned average includes the static changeover, swapped for the live one.
+        assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), 99.0 + BUNCH_SHIFT)
 
     def test_schedule_default_ignores_learned(self, learned_scratch_race):
         sched = predict_schedule(7003, [self._session()])
         start = sched.sessions[0].event_predictions[1].predicted_start
-        assert start == _add_minutes(time(8, 0), DEFAULT_DURATIONS["scratch_race"])
+        assert start == _add_minutes(time(8, 0), SCRATCH_SLOT)
 
 
 class TestGeneratedGapAssignment:
@@ -1213,26 +1222,114 @@ class TestBunchRaceDistance:
         record_race_distance(26131, 1, 0, 20.0)
         pred = self._predict(26131, "points_race")
         assert pred.estimated_duration_minutes == pytest.approx(
-            20.0 / BUNCH_RACE_KMH * 60 + CHANGEOVER_MINUTES["points_race"]
+            20.0 / BUNCH_RACE_KMH * 60 + LIVE_BUNCH_CHANGEOVER_MINUTES
         )
         assert not pred.is_observed
 
     def test_no_distance_uses_default(self):
-        assert self._predict(26132, "points_race").estimated_duration_minutes == DEFAULT_DURATIONS["points_race"]
+        assert (
+            self._predict(26132, "points_race").estimated_duration_minutes
+            == DEFAULT_DURATIONS["points_race"] + BUNCH_SHIFT
+        )
 
     def test_scratch_race_distance(self):
         record_race_distance(26133, 1, 0, 5.0)
         assert self._predict(26133, "scratch_race").estimated_duration_minutes == pytest.approx(
-            5.0 / BUNCH_RACE_KMH * 60 + CHANGEOVER_MINUTES["scratch_race"]
+            5.0 / BUNCH_RACE_KMH * 60 + LIVE_BUNCH_CHANGEOVER_MINUTES
         )
 
     def test_unmeasured_bunch_races_unaffected(self):
         record_race_distance(26135, 1, 0, 3.0)
-        assert self._predict(26135, "tempo_race").estimated_duration_minutes == DEFAULT_DURATIONS["tempo_race"]
+        assert (
+            self._predict(26135, "tempo_race").estimated_duration_minutes
+            == DEFAULT_DURATIONS["tempo_race"] + BUNCH_SHIFT
+        )
 
     def test_finish_time_wins(self):
         record_race_distance(26134, 1, 0, 20.0)
         record_observed_duration(26134, 1, 0, 26.15, "points_race", "Race")
         pred = self._predict(26134, "points_race")
         assert pred.is_observed
-        assert pred.estimated_duration_minutes == pytest.approx(26.15 + CHANGEOVER_MINUTES["points_race"])
+        assert pred.estimated_duration_minutes == pytest.approx(26.15 + LIVE_BUNCH_CHANGEOVER_MINUTES)
+
+
+# ── Per-competition bunch-race changeover ─────────────────────────────────────
+
+
+class TestBunchChangeover:
+    """Changeover for bunch races is calibrated from (Generated gap − Finish Time) per competition."""
+
+    def _session(self, disciplines: list[str]) -> Session:
+        events = [
+            Event(
+                position=i,
+                name=f"Race {i}",
+                discipline=d,
+                status=EventStatus.COMPLETED,
+                is_special=False,
+                result_url=f"results/R{i}.htm",
+            )
+            for i, d in enumerate(disciplines)
+        ]
+        return Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+
+    def _record(self, competition_id: int, finishes: dict[int, float], gaps: list[float]) -> None:
+        """Generated timestamps with the given gaps between consecutive events, and Finish Times."""
+        t = datetime(2026, 10, 7, 10, 0)
+        record_generated_time(competition_id, 1, 0, t)
+        for pos, gap in enumerate(gaps, start=1):
+            t += timedelta(minutes=gap)
+            record_generated_time(competition_id, 1, pos, t)
+        for pos, fin in finishes.items():
+            record_observed_duration(competition_id, 1, pos, fin, "scratch_race", f"Race {pos}")
+
+    def test_default_before_enough_samples(self):
+        session = self._session(["scratch_race"] * 3)
+        self._record(26141, {1: 5.0, 2: 5.0}, [13.0, 13.0])
+        assert bunch_changeover(26141, [session]) == LIVE_BUNCH_CHANGEOVER_MINUTES
+
+    def test_median_of_samples(self):
+        session = self._session(["points_race"] + ["scratch_race"] * 3)
+        self._record(26142, {1: 5.0, 2: 6.0, 3: 4.0}, [13.0, 14.5, 10.0])  # overheads 8.0, 8.5, 6.0
+        assert bunch_changeover(26142, [session]) == pytest.approx(8.0)
+
+    def test_ignores_races_after_other_events(self):
+        # A bunch race after a sprint includes staging the field; only back-to-back bunch races count.
+        session = self._session(["sprint_match", "scratch_race", "scratch_race", "scratch_race"])
+        self._record(26143, {1: 5.0, 2: 5.0, 3: 5.0}, [25.0, 13.0, 13.0])
+        assert bunch_changeover(26143, [session]) == LIVE_BUNCH_CHANGEOVER_MINUTES
+
+    def test_ignores_implausible_gaps(self):
+        session = self._session(["scratch_race"] * 5)
+        self._record(26144, {1: 5.0, 2: 5.0, 3: 5.0, 4: 5.0}, [13.0, 13.0, 60.0, 3.0])  # 55 and -2 dropped
+        assert bunch_changeover(26144, [session]) == LIVE_BUNCH_CHANGEOVER_MINUTES
+
+    def test_calibrated_changeover_applied(self):
+        session = self._session(["scratch_race"] * 4 + ["points_race"])
+        session.events[4].status = EventStatus.NOT_READY
+        session.events[4].result_url = None
+        self._record(26145, {1: 5.0, 2: 5.0, 3: 5.0}, [13.0, 13.0, 13.0])
+        record_race_distance(26145, 1, 4, 23.0)
+        preds = predict_schedule(26145, [session]).sessions[0].event_predictions
+        assert preds[1].estimated_duration_minutes == pytest.approx(5.0 + 8.0)
+        assert preds[4].estimated_duration_minutes == pytest.approx(23.0 / BUNCH_RACE_KMH * 60 + 8.0)
+
+    def test_default_duration_shifted_by_changeover(self):
+        session = self._session(["scratch_race"] * 4 + ["tempo_race"])
+        session.events[4].status = EventStatus.NOT_READY
+        session.events[4].result_url = None
+        self._record(26146, {1: 5.0, 2: 5.0, 3: 5.0}, [13.0, 13.0, 13.0])
+        tempo = predict_schedule(26146, [session]).sessions[0].event_predictions[4]
+        assert tempo.estimated_duration_minutes == pytest.approx(
+            DEFAULT_DURATIONS["tempo_race"] - CHANGEOVER_MINUTES["tempo_race"] + 8.0
+        )
+
+    def test_keirin_keeps_static_changeover(self):
+        session = self._session(["scratch_race"] * 4 + ["keirin"])
+        session.events[4].status = EventStatus.NOT_READY
+        self._record(26147, {1: 5.0, 2: 5.0, 3: 5.0}, [13.0, 13.0, 13.0])
+        record_heat_count(26147, 1, 4, 2)
+        keirin = predict_schedule(26147, [session]).sessions[0].event_predictions[4]
+        assert keirin.estimated_duration_minutes == pytest.approx(
+            2 * PER_HEAT_DURATIONS["keirin"] + CHANGEOVER_MINUTES["keirin"]
+        )

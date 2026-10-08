@@ -1,10 +1,15 @@
 from datetime import datetime, time, timedelta
+from statistics import median
 
 from app.ceremonies import ceremony_duration, forecast_podiums
 from app.database import get_learned_duration, record_live_duration
 from app.disciplines import (
     BUNCH_RACE_KMH,
     DISTANCE_DISCIPLINES,
+    FINISH_TIME_DISCIPLINES,
+    LIVE_BUNCH_CHANGEOVER_MINUTES,
+    MAX_CHANGEOVER_MINUTES,
+    MIN_CHANGEOVER_SAMPLES,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
     get_changeover,
@@ -36,10 +41,10 @@ _ZERO_DURATION_DISCIPLINES = {"end_of_session"}
 # Value: {"status": EventStatus, "seen_at": datetime}
 _status_cache: dict[tuple[int, int, int], dict] = {}
 
-# Observed slot durations derived from result-page Finish Times.
-# These override estimates for completed events in the prediction timeline.
-# Key: (competition_id, session_id, position), Value: duration in minutes
-_observed_durations: dict[tuple[int, int, int], float] = {}
+# Result-page Finish Times (race time only, no changeover).
+# Finish Time + changeover overrides estimates for completed events in the prediction timeline.
+# Key: (competition_id, session_id, position), Value: minutes
+_finish_times: dict[tuple[int, int, int], float] = {}
 
 # Heat counts derived from start-list pages.
 # Used to compute duration as heat_count × per_heat_duration + changeover.
@@ -94,12 +99,14 @@ def record_observed_duration(
     event_name: str,
 ) -> None:
     """
-    Store an observed slot duration derived from a result-page Finish Time.
-    The total slot = race finish time + discipline changeover.
-    Also persists to the learning database.
+    Store a result-page Finish Time.
+
+    The prediction adds the competition's calibrated changeover (bunch_changeover).
+    The learning database gets Finish Time + the static changeover, so learned
+    averages stay comparable across competitions.
     """
+    _finish_times[(competition_id, session_id, position)] = finish_time_minutes
     slot = finish_time_minutes + get_changeover(discipline)
-    _observed_durations[(competition_id, session_id, position)] = slot
     record_live_duration(
         competition_id=competition_id,
         session_id=session_id,
@@ -230,8 +237,18 @@ def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) 
     _sprint_deciders[(competition_id, round_name)] = deciders
 
 
-def _base_estimate(competition_id: int, session_id: int, event: Event, use_learned: bool) -> tuple[float, int | None]:
+def _base_estimate(
+    competition_id: int,
+    session_id: int,
+    event: Event,
+    use_learned: bool,
+    bunch: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
+) -> tuple[float, int | None]:
     """Pre-result duration and heat count: heat count × per-heat + changeover, else the default.
+
+    bunch is the competition's bunch-race changeover (bunch_changeover). Defaults and
+    learned averages for Finish-Time races include the static changeover, so it's
+    swapped for bunch.
 
     A points or scratch race with a start-list distance runs at BUNCH_RACE_KMH.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs).
@@ -242,7 +259,7 @@ def _base_estimate(competition_id: int, session_id: int, event: Event, use_learn
     if event.discipline in DISTANCE_DISCIPLINES and (
         km := _race_distances.get((competition_id, session_id, event.position))
     ):
-        return km / BUNCH_RACE_KMH * 60 + get_changeover(event.discipline), None
+        return km / BUNCH_RACE_KMH * 60 + bunch, None
     hc = get_heat_count(competition_id, session_id, event.position)
     is_sprint = event.discipline == "sprint_match"
     pairs = hc if hc is not None or not is_sprint else sprint_round_pairs(event.name)
@@ -258,8 +275,9 @@ def _base_estimate(competition_id: int, session_id: int, event: Event, use_learn
     if hc is None and pairs is not None:
         return pairs * get_per_heat_duration(event.discipline), None
     if hc is not None:
-        return hc * get_per_heat_duration(event.discipline) + get_changeover(event.discipline), hc
-    return _get_duration(event.discipline, use_learned), None
+        return hc * get_per_heat_duration(event.discipline) + _changeover(event.discipline, bunch), hc
+    shift = _changeover(event.discipline, bunch) - get_changeover(event.discipline)
+    return _get_duration(event.discipline, use_learned) + shift, None
 
 
 def is_start_list_cached(competition_id: int, session_id: int, position: int) -> bool:
@@ -329,9 +347,38 @@ def get_rider_match(
     return None
 
 
-def get_observed_duration(competition_id: int, session_id: int, position: int) -> float | None:
-    """Return the cached observed slot duration in minutes, or None if not yet recorded."""
-    return _observed_durations.get((competition_id, session_id, position))
+def bunch_changeover(competition_id: int, sessions: list[Session]) -> float:
+    """
+    The competition's bunch-race changeover: median (Generated gap − Finish Time).
+
+    Samples are bunch races (FINISH_TIME_DISCIPLINES) straight after another bunch race
+    with its own result page, with an overhead in [0, MAX_CHANGEOVER_MINUTES]. Races
+    after a sprint or timed event also include staging the field, so they're left out.
+    Returns LIVE_BUNCH_CHANGEOVER_MINUTES until there are MIN_CHANGEOVER_SAMPLES.
+    """
+    samples = []
+    for s in sessions:
+        for prev, e in zip(s.events, s.events[1:], strict=False):
+            if e.discipline not in FINISH_TIME_DISCIPLINES or prev.discipline not in FINISH_TIME_DISCIPLINES:
+                continue
+            if prev.result_url is None or prev.result_url == e.result_url:
+                continue
+            finish = _finish_times.get((competition_id, s.session_id, e.position))
+            t0 = _generated_times.get((competition_id, s.session_id, prev.position))
+            t1 = _generated_times.get((competition_id, s.session_id, e.position))
+            if finish is None or t0 is None or t1 is None:
+                continue
+            overhead = (t1 - t0).total_seconds() / 60.0 - finish
+            if 0 <= overhead <= MAX_CHANGEOVER_MINUTES:
+                samples.append(overhead)
+    if len(samples) < MIN_CHANGEOVER_SAMPLES:
+        return LIVE_BUNCH_CHANGEOVER_MINUTES
+    return median(samples)
+
+
+def _changeover(discipline: str, bunch: float) -> float:
+    """Changeover for a discipline: the calibrated bunch value for Finish-Time races, else static."""
+    return bunch if discipline in FINISH_TIME_DISCIPLINES else get_changeover(discipline)
 
 
 def generated_gap_duration(
@@ -427,6 +474,7 @@ def predict_session(
     use_learned: bool = False,
     rider_list_matches: dict[tuple[int, int], RiderMatch] | None = None,
     ceremony_podiums: dict[tuple[int, int], int] | None = None,
+    changeover: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -447,6 +495,7 @@ def predict_session(
             keyed by (session_id, position); used for events without start-list riders.
     ceremony_podiums: forecast podiums per medal ceremony from ceremonies.forecast_podiums,
             keyed by (session_id, position).
+    changeover: the competition's bunch-race changeover from bunch_changeover.
     """
     # Pre-tokenize racer name once for the entire session (avoids re-normalizing per event)
     user_tokens = normalize_rider_name(racer_name) if racer_name and racer_name.strip() else None
@@ -477,13 +526,14 @@ def predict_session(
         # (not learned averages).  Learned data may itself be corrupted by bad
         # gen-duration observations from earlier runs, so it must not influence
         # the bounds used to validate new observations.
-        expected, _ = _base_estimate(competition_id, session.session_id, events[i], use_learned=False)
+        expected, _ = _base_estimate(competition_id, session.session_id, events[i], False, changeover)
         mins = generated_gap_duration(t0, t1, expected)
         if mins is not None:
             gen_durations[i] = mins
 
     for i, e in enumerate(events):
-        observed = get_observed_duration(competition_id, session.session_id, e.position)
+        finish = _finish_times.get((competition_id, session.session_id, e.position))
+        observed = None if finish is None else finish + _changeover(e.discipline, changeover)
         podiums = (ceremony_podiums or {}).get((session.session_id, e.position))
         podium_list.append(podiums)
         if podiums is not None:
@@ -499,7 +549,7 @@ def predict_session(
             is_observed_list.append(True)
             heat_count_list.append(None)
         else:
-            dur, hc = _base_estimate(competition_id, session.session_id, e, use_learned)
+            dur, hc = _base_estimate(competition_id, session.session_id, e, use_learned, changeover)
             durations.append(dur)
             is_observed_list.append(False)
             heat_count_list.append(hc)
@@ -657,6 +707,7 @@ def predict_schedule(
         rider_list_matches = match_events(rider_entry, sessions)
     categories = {(s, p): c for (comp, s, p), c in _start_list_categories.items() if comp == competition_id}
     ceremony_podiums = forecast_podiums(sessions, categories, rider_list)
+    changeover = bunch_changeover(competition_id, sessions)
 
     session_predictions = []
     total_events_without_start_lists = 0
@@ -676,6 +727,7 @@ def predict_schedule(
             use_learned=use_learned,
             rider_list_matches=rider_list_matches,
             ceremony_podiums=ceremony_podiums,
+            changeover=changeover,
         )
         session_predictions.append(sp)
         total_events_without_start_lists += sp.events_without_start_lists
