@@ -51,7 +51,13 @@ When a match is found:
 
 The `r=` parameter is passed through to the HTMX refresh endpoint so highlighting persists across auto-refreshes.
 
-**If start lists aren't published yet**, the app shows a message indicating how many events are still missing start lists. Check back closer to the competition start.
+**If start lists aren't published yet**, the app falls back to the competition's Rider List when it publishes one (some competitions only post start lists after each session's sign-on). The Rider List gives each rider's category and entered events, so events in your age band, gender and entered disciplines are highlighted without heat information:
+
+- **Entered**: qualifying rounds, and events that are the only one for your band and discipline
+- **If advancing**: later rounds you only ride if you get through, shown without the row highlight
+- When you're in one of several qualifiers (e.g. Scratch Race Qualifier 1 and 2), both are marked Entered and your next race gives the first one's time as a "be ready by" time
+
+A banner names the category and event codes used (e.g. "M6064: S, TS, TT") so a wrong-person match is obvious. Each event switches to start-list matching once its start list is posted. Only masters age-band categories (`M6064`, `W4549`, `M90`) are matched for now. Without a Rider List, or for other categories, the app shows how many events are still missing start lists; check back closer to the competition start.
 
 ## Setup
 
@@ -95,7 +101,7 @@ Tests use a temporary SQLite database and captured fixtures in `tests/fixtures/`
 
 ## Palmares
 
-When a racer is identified on a schedule page and matched to a timed event (pursuit, team pursuit, team sprint or time trial) that has published audit results, the event is saved to that racer's palmares. The palmares page groups these by competition. It offers a shareable link, CSV export of the racer's (or team's) lap and sector splits, and, for the racer whose name is in the cookie, renaming or removing a competition.
+When a racer is identified on a schedule page and matched on a start list to a timed event (pursuit, team pursuit, team sprint or time trial) that has published audit results, the event is saved to that racer's palmares. The palmares page groups these by competition. It offers a shareable link, CSV export of the racer's (or team's) lap and sector splits, and, for the racer whose name is in the cookie, renaming or removing a competition.
 
 ## Project layout
 
@@ -106,6 +112,7 @@ app/
 ├── fetcher.py       # HTTP client for tracktiming.live API
 ├── parser.py        # HTML parsing of Jaxon AJAX responses
 ├── predictor.py     # Prediction algorithm and live delay detection
+├── rider_list.py    # Rider List fallback matching (age band, gender, event codes)
 ├── disciplines.py   # Discipline detection and default duration estimates
 ├── categorizer.py   # Compositional event name parser (bilingual, used by tools/)
 ├── database.py      # SQLite/DynamoDB storage for learned durations

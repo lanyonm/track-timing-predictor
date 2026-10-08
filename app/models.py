@@ -60,25 +60,42 @@ def normalize_rider_name(raw_name: str) -> frozenset[str]:
     return frozenset(t.lower() for t in normalized.split())
 
 
-class RiderEntry(BaseModel):
+class _NamedRider(BaseModel):
+    """A rider name plus its normalized tokens, computed from the name when not given."""
+
     name: str
-    heat: int = Field(ge=1)
     normalized_tokens: frozenset[str] = frozenset()
-    team_name: str | None = None
 
     @model_validator(mode="after")
-    def _compute_tokens(self) -> RiderEntry:
+    def _compute_tokens(self) -> _NamedRider:
         if not self.normalized_tokens:
             tokens = normalize_rider_name(self.name)
             object.__setattr__(self, "normalized_tokens", tokens)
         return self
 
 
-class RiderMatch(BaseModel):
+class RiderEntry(_NamedRider):
     heat: int = Field(ge=1)
-    heat_count: int = Field(ge=1)
+    team_name: str | None = None
+
+
+class RiderListEntry(_NamedRider):
+    """One row of a competition's Rider List: a rider's category and entered event codes."""
+
+    category: str
+    codes: frozenset[str]
+
+
+class RiderMatch(BaseModel):
+    heat: int | None = Field(default=None, ge=1)  # None for Rider List matches
+    heat_count: int | None = Field(default=None, ge=1)
     heat_predicted_start: datetime | None = None
     team_name: str | None = None
+    source: Literal["start_list", "rider_list"] = "start_list"
+    tentative: bool = False  # Rider List match for a later round ("if advancing")
+    # Rider List match for one of several numbered qualifiers; the rider rides only one,
+    # so its start time is a be-ready-by time
+    parallel_qualifier: bool = False
 
 
 class Prediction(BaseModel):
@@ -115,10 +132,12 @@ class SessionPrediction(BaseModel):
 
 class NextRace(BaseModel):
     event_name: str
-    heat: int = Field(ge=1)
-    heat_count: int = Field(ge=1)
+    heat: int | None = Field(default=None, ge=1)
+    heat_count: int | None = Field(default=None, ge=1)
     predicted_start: datetime | None = None
     is_active: bool = False
+    tentative: bool = False
+    parallel_qualifier: bool = False
 
 
 class SchedulePrediction(BaseModel):
@@ -129,6 +148,9 @@ class SchedulePrediction(BaseModel):
     events_without_start_lists: int = 0
     total_events: int = 0
     next_race: NextRace | None = None
+    tentative_match_count: int = 0
+    rider_list_match_count: int = 0
+    rider_list_entry: RiderListEntry | None = None  # Set only when a Rider List match exists
 
 
 # ---------------------------------------------------------------------------

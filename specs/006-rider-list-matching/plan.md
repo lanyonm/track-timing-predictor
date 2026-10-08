@@ -5,11 +5,11 @@
 
 ## Summary
 
-When a competition publishes a Rider List (in the Event Documents block) and events have no start-list riders, find the racer's row, take their masters age band and entered event codes, and match them against schedule events by age band, gender and discipline code. Matches are "entered" (Qualifying, Qualifier N, or the only event in its group) or "if advancing", carry no heat, and are rendered with new badges and a replacement banner. The Rider List is fetched once per container, concurrently with the existing upstream fetches, and cached by URL.
+When a competition publishes a Rider List (in the Event Documents block) and events have no start-list riders, find the racer's row, take their masters age band and entered event codes, and match them against schedule events by age band, gender and discipline code. Matches are "entered" (Qualifying, Qualifier N, or the rider's only matched event for that code) or "if advancing", carry no heat, and are rendered with new badges and a replacement banner. The Rider List is fetched once per container, concurrently with the existing upstream fetches, and cached by URL.
 
 ## Technical Context
 
-**Language/Version**: Python 3.11
+**Language/Version**: Python 3.13
 **Primary Dependencies**: FastAPI, httpx, BeautifulSoup4, Pydantic, Jinja2 (all existing; nothing new)
 **Storage**: None new. The in-memory `_rider_lists` cache lives in `app/predictor.py`
 **Testing**: pytest with captured fixtures (`tests/fixtures/*26037*`)
@@ -80,7 +80,7 @@ specs/006-rider-list-matching/
 app/
 ├── models.py            # + RiderListEntry; RiderMatch/NextRace optional heat, source, tentative; SchedulePrediction fields
 ├── parser.py            # + parse_rider_list_url, parse_rider_list
-├── rider_list.py        # NEW: bands, code map, certainty, match_event (pure)
+├── rider_list.py        # NEW: bands, code map, certainty, match_events (pure)
 ├── predictor.py         # + _rider_lists cache; has_start_list_riders non-empty; rider-list branch in predict_session; next race/tentative counts
 ├── main.py              # + _fetch_rider_list; resolve racer before gather; palmares skips rider_list matches; log fields
 └── templates/_schedule_body.html   # badges, banners, None-safe heat checks
@@ -100,7 +100,7 @@ CLAUDE.md, README.md     # docs in the same commit
 ## Implementation Notes
 
 - `has_start_list_riders` changes to non-empty. Check the existing tests that seed `[]`; `get_rider_match` already returns None for empty lists.
-- `predict_schedule` builds `group_counts` once over all sessions and finds the racer's `RiderListEntry` once (`find_rider`). If the category has no band, treat it as no entry. `predict_session` receives both.
+- `predict_schedule` finds the racer's `RiderListEntry` once (`find_rider`) and computes `match_events` once over all sessions. If the category has no band, treat it as no entry. `predict_session` receives the matches dict.
 - Next race: the existing active/upcoming selection is unchanged, and `_build_next_race` copies `tentative`. Heat fields can be None.
 - Template: test `source == 'rider_list'` before comparing `heat_count` (Jinja raises on `None > 1`).
 - `refresh_schedule` currently resolves the racer after the `gather`; move it before, to decide whether to fetch.

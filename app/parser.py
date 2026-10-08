@@ -5,7 +5,7 @@ from datetime import datetime, time
 from bs4 import BeautifulSoup, Tag
 
 from app.disciplines import SPECIAL_EVENT_NAMES, detect_discipline, pursuit_discipline_from_urls
-from app.models import Event, EventStatus, RiderEntry, Session, normalize_rider_name
+from app.models import Event, EventStatus, RiderEntry, RiderListEntry, Session, normalize_rider_name
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +225,55 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
         logger.warning("parse_start_list_riders found 0 riders in HTML with %d rows", len(soup.find_all("tr")))
 
     return riders
+
+
+# Inline base64 flag images make up ~95% of a Rider List page's bytes.
+_DATA_IMG_RE = re.compile(r'<img[^>]*src="data:[^"]*"[^>]*>')
+
+
+def parse_rider_list_url(jxn_data: dict) -> str | None:
+    """Return the href of the "Rider List" row in the top-level ``documents`` jxnobj, or None.
+
+    The Event Documents block appears in both initial-layout and refresh responses.
+    The row is matched on its label because other documents (Medal Standings,
+    communiqués) share the table and refresh responses prepend a live-results banner.
+    """
+    try:
+        html = _extract_section_html(jxn_data, "documents")
+    except ValueError:
+        return None
+    for row in BeautifulSoup(html, "html.parser").find_all("tr"):
+        h4 = row.find("h4")
+        link = row.find("a", href=True)
+        if h4 and link and h4.get_text(strip=True) == "Rider List":
+            return str(link["href"])
+    return None
+
+
+def parse_rider_list(html: str) -> list[RiderListEntry]:
+    """
+    Parse a competition's Rider List page into entries.
+
+    Each ``tbody`` row has cells: 0 bib, 1 name, 2 category, 3 team, 4 flag image,
+    5 nation code, 6 whitespace-separated event codes. Rows with fewer than seven
+    cells or an empty name or category are skipped. Returns an empty list if no rows match.
+    """
+    soup = BeautifulSoup(_DATA_IMG_RE.sub("", html), "html.parser")
+    entries: list[RiderListEntry] = []
+    for row in soup.select("tbody tr"):
+        cells = row.find_all("td")
+        if len(cells) < 7:
+            continue
+        name = cells[1].get_text(" ", strip=True)
+        category = cells[2].get_text(strip=True)
+        if not name or not category:
+            continue
+        entries.append(RiderListEntry(name=name, category=category, codes=frozenset(cells[6].get_text().split())))
+
+    if not entries and soup.find("tr"):
+        logger.warning("parse_rider_list found 0 riders in HTML with %d rows", len(soup.find_all("tr")))
+
+    return entries
 
 
 def parse_heat_count(html: str) -> int | None:

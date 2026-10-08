@@ -20,6 +20,11 @@
 - Q: Should a start list that downloads but yields 0 riders supersede the Rider List? → A: No. A start list with 0 parsed riders is treated as absent: the Rider List fallback applies and the event counts toward "events without start lists".
 - Q: Should sprint "Ride 3" (only ridden if tied 1–1) get its own label? → A: No. All later-round rides, including Ride 3, use "If advancing".
 
+### Session 2026-10-08 (post-implementation review)
+
+- Q: A rider rides only one of several numbered qualifiers (Scratch Race Qualifier 1 and 2). How should that show? → A: Both stay "Entered", but the next-race time isn't definite: it's the time to be ready by, shown as "Your next race: … Qualifier 1 (or a later qualifier), be ready by HH:MM".
+- Q: Are an empty start list and no start list different? → A: No, they are equivalent.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - See my events before start lists are posted (Priority: P1)
@@ -102,12 +107,13 @@ The banners above the schedule tell the racer that matches came from the Rider L
 - **FR-007**: System MUST derive the racer's age band and gender only from categories of the form `M`/`W` + four digits (band lo–hi) or `M`/`W` + two digits (band lo and over).
 - **FR-008**: System MUST match a non-special event from the Rider List only when the event has no start-list riders (no start list, a failed download, or a start list yielding 0 riders), its name contains an age band (`NN-NN` or `NN+`) that contains the racer's band, its gender matches the racer's, and its discipline corresponds to one of the racer's entered codes.
 - **FR-009**: Code-to-discipline correspondence MUST be: S → sprint; TT → time trial (kilo, 750m, 500m); IP → individual pursuit; TP → team pursuit; TS → team sprint; SCR → scratch race; PTS → points race. Other codes MUST be ignored.
-- **FR-010**: A Rider List match MUST be "entered" when the event is a Qualifying round, a numbered Qualifier, or the only event in the competition for its age band, gender and entered event type (Rider List code, so sprint qualifying and sprint match rounds share one group); otherwise it MUST be "if advancing". This includes sprint "Ride 3", which gets no separate label.
+- **FR-010**: A Rider List match MUST be "entered" when the event is a Qualifying round, a numbered Qualifier, or the only event the rider matches for that entered event type (Rider List code, so sprint qualifying and sprint match rounds share one group, and overlapping bands such as 55+ and 65+ share one group); otherwise it MUST be "if advancing". This includes sprint "Ride 3", which gets no separate label.
 - **FR-011**: Rider List matches MUST NOT carry heat information or a per-heat start time.
 - **FR-012**: Rider List matches MUST count toward the found-events count, the next race selection and session auto-open, and MUST NOT create palmares entries.
 - **FR-013**: The schedule MUST show an "Entered" badge with the racer row tint for entered matches, and an "If advancing" badge (visually weaker) with no row tint for tentative matches. Start-list match badges are unchanged.
 - **FR-014**: When any Rider List match exists, the schedule MUST replace the start-list warnings with an info line naming the category and entered codes used.
 - **FR-015**: The found-events line MUST append "(M if advancing)" when M tentative matches exist; the next race line MUST append "(if advancing)" when the next match is tentative.
+- **FR-016**: When the rider matches more than one numbered qualifier for an entered code, those matches MUST be flagged as parallel qualifiers. When the next match is one, the next race line MUST read "Your next race: {event} (or a later qualifier), be ready by HH:MM" ("Racing now: {event} (or a later qualifier)" when active), since the rider rides only one of them.
 
 ### Key Entities
 

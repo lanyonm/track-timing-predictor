@@ -82,7 +82,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 **Request flow (`/schedule/{event_id}`):**
 1. `fetcher.fetch_initial_layout` POSTs to the Jaxon endpoint (refresh uses `fetch_refresh`).
 2. `parser.parse_schedule` turns the HTML into `Session`/`Event` models.
-3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches.
+3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. When a racer is set and some race has no start-list riders, the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
 4. `predictor.predict_schedule` builds a `SchedulePrediction`.
 5. Jinja2 renders `schedule.html`; HTMX polls `/schedule/{id}/refresh`, which returns `_schedule_body.html`.
 
@@ -91,6 +91,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 - The schedule HTML is either a top-level `id="scheduleview"` object or nested in `id="dynarea"` (the live API). The parser handles both.
 - Status comes from the event's row buttons (no `disabled` class): `btn-success` means COMPLETED (href is the result page), `btn-primary` means UPCOMING (href is the start list), `btn-info` is the audit page, and `btn-danger` is the live timing page. Anything else is NOT_READY.
 - The session summary looks like `"Schedule - Friday - 08:15"`; times are venue-local and naive.
+- Both responses carry a top-level `documents` jxnobj (Event Documents table). `parser.parse_rider_list_url` takes the `href` of the row whose `<h4>` is `Rider List` (e.g. `results/E26037/X-RIDERLIST-0-0-S.htm`). Rider List rows are `tbody tr` with cells bib, name, category, team, flag image, nation, space-separated event codes; `parser.parse_rider_list` strips the inline base64 flag images first.
 
 **Routes:**
 
@@ -112,7 +113,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 **Cookies:** `racer_name` (`b64.` + unpadded URL-safe Base64 of the name, since Starlette encodes headers as Latin-1; legacy raw-name values are still read and rewritten on the next schedule view; 1 year, HttpOnly, Secure, Lax); `use_learned` (`"true"` when on; off by default); `theme` (`light`/`dark`, set client-side, 1 year).
 
-**In-memory caches** (`predictor.py`, keyed by `(competition_id, session_id, position)`, unbounded, per Lambda container): `_status_cache` (status transitions for wall-clock learning), `_observed_durations`, `_heat_counts`, `_live_heats`, `_generated_times`, `_start_list_riders`.
+**In-memory caches** (`predictor.py`, keyed by `(competition_id, session_id, position)`, unbounded, per Lambda container): `_status_cache` (status transitions for wall-clock learning), `_observed_durations`, `_heat_counts`, `_live_heats`, `_generated_times`, `_start_list_riders` (an empty list counts as no start list: `has_start_list_riders` is false and it is refetched, except for COMPLETED events, whose start list is fetched once; an empty parse never replaces cached riders). `_rider_lists` is keyed by Rider List URL instead and holds non-empty lists forever (the file is immutable for a competition); a failed fetch or 0-row parse goes in `_rider_list_retry_at` and isn't retried for `RIDER_LIST_RETRY_SECONDS` (10 min).
 
 **Duration source priority** (`predictor.predict_session`):
 1. Observed: result-page Finish Time + changeover (bunch races).
@@ -135,8 +136,14 @@ The UI labels these as **obs.** (1–2), **N heats** (3) and **est.** (4).
 - `categorizer.categorize_event` is a bilingual strip-and-match parser. It extracts special event → omnium part → ride number → round → classification → gender → discipline, then maps pursuits to `pursuit_4k`/`3k`/`2k`, and returns `(EventCategory, unresolved_text)`. Only `tools/` use it.
 - Individual pursuit distance: both classifiers' name-based guess is overridden by `disciplines.pursuit_discipline_from_urls` whenever the event has any URL, since upstream page names encode the distance (`W4044-IP-3000-Q-0-R.htm`). `parser.parse_schedule` and `tools.extract_competition` apply it. Names alone guess wrong for masters age groups, Junior Women, U17 Men and French names.
 
+**Rider List matching** (`rider_list.py`, pure functions; wired in by `predictor.predict_schedule(..., rider_list=)`):
+- For a non-special event with no start-list riders, the racer's Rider List row (`find_rider`, same token matching as start lists) is matched by age band, gender and event code. A start list with riders always wins, even if the racer isn't on it.
+- Scope is EventId 26037's formats only: categories `[MW]NNNN` (lo–hi) or `[MW]NN` (lo and over), event names with `NN-NN`/`NN+` then `Men`/`Women`, and codes S TT IP TP TS SCR PTS (`CODE_DISCIPLINES`). Other categories (e.g. 26008's `ME`, `MU17`) and codes produce no match. The event band must contain the rider's band.
+- `match_events` decides certainty per code over the events this rider matches: a lone event is **Entered**; otherwise Qualifying/Qualifier N rounds are Entered and the rest **If advancing** (`RiderMatch.tentative`). Per-rider grouping keeps finals tentative when overlapping open bands (55+ and 65+) share a qualifying round. Matches have `source="rider_list"` and no heat; next race uses the event's predicted start. When the rider matches several numbered qualifiers for a code (e.g. Scratch Race Qualifier 1 and 2), they ride only one, so those matches set `parallel_qualifier` and next race reads "… (or a later qualifier), be ready by HH:MM".
+- The template replaces the start-list warnings with an info line naming the category and codes (`SchedulePrediction.rider_list_entry`, set only when a Rider List match exists). Rider List matches never create palmares entries.
+
 **Palmares** (`palmares.py`; DynamoDB when `PALMARES_TABLE` is set, otherwise SQLite `palmares_entries`):
-- Collected automatically on schedule views when a racer is identified and matched to a timed event that has an audit URL.
+- Collected automatically on schedule views when a racer is identified and matched on a start list to a timed event that has an audit URL.
 - Timed disciplines are listed in `_TIMED_DISCIPLINES` in `main.py`: pursuits, `team_pursuit`, `team_sprint` and time trials.
 - Team start lists pack the team name and riders into `<h4>` separated by `<br/>`; `parser._extract_names_from_h4` splits them, and `team_name` is stored because audit pages use team names.
 - The competition date is the earliest result-page Generated timestamp.

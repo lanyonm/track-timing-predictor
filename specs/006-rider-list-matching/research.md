@@ -46,9 +46,9 @@ All findings come from EventId 26037, captured on 2026-10-06 while sessions 1–
 
 ## R4: Fetch cost and caching
 
-**Decision**: Cache the parsed entries by Rider List URL in a module-level dict for the life of the container, with no TTL. Cache a successful parse even when it yields 0 rows (with a warning). Don't cache a failed fetch, so the next request retries.
+**Decision**: Cache the parsed entries by Rider List URL in a module-level dict for the life of the container, with no TTL. A failed fetch or a 0-row parse (with a warning) isn't cached; instead the URL isn't retried for 10 minutes (`_rider_list_retry_at`).
 
-**Rationale**: The download is 417 KB gzip and takes about 1.1–1.3 s. The file is immutable, according to the user. In-memory caching matches the existing predictor caches (`_start_list_riders` and the rest). A 0-row parse is deterministic for an immutable file, so retrying it would only repeat a 1 s download every 30 s.
+**Rationale**: The download is 417 KB gzip and takes about 1.1–1.3 s. The file is immutable, according to the user. In-memory caching matches the existing predictor caches (`_start_list_riders` and the rest). A 0-row parse may be a placeholder served before the list is uploaded, and a failing URL may hang for the full 15 s timeout, so both are retried on a 10-minute interval rather than on every 30 s poll or never (changed after code review).
 
 **Alternatives considered**: A TTL was dropped after the user confirmed the file doesn't change. Persisting the cache in DynamoDB or SQLite was rejected: it adds a storage concern for a value that costs one download per container.
 
@@ -86,7 +86,7 @@ All findings come from EventId 26037, captured on 2026-10-06 while sessions 1–
 | `scratch_race` | SCR |
 | `points_race` | PTS |
 
-The "only event in its group" certainty rule groups on **(band, gender, code)**, not on discipline key.
+The "only event in its group" certainty rule groups on **code over the events the rider matches**, not on discipline key.
 
 **Rationale**: Sprint qualifying and sprint match rounds have different discipline keys. Grouping by discipline would wrongly make every sprint group look like it has only one event. Keys not seen in 26037 (`pursuit_4k`, `time_trial_generic`, `keirin`, etc.) are left out of the map, per the user's narrow-scope instruction.
 
@@ -97,13 +97,13 @@ The "only event in its group" certainty rule groups on **(band, gender, code)**,
 
 ## R9: Certainty
 
-**Decision**: The match is entered when the name matches `\bQualif(?:ying|ier\s+\d+)\b` (case-insensitive) or its (band, gender, code) group has exactly one event in the whole competition. Otherwise it is if advancing.
+**Decision**: For each entered code, collect the events the rider matches. A lone event is entered. Otherwise the events whose name matches `\bQualif(?:ying|ier\s+\d+)\b` (case-insensitive) are entered and the rest are if advancing.
 
-**Rationale**: This implements FR-010. The prototype on 26037 shows sprint rides, pursuit/TP/TS finals, and points/scratch finals with qualifiers all come out as if advancing, while solo TT and points finals are entered.
+**Rationale**: This implements FR-010. The first version counted events per (event band, gender, code) across the competition, which code review showed mislabels overlapping open bands: TRAN Lan (W7579, TS) falls inside both 55+ and 65+ Women, and "65+ Women Team Sprint Final" was the only event in its own band, so it came out entered even though it depends on the shared "55+ Women Team Sprint Qualifying". Grouping per rider makes both finals if advancing. On 26037, sprint rides, pursuit/TP/TS finals, and points/scratch finals with qualifiers come out as if advancing, while solo TT and points finals are entered.
 
 ## R10: Empty start lists
 
-**Decision**: A start list cached with 0 riders counts as no start list, both for the Rider List fallback and for `events_without_start_lists`. `_fetch_start_lists` refetches start lists cached as empty.
+**Decision**: A start list cached with 0 riders counts as no start list, both for the Rider List fallback and for `events_without_start_lists`. `_fetch_start_lists` refetches start lists cached as empty, except for COMPLETED events, whose start list is fetched once. An empty parse never replaces riders already cached for an event (changed after code review).
 
 **Rationale**: This implements the clarification. Refetching an empty start list costs one small request per refresh, and it also picks up a start list that gets filled in later, which the current code never does.
 

@@ -9,14 +9,17 @@ from app.models import (
     Event,
     EventStatus,
     RiderEntry,
+    RiderListEntry,
     RiderMatch,
     Session,
     normalize_rider_name,
 )
 from app.predictor import (
     _heat_counts,
+    _rider_lists,
     _start_list_riders,
     get_rider_match,
+    has_start_list_riders,
     predict_schedule,
     predict_session,
     record_heat_count,
@@ -35,12 +38,13 @@ DISCIPLINE = "keirin"
 
 @pytest.fixture(autouse=True)
 def clear_caches():
-
     _start_list_riders.clear()
     _heat_counts.clear()
+    _rider_lists.clear()
     yield
     _start_list_riders.clear()
     _heat_counts.clear()
+    _rider_lists.clear()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -253,6 +257,15 @@ class TestNextRace:
         # Only the keirin at position 0 should count as missing a start list
         assert result.events_without_start_lists == 1
 
+    def test_empty_start_list_counts_as_absent(self):
+        """A start list that parsed to 0 riders is treated as no start list."""
+        record_start_list_riders(COMP_ID, SESSION_ID, 0, [])
+        assert has_start_list_riders(COMP_ID, SESSION_ID, 0) is False
+
+        session = make_session(events=[make_event(position=0)])
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall")
+        assert sp.events_without_start_lists == 1
+
     def test_has_racer_match_on_session_prediction(self):
         """SessionPrediction.has_racer_match is True when a rider match exists."""
         events = [
@@ -348,3 +361,177 @@ class TestNextRace:
 
         for pred in sp.event_predictions:
             assert pred.is_active is False
+
+
+# ── TestRiderListFallback ────────────────────────────────────────────────────
+
+ABERS = RiderListEntry(name="ABERS Brian", category="M6064", codes=frozenset({"S", "TS", "TT"}))
+
+
+def rl_event(
+    position: int,
+    name: str,
+    discipline: str,
+    status: EventStatus = EventStatus.NOT_READY,
+    start_list_url: str | None = None,
+    is_special: bool = False,
+) -> Event:
+    return make_event(
+        position=position,
+        name=name,
+        discipline=discipline,
+        status=status,
+        start_list_url=start_list_url,
+        is_special=is_special,
+    )
+
+
+def rl_predict(events: list[Event], rider_list: list[RiderListEntry] | None = None, racer: str = "Brian Abers"):
+    session = make_session(events=events)
+    return predict_schedule(COMP_ID, [session], now=None, racer_name=racer, rider_list=rider_list)
+
+
+class TestRiderListFallback:
+    """Rider List matching inside predict_session / predict_schedule."""
+
+    def test_no_start_list_matches_from_rider_list(self):
+        result = rl_predict([rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying")], [ABERS])
+        match = result.sessions[0].event_predictions[0].rider_match
+        assert match is not None
+        assert match.source == "rider_list"
+        assert match.tentative is False
+
+    def test_start_list_supersedes_rider_list(self):
+        seed_riders(0, [("SMITH John", 1)])
+        result = rl_predict(
+            [rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying", start_list_url="sl.htm")], [ABERS]
+        )
+        assert result.sessions[0].event_predictions[0].rider_match is None
+        assert result.match_count == 0
+
+    def test_empty_start_list_falls_back(self):
+        record_start_list_riders(COMP_ID, SESSION_ID, 0, [])
+        result = rl_predict(
+            [rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying", start_list_url="sl.htm")], [ABERS]
+        )
+        match = result.sessions[0].event_predictions[0].rider_match
+        assert match is not None
+        assert match.source == "rider_list"
+        assert result.events_without_start_lists == 1
+
+    def test_special_event_never_matches(self):
+        result = rl_predict(
+            [rl_event(0, "60-64 Men Sprint Qualifying", "ceremony", is_special=True)],
+            [ABERS],
+        )
+        assert result.sessions[0].event_predictions[0].rider_match is None
+
+    def test_counts_and_pending_flag(self):
+        result = rl_predict([rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying")], [ABERS])
+        assert result.match_count == 1
+        assert result.sessions[0].has_pending_racer_match is True
+
+    def test_unbanded_category_no_match(self):
+        elite = RiderListEntry(name="ABERS Brian", category="Elite", codes=frozenset({"S"}))
+        result = rl_predict([rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying")], [elite])
+        assert result.match_count == 0
+        assert result.rider_list_entry is None
+
+    def test_completed_event_matches_same_rules(self):
+        result = rl_predict(
+            [rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying", status=EventStatus.COMPLETED)], [ABERS]
+        )
+        match = result.sessions[0].event_predictions[0].rider_match
+        assert match is not None
+        assert match.source == "rider_list"
+        assert result.sessions[0].has_pending_racer_match is False
+
+    def test_no_rider_list_unchanged(self):
+        events = [rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying")]
+        baseline = rl_predict(events, None)
+        assert baseline.match_count == 0
+        assert baseline.events_without_start_lists == 1
+        assert baseline.rider_list_entry is None
+        # A Rider List without the racer leaves the prediction exactly as without one.
+        other = RiderListEntry(name="SMITH John", category="M6064", codes=frozenset({"S"}))
+        assert rl_predict(events, [other]) == baseline
+
+    def test_tentative_counts(self):
+        result = rl_predict(
+            [
+                rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying"),
+                rl_event(1, "60-64 Men Sprint Final Ride 1", "sprint_match"),
+            ],
+            [ABERS],
+        )
+        assert result.match_count == 2
+        assert result.tentative_match_count == 1
+
+    def test_pending_tentative_sets_pending_flag(self):
+        events = [
+            rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying", status=EventStatus.COMPLETED),
+            rl_event(1, "60-64 Men Sprint Final Ride 1", "sprint_match"),
+        ]
+        sp = rl_predict(events, [ABERS]).sessions[0]
+        assert sp.event_predictions[1].rider_match is not None
+        assert sp.event_predictions[1].rider_match.tentative is True
+        assert sp.has_pending_racer_match is True
+
+    def test_rider_list_entry_set_only_with_match(self):
+        matched = rl_predict([rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying")], [ABERS])
+        assert matched.rider_list_entry == ABERS
+        unmatched = rl_predict([rl_event(0, "60-64 Men Pursuit Qualifying", "pursuit_3k")], [ABERS])
+        assert unmatched.match_count == 0
+        assert unmatched.rider_list_entry is None
+
+    def test_tentative_next_race(self):
+        events = [
+            rl_event(0, "60-64 Men Sprint Qualifying", "sprint_qualifying", status=EventStatus.COMPLETED),
+            rl_event(1, "60-64 Men Sprint Final Ride 1", "sprint_match"),
+        ]
+        session = make_session(events=events, scheduled_start=time(18, 0))
+        now = datetime(2024, 6, 1, 17, 0, 0)
+        result = predict_schedule(COMP_ID, [session], now=now, racer_name="Brian Abers", rider_list=[ABERS])
+        nr = result.next_race
+        assert nr is not None
+        assert nr.event_name == "60-64 Men Sprint Final Ride 1"
+        assert nr.tentative is True
+        assert nr.heat is None
+        assert nr.heat_count is None
+        # Event start, not a per-heat time: the slot after the qualifying round.
+        pred = result.sessions[0].event_predictions[1]
+        assert nr.predicted_start == now.replace(hour=pred.predicted_start.hour, minute=pred.predicted_start.minute)
+
+    def test_active_start_list_match_keeps_priority(self):
+        events = [
+            make_event(position=0, name="Elite Men Sprint", discipline="sprint_match", status=EventStatus.COMPLETED),
+            make_event(position=1, name="60-64 Men Sprint Qualifying", discipline="sprint_qualifying"),
+            rl_event(2, "60-64 Men 500m Time Trial Final", "time_trial_500"),
+        ]
+        seed_riders(1, [("ABERS Brian", 1)])
+        session = make_session(events=events, scheduled_start=time(18, 0))
+        now = datetime(2024, 6, 1, 18, 15, 0)
+        result = predict_schedule(COMP_ID, [session], now=now, racer_name="Brian Abers", rider_list=[ABERS])
+        assert result.next_race is not None
+        assert result.next_race.event_name == "60-64 Men Sprint Qualifying"
+        assert result.next_race.is_active is True
+        assert result.next_race.tentative is False
+        assert result.match_count == 2
+
+    def test_parallel_qualifier_next_race(self):
+        scr = RiderListEntry(name="ABERS Brian", category="M6064", codes=frozenset({"SCR"}))
+        events = [
+            rl_event(0, "60-64 Men Scratch Race Qualifier 1", "scratch_race"),
+            rl_event(1, "60-64 Men Scratch Race Qualifier 2", "scratch_race"),
+            rl_event(2, "60-64 Men Scratch Race Final", "scratch_race"),
+        ]
+        session = make_session(events=events, scheduled_start=time(18, 0))
+        result = predict_schedule(
+            COMP_ID, [session], now=datetime(2024, 6, 1, 17, 0), racer_name="Brian Abers", rider_list=[scr]
+        )
+        nr = result.next_race
+        assert nr is not None
+        assert nr.event_name == "60-64 Men Scratch Race Qualifier 1"
+        assert nr.parallel_qualifier is True
+        assert nr.tentative is False
+        assert nr.predicted_start == datetime(2024, 6, 1, 18, 0)

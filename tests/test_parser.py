@@ -14,11 +14,14 @@ from app.parser import (
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_rider_list,
+    parse_rider_list_url,
     parse_schedule,
     parse_start_list_riders,
 )
 
-SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
+SAMPLE_PATH = FIXTURE_DIR / "sample-event-output.json"
 
 
 @pytest.fixture(scope="module")
@@ -608,3 +611,68 @@ class TestPursuitDistanceFromUrl:
         assert d["U17 Men Pursuit Final"] == "pursuit_2k"  # was pursuit_3k
         d = {name: disc for (_, name), disc in by_name("schedule-26009.json").items()}
         assert d["Senior H Poursuite Final   / Omni I"] == "pursuit_4k"  # was pursuit_3k
+
+
+# ── Rider List (EventId 26037) ───────────────────────────────────────────────
+
+
+def _load_json(name: str) -> dict:
+    with (FIXTURE_DIR / name).open() as f:
+        return json.load(f)
+
+
+@pytest.fixture(scope="module")
+def rider_list_html():
+    return (FIXTURE_DIR / "rider-list-26037.html").read_text()
+
+
+class TestRiderList:
+    def test_url_from_initial_layout(self):
+        assert parse_rider_list_url(_load_json("schedule-26037.json")) == "results/E26037/X-RIDERLIST-0-0-S.htm"
+
+    def test_url_from_refresh(self):
+        # The refresh documents block starts with a live-results banner; the row label is what matters.
+        assert parse_rider_list_url(_load_json("refresh-26037.json")) == "results/E26037/X-RIDERLIST-0-0-S.htm"
+
+    def test_url_from_26008(self, sample_data):
+        assert parse_rider_list_url(sample_data) == "results/E26008/X-RIDERLIST-0-0-S.htm"
+
+    def test_url_none_without_documents(self):
+        assert parse_rider_list_url({"jxnobj": []}) is None
+
+    def test_url_none_without_rider_list_row(self):
+        medal_only = (
+            '<details id="0"  ><summary>Event Documents</summary><table class="table table-striped"><tbody>'
+            '<tr><td style="width: 40%; vertical-align:middle;"><h4>Medal Standings</h4></td>'
+            '<td><a class="btn btn-primary" href="results/E26037/X-SUMMARY-0-0-R.htm" target="_blank">Open</a>'
+            "&nbsp;</td></tr></tbody></table></details>"
+        )
+        data = {"jxnobj": [{"cmd": "as", "id": "documents", "prop": "innerHTML", "data": medal_only}]}
+        assert parse_rider_list_url(data) is None
+
+    def test_entry_count(self, rider_list_html):
+        assert len(parse_rider_list(rider_list_html)) == 480
+
+    @pytest.mark.parametrize(
+        ("name", "category", "codes"),
+        [
+            ("ABERS Brian", "M6064", {"TS", "S", "TT"}),
+            ("ACHILER Becky", "W4549", {"TP", "TS"}),
+            ("FOWLER Walter", "M90", {"TT"}),
+        ],
+    )
+    def test_entries(self, rider_list_html, name, category, codes):
+        by_name = {e.name: e for e in parse_rider_list(rider_list_html)}
+        entry = by_name[name]
+        assert entry.category == category
+        assert entry.codes == frozenset(codes)
+
+    def test_nonsense_html(self):
+        assert parse_rider_list("<html><body>nonsense</body></html>") == []
+
+    def test_inline_images_ignored(self, rider_list_html):
+        img = '<img class="img-responsive" src="data:image/png;base64,' + "A" * 50_000 + '"/>'
+        flag_cell = '<td style="padding-right: 0;">'
+        html = rider_list_html.replace(f"{flag_cell}</td>", f"{flag_cell}{img}</td>")
+        assert html != rider_list_html
+        assert len(parse_rider_list(html)) == 480
