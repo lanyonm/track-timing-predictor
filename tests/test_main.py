@@ -21,6 +21,7 @@ from app.predictor import (
     _heat_counts,
     _live_heats,
     _observed_durations,
+    _race_distances,
     _rider_list_retry_at,
     _rider_lists,
     _sprint_deciders,
@@ -69,6 +70,7 @@ def clear_predictor_caches():
     _start_list_riders.clear()
     _start_list_categories.clear()
     _sprint_deciders.clear()
+    _race_distances.clear()
     _rider_lists.clear()
     _rider_list_retry_at.clear()
     yield
@@ -593,6 +595,12 @@ class TestFetchStartListsCaching:
         self._run(sessions, html)
         assert _start_list_categories
         assert set(_start_list_categories.values()) == {frozenset({"W5054", "W5559", "W6064", "W6569", "W7074"})}
+
+    def test_records_race_distance(self, sessions):
+        html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
+        self._run(sessions, html)
+        assert _race_distances
+        assert set(_race_distances.values()) == {10.0}
 
     def test_empty_parse_keeps_cached_riders(self, sessions, start_list_html):
         self._run(sessions, start_list_html)

@@ -39,6 +39,7 @@ from app.parser import (
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
@@ -59,6 +60,7 @@ from app.predictor import (
     record_heat_count,
     record_live_heat,
     record_observed_duration,
+    record_race_distance,
     record_rider_list,
     record_rider_list_failure,
     record_sprint_deciders,
@@ -195,6 +197,8 @@ async def _fetch_start_lists(
                 riders = parse_start_list_riders(html)
                 record_start_list_riders(ev_id, sess_id, pos, riders)
                 record_start_list_categories(ev_id, sess_id, pos, parse_start_list_categories(html))
+                if (km := parse_race_distance_km(html)) is not None:
+                    record_race_distance(ev_id, sess_id, pos, km)
             except Exception:
                 logger.warning(
                     "Failed to parse start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True

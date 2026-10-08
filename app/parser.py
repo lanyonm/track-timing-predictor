@@ -298,6 +298,22 @@ def parse_start_list_categories(html: str) -> frozenset[str]:
     return frozenset(categories)
 
 
+_RACE_DISTANCE_RE = re.compile(r"-\s*(\d+(?:\.\d+)?)\s*km\s*-\s*\d+(?:\.\d+)?\s*Laps\b", re.IGNORECASE)
+
+
+def parse_race_distance_km(html: str) -> float | None:
+    """
+    Race distance in km from a start list's title, e.g. 'Points Race Final - 10km - 40 Laps'.
+
+    Some titles add a suffix ('- Sprint Every 5 Laps'). Distances in metres (sprints,
+    time trials) return None.
+    """
+    for h3 in BeautifulSoup(html, "html.parser").find_all("h3"):
+        if m := _RACE_DISTANCE_RE.search(h3.get_text(" ", strip=True)):
+            return float(m.group(1))
+    return None
+
+
 _SPRINT_PAIR_RE = re.compile(r"^(?:Heat\s+\d+|Final\s+\d+-\d+)$")
 
 

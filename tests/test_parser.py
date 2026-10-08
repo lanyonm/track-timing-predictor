@@ -15,6 +15,7 @@ from app.parser import (
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
@@ -305,6 +306,24 @@ class TestParseStartListCategories:
     def test_no_category_column(self):
         html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
         assert parse_start_list_categories(html) == frozenset()
+
+
+# ── parse_race_distance_km ────────────────────────────────────────────────────
+
+
+class TestParseRaceDistanceKm:
+    def test_points_race_header(self):
+        # "50+ Women Points Race Final   - 10km - 40 Laps"
+        html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
+        assert parse_race_distance_km(html) == 10.0
+
+    def test_decimal_distance_with_suffix(self):
+        html = "<h3>U15/U17 H Course Aux Points Omni V - 7.5km - 30 Laps - Sprint Every 5 Laps</h3>"
+        assert parse_race_distance_km(html) == 7.5
+
+    def test_metre_distance_ignored(self):
+        html = (FIXTURE_DIR / "start-list-sprint-qualifying-26009.html").read_text()
+        assert parse_race_distance_km(html) is None
 
 
 # ── parse_sprint_deciders ─────────────────────────────────────────────────────

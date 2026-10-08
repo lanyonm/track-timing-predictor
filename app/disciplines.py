@@ -173,6 +173,11 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "time_trial_generic": 3.0,
 }
 
+# Points race speed for a duration from the start list's distance: the median Finish Time
+# speed of 32 points races across 26002, 26008, 26009 and 26037 (35-52.5 km/h; elite men
+# fastest, youth and some masters women slowest). docs/mass-start-race-durations.md.
+POINTS_RACE_KMH = 46.0
+
 # Share of best-of-3 sprint pairs tied 1-1 after Ride 2, so riding a decider (Ride 3).
 # 4 of 32 pairs in completed 26037 rounds (docs/sprint-durations.md). Used for a Ride 3
 # until Ride 2's results show how many pairs are tied.

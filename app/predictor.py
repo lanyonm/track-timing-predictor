@@ -3,6 +3,7 @@ from datetime import datetime, time, timedelta
 from app.ceremonies import ceremony_duration, forecast_podiums
 from app.database import get_learned_duration, record_live_duration
 from app.disciplines import (
+    POINTS_RACE_KMH,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
     get_changeover,
@@ -63,6 +64,10 @@ _start_list_riders: dict[tuple[int, int, int], list[RiderEntry]] = {}
 # Only non-empty sets are stored.
 # Key: (competition_id, session_id, position), Value: frozenset of categories
 _start_list_categories: dict[tuple[int, int, int], frozenset[str]] = {}
+
+# Race distances in km from start-list titles (parser.parse_race_distance_km).
+# Key: (competition_id, session_id, position), Value: km
+_race_distances: dict[tuple[int, int, int], float] = {}
 
 # Pairs needing a decider in a best-of-3 sprint round, from its shared result page once
 # Ride 2 is posted (parser.parse_sprint_deciders).
@@ -214,6 +219,11 @@ def has_start_list_categories(competition_id: int, session_id: int, position: in
     return (competition_id, session_id, position) in _start_list_categories
 
 
+def record_race_distance(competition_id: int, session_id: int, position: int, km: float) -> None:
+    """Store a race's distance from its start list."""
+    _race_distances[(competition_id, session_id, position)] = km
+
+
 def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) -> None:
     """Store how many pairs in a sprint round need (or rode) a decider."""
     _sprint_deciders[(competition_id, round_name)] = deciders
@@ -222,11 +232,14 @@ def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) 
 def _base_estimate(competition_id: int, session_id: int, event: Event, use_learned: bool) -> tuple[float, int | None]:
     """Pre-result duration and heat count: heat count × per-heat + changeover, else the default.
 
+    A points race with a start-list distance runs at POINTS_RACE_KMH.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs).
     A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
     decider once Ride 2 is posted (the count is reported as its heat count), else per
     expected decider (pairs × SPRINT_DECIDER_RATE).
     """
+    if event.discipline == "points_race" and (km := _race_distances.get((competition_id, session_id, event.position))):
+        return km / POINTS_RACE_KMH * 60 + get_changeover(event.discipline), None
     hc = get_heat_count(competition_id, session_id, event.position)
     is_sprint = event.discipline == "sprint_match"
     pairs = hc if hc is not None or not is_sprint else sprint_round_pairs(event.name)

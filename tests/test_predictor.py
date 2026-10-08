@@ -12,6 +12,7 @@ from app.disciplines import (
     CHANGEOVER_MINUTES,
     DEFAULT_DURATIONS,
     PER_HEAT_DURATIONS,
+    POINTS_RACE_KMH,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
 )
@@ -26,6 +27,8 @@ from app.predictor import (
     record_generated_time,
     record_heat_count,
     record_live_heat,
+    record_observed_duration,
+    record_race_distance,
     record_sprint_deciders,
     update_status_cache,
 )
@@ -1195,3 +1198,35 @@ class TestSprintRoundPairs:
         pred = self._predict(26124, "65-69 Men Sprint Final Ride 1")
         assert pred.estimated_duration_minutes == pytest.approx(PER_HEAT_DURATIONS["sprint_match"])
         assert pred.heat_count == 1
+
+
+# ── Points race duration from distance ────────────────────────────────────────
+
+
+class TestPointsRaceDistance:
+    def _predict(self, competition_id: int, discipline: str):
+        event = Event(position=0, name="Race", discipline=discipline, status=EventStatus.NOT_READY, is_special=False)
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=[event])
+        return predict_session(competition_id, session).event_predictions[0]
+
+    def test_distance_sets_duration(self):
+        record_race_distance(26131, 1, 0, 20.0)
+        pred = self._predict(26131, "points_race")
+        assert pred.estimated_duration_minutes == pytest.approx(
+            20.0 / POINTS_RACE_KMH * 60 + CHANGEOVER_MINUTES["points_race"]
+        )
+        assert not pred.is_observed
+
+    def test_no_distance_uses_default(self):
+        assert self._predict(26132, "points_race").estimated_duration_minutes == DEFAULT_DURATIONS["points_race"]
+
+    def test_other_bunch_races_unaffected(self):
+        record_race_distance(26133, 1, 0, 5.0)
+        assert self._predict(26133, "scratch_race").estimated_duration_minutes == DEFAULT_DURATIONS["scratch_race"]
+
+    def test_finish_time_wins(self):
+        record_race_distance(26134, 1, 0, 20.0)
+        record_observed_duration(26134, 1, 0, 26.15, "points_race", "Race")
+        pred = self._predict(26134, "points_race")
+        assert pred.is_observed
+        assert pred.estimated_duration_minutes == pytest.approx(26.15 + CHANGEOVER_MINUTES["points_race"])
