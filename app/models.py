@@ -8,6 +8,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
+# Where a pre-result heat count came from: a start list, Rider List entrants (estimated),
+# a sprint round's name (estimated), or Ride 2 results (sprint deciders).
+HeatBasis = Literal["start_list", "rider_list", "round", "decider"]
 Gender = Literal["men", "women", "open"]
 
 
@@ -105,7 +108,9 @@ class Prediction(BaseModel):
     is_adjusted: bool
     cumulative_delay_minutes: float
     is_observed: bool = False  # True when duration comes from a result-page Finish Time
-    heat_count: int | None = None  # Set when duration is derived from start-list heat count
+    heat_count: int | None = None  # Set when duration is derived from a heat count (see heat_basis)
+    heat_basis: HeatBasis | None = None  # Where heat_count came from
+    race_distance_km: float | None = None  # Set when duration is derived from a start-list distance
     podium_count: int | None = None  # Set when a medal ceremony's duration comes from forecast podiums
     is_active: bool = False  # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event

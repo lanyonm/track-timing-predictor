@@ -44,7 +44,9 @@ The per-rider slot time includes the timed 200m effort plus the rolling build-up
 |---|---|
 | `sprint_qualifying` | 1.25 min (~1:15) |
 
-When rider count is unknown, the default assumes ~8 riders:
+Before the start list is posted, a masters sprint qualifying round takes its rider count from the Rider List: riders in the event's age band with the `S` code (`rider_list.estimate_heats`). At 26037 this was exact or one rider high (9/9, 6/5, 21/20, 20/20 entrants/riders).
+
+Otherwise, when rider count is unknown, the default assumes ~8 riders:
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|

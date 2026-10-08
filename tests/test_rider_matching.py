@@ -4,7 +4,7 @@ from datetime import datetime, time, timedelta
 
 import pytest
 
-from app.disciplines import get_per_heat_duration
+from app.disciplines import get_changeover, get_per_heat_duration
 from app.models import (
     Event,
     EventStatus,
@@ -453,7 +453,8 @@ class TestRiderListFallback:
         assert baseline.events_without_start_lists == 1
         assert baseline.rider_list_entry is None
         # A Rider List without the racer leaves the prediction exactly as without one.
-        other = RiderListEntry(name="SMITH John", category="M6064", codes=frozenset({"S"}))
+        # (Not a sprinter, so it doesn't size the qualifying round either.)
+        other = RiderListEntry(name="SMITH John", category="M6064", codes=frozenset({"TS"}))
         assert rl_predict(events, [other]) == baseline
 
     def test_tentative_counts(self):
@@ -500,7 +501,7 @@ class TestRiderListFallback:
         assert nr.heat_count is None
         # Event start, not a per-heat time: the slot after the qualifying round.
         pred = result.sessions[0].event_predictions[1]
-        assert nr.predicted_start == now.replace(hour=pred.predicted_start.hour, minute=pred.predicted_start.minute)
+        assert nr.predicted_start == datetime.combine(now.date(), pred.predicted_start)
 
     def test_active_start_list_match_keeps_priority(self):
         events = [
@@ -535,3 +536,32 @@ class TestRiderListFallback:
         assert nr.parallel_qualifier is True
         assert nr.tentative is False
         assert nr.predicted_start == datetime(2024, 6, 1, 18, 0)
+
+
+class TestRiderListHeats:
+    """Without a start-list heat count, individual qualifying rounds are sized from Rider List entrants."""
+
+    PURSUITERS = [RiderListEntry(name=f"RIDER {n}", category="W5559", codes=frozenset({"IP"})) for n in ("A", "B", "C")]
+
+    def _pred(self, rider_list, racer=None):
+        events = [rl_event(0, "55-59 Women Pursuit Qualifying", "pursuit_2k")]
+        return rl_predict(events, rider_list, racer=racer).sessions[0].event_predictions[0]
+
+    def test_heats_from_entrants(self):
+        pred = self._pred(self.PURSUITERS)
+        assert pred.heat_count == 2
+        assert pred.heat_basis == "rider_list"
+        assert pred.estimated_duration_minutes == pytest.approx(
+            2 * get_per_heat_duration("pursuit_2k") + get_changeover("pursuit_2k")
+        )
+
+    def test_start_list_heat_count_wins(self):
+        record_heat_count(COMP_ID, 1, 0, 1)
+        pred = self._pred(self.PURSUITERS)
+        assert pred.heat_count == 1
+        assert pred.heat_basis == "start_list"
+
+    def test_without_rider_list_uses_default(self):
+        pred = self._pred(None)
+        assert pred.heat_count is None
+        assert pred.heat_basis is None

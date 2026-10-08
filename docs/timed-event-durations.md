@@ -69,7 +69,9 @@ Per-heat durations come from the measured data in [Measured Per-Heat Durations](
 | 3 km | 6.25 min |
 | 2 km | 5.0 min |
 
-When heat count is unknown, the default duration covers an assumed 2-heat final (the median heat count at 2 km and 4 km):
+Before the start list is posted, a masters pursuit qualifying round takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `IP` code (`rider_list.estimate_heats`). At 26037 this matched the start list for 6 of 11 qualifying rounds and was one heat high for the rest, from non-starters (e.g. 8 entrants, 3 heats for 80+ Men). Team events aren't sized this way: the Rider List doesn't say who rides together.
+
+Otherwise, when heat count is unknown, the default duration covers an assumed 2-heat final (the median heat count at 2 km and 4 km):
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|

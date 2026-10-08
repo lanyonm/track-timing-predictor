@@ -1169,6 +1169,7 @@ class TestSprintRide3:
         ride3 = predict_session(26113, self._session()).event_predictions[1]
         assert ride3.estimated_duration_minutes == pytest.approx(SPRINT_DECIDER_MINUTES)
         assert ride3.heat_count == 1
+        assert ride3.heat_basis == "decider"
 
     def test_no_deciders(self):
         record_heat_count(26114, 1, 1, 4)
@@ -1226,7 +1227,8 @@ class TestSprintRoundPairs:
     def test_pairs_from_round_name(self, name, pairs):
         pred = self._predict(26121, name)
         assert pred.estimated_duration_minutes == pytest.approx(pairs * PER_HEAT_DURATIONS["sprint_match"])
-        assert pred.heat_count is None
+        assert pred.heat_count == pairs
+        assert pred.heat_basis == "round"
 
     def test_decider_scaled_from_round_name(self):
         pred = self._predict(26122, "65+ Women Sprint 1/2 Final Ride 3")
@@ -1247,6 +1249,7 @@ class TestSprintRoundPairs:
         pred = self._predict(26124, "65-69 Men Sprint Final Ride 1")
         assert pred.estimated_duration_minutes == pytest.approx(PER_HEAT_DURATIONS["sprint_match"])
         assert pred.heat_count == 1
+        assert pred.heat_basis == "start_list"
 
 
 # ── Points and scratch race duration from distance ────────────────────────────────────────
@@ -1265,6 +1268,7 @@ class TestBunchRaceDistance:
             20.0 / BUNCH_RACE_KMH * 60 + LIVE_BUNCH_CHANGEOVER_MINUTES
         )
         assert not pred.is_observed
+        assert pred.race_distance_km == 20.0
 
     def test_no_distance_uses_default(self):
         assert (
