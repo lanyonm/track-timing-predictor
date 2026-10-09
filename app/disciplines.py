@@ -1,6 +1,8 @@
 import logging
 import re
 
+from app.rider_list import event_band
+
 logger = logging.getLogger(__name__)
 
 # Discipline detection and default duration estimates for track cycling events.
@@ -236,6 +238,32 @@ def is_placement_final(event_name: str) -> bool:
     return _PLACEMENT_FINAL_RE.search(event_name) is not None
 
 
+# Finals that follow a qualifying round are ridden for bronze and gold: two heats.
+MEDAL_FINAL_DISCIPLINES = frozenset({"pursuit_2k", "pursuit_3k", "pursuit_4k", "team_pursuit", "team_sprint"})
+_FINAL_RE = re.compile(r"\bFinal\b")
+_KEIRIN_PLACEMENT_RE = re.compile(r"\b\d+-\d+\s+Final\b")
+_KEIRIN_SEMI_RE = re.compile(r"\b1/2\s+Final\b")
+
+
+def qualifying_name(event_name: str) -> str | None:
+    """The qualifying round's name for a final ('X Final' → 'X Qualifying'), or None for a non-final."""
+    if is_placement_final(event_name) or not _FINAL_RE.search(event_name):
+        return None
+    return _FINAL_RE.sub("Qualifying", event_name, count=1)
+
+
+def keirin_round_heats(event_name: str) -> int | None:
+    """Heats in a keirin round by its name: 1 for a placement final (1-6, 7-12), 2 for a 1/2 Final.
+
+    First rounds and repechages vary with the field, so they return None.
+    """
+    if _KEIRIN_PLACEMENT_RE.search(event_name):
+        return 1
+    if _KEIRIN_SEMI_RE.search(event_name):
+        return 2
+    return None
+
+
 _SPRINT_ROUND_RE = re.compile(r"\b(?:1/(\d+)\s+)?Final\b")
 _SPRINT_ROUND_PAIRS = {None: 2, "2": 2, "4": 4}
 
@@ -283,6 +311,21 @@ def pursuit_discipline_from_urls(*urls: str | None) -> str | None:
         if url and (m := _PURSUIT_URL_DISTANCE.search(url)):
             return _PURSUIT_BY_METRES[m.group(1)]
     return None
+
+
+# Masters individual pursuit distance by age band (26037): 3 km up to 49, 2 km from 50.
+MASTERS_PURSUIT_2K_FROM_AGE = 50
+
+
+def pursuit_discipline_from_band(event_name: str) -> str | None:
+    """Pursuit distance key from a masters age band in the name ('60-64 Men Pursuit'), else None.
+
+    For events with no URL yet; pursuit_discipline_from_urls wins once there is one.
+    """
+    band = event_band(event_name)
+    if band is None:
+        return None
+    return "pursuit_2k" if band.lo >= MASTERS_PURSUIT_2K_FROM_AGE else "pursuit_3k"
 
 
 def get_default_duration(discipline: str) -> float:

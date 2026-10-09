@@ -11,6 +11,7 @@ from app.parser import parse_rider_list, parse_schedule
 from app.rider_list import (
     AgeBand,
     category_band,
+    estimate_heats,
     event_band,
     event_code,
     find_rider,
@@ -264,3 +265,45 @@ class TestParallelQualifiers:
     def test_single_qualifying_round_not_flagged(self, sessions_26037, rider_list_26037):
         matches = _matches(sessions_26037, _rider(rider_list_26037, "ABERS Brian"))
         assert not any(m.parallel_qualifier for m in matches.values())
+
+
+class TestEstimateHeats:
+    """Individual qualifying rounds are sized from Rider List entrants in the band."""
+
+    @pytest.fixture(scope="class")
+    def heats(self, sessions_26037, rider_list_26037):
+        names = {(s.session_id, e.position): e.name for s in sessions_26037 for e in s.events}
+        return {names[k]: v for k, v in estimate_heats(rider_list_26037, sessions_26037).items()}
+
+    def test_sprint_qualifying_one_heat_per_rider(self, heats):
+        # 17 M5559 sprinters; 20 of the 21 45-49 entrants rode at 26037.
+        assert heats["55-59 Men Sprint Qualifying"] == 17
+
+    def test_pursuit_qualifying_two_riders_per_heat(self, heats):
+        # 22 M5559 pursuiters → 11 heats; 13 75-79 entrants rode 6 heats at 26037.
+        assert heats["55-59 Men Pursuit Qualifying"] == 11
+
+    def test_open_band_counts_every_category_inside(self, heats):
+        # 80+ Men: M8084 and older.
+        assert heats["80+ Men Sprint Qualifying"] == 8
+
+    def test_time_trial_two_riders_per_heat(self, heats):
+        # A single-round final: 12 W4549 entrants rode 6 heats at 26037; 29 M4549 → 15.
+        assert heats["45-49 Women 750m Time Trial Final"] == 6
+        assert heats["45-49 Men 750m Time Trial Final"] == 15
+
+    def test_finals_and_team_events_left_out(self, heats):
+        assert "55-59 Men Pursuit Final" not in heats
+        assert "55-59 Men Sprint 1/8 Final" not in heats
+        assert "55+ Women Team Pursuit Qualifying" not in heats
+
+    def test_no_entrants_left_out(self):
+        event = Event(
+            position=0,
+            name="90+ Women Sprint Qualifying",
+            discipline="sprint_qualifying",
+            status=EventStatus.NOT_READY,
+            is_special=False,
+        )
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=[event])
+        assert estimate_heats([RiderListEntry(name="A B", category="M90", codes=frozenset({"S"}))], [session]) == {}

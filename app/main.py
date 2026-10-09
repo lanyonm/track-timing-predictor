@@ -32,6 +32,8 @@ from app.disciplines import (
     PER_HEAT_DURATIONS,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
+    get_changeover,
+    get_per_heat_duration,
     split_ride,
 )
 from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
@@ -81,6 +83,7 @@ from app.predictor import (
     rider_list_retry_pending,
     update_status_cache,
 )
+from app.rider_list import needs_heat_estimate
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Track Timing Predictor", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["per_heat_minutes"] = get_per_heat_duration
+templates.env.globals["changeover_minutes"] = get_changeover
+templates.env.globals["bunch_race_kmh"] = BUNCH_RACE_KMH
+templates.env.globals["decider_rate"] = SPRINT_DECIDER_RATE
 
 
 def get_http_client(request: Request) -> httpx.AsyncClient:
@@ -307,8 +314,9 @@ async def _fetch_rider_list_if_needed(
 ) -> list[RiderListEntry] | None:
     """
     Fetch the Rider List when it can change the prediction: a racer is set and some
-    race may lack start-list riders, or a combined-age final has no cached start-list
-    categories to forecast its ceremony podiums from.
+    race may lack start-list riders, a combined-age final has no cached start-list
+    categories to forecast its ceremony podiums from, or an individual qualifying
+    round has no start-list heat count to size it by.
 
     Runs alongside the start-list fetches, so it uses the pre-fetch approximation:
     a non-special event with no start_list_url or no cached start-list riders.
@@ -328,7 +336,14 @@ async def _fetch_rider_list_if_needed(
         for s in sessions
         for e in s.events
     )
-    if not (needed_for_racer or needed_for_podiums):
+    needed_for_heats = any(
+        e.status != EventStatus.COMPLETED
+        and needs_heat_estimate(e)
+        and get_heat_count(competition_id, s.session_id, e.position) is None
+        for s in sessions
+        for e in s.events
+    )
+    if not (needed_for_racer or needed_for_podiums or needed_for_heats):
         return None
     url = parse_rider_list_url(jxn_data)
     return await _fetch_rider_list(client, url) if url else None

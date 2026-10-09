@@ -483,6 +483,13 @@ class TestRiderListRoutes:
         assert _rider_list_calls(mock_26037) == 1
         assert "8 podiums" in _event_row(text, "Medal Ceremonies").get_text()
 
+    def test_qualifying_heats_estimated_from_rider_list(self, client, mock_26037):
+        # No start list: 15 M6064 sprinters size the round, labelled as an estimate.
+        row = _event_row(client.get("/schedule/26037").text, "60-64 Men Sprint Qualifying")
+        label = row.select_one(".dur-col span")
+        assert label.get_text(strip=True) == "~15 heats est."
+        assert "estimated from Rider List entrants" in label["title"]
+
     def test_not_fetched_without_racer_or_masters_finals(self):
         sessions = parse_schedule(_load_fixture("sample-event-output.json"))
         page = AsyncMock()

@@ -44,7 +44,9 @@ The per-rider slot time includes the timed 200m effort plus the rolling build-up
 |---|---|
 | `sprint_qualifying` | 1.25 min (~1:15) |
 
-When rider count is unknown, the default assumes ~8 riders:
+Before the start list is posted, a masters sprint qualifying round takes its rider count from the Rider List: riders in the event's age band with the `S` code (`rider_list.estimate_heats`). At 26037 this was exact or one rider high (9/9, 6/5, 21/20, 20/20 entrants/riders).
+
+Otherwise, when rider count is unknown, the default assumes ~8 riders:
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|
@@ -106,7 +108,7 @@ Ride 3 is the decider, ridden only by pairs tied 1–1. In completed 26037 round
 slot = heat_count × SPRINT_DECIDER_RATE × SPRINT_DECIDER_MINUTES   (0.12 × 4.25)
 ```
 
-(2.04 min for a 4-pair round, 1.02 for 2 pairs; without a start list, the pairs come from the round name.) Expected value rather than "one match" because overestimating pushes every later event's predicted start too late.
+(2.04 min for a 4-pair round, 1.02 for 2 pairs; without a start list, the pairs come from the round name. The UI shows this as **0–N deciders est.**) Expected value rather than "one match" because overestimating pushes every later event's predicted start too late.
 
 Once Ride 2 is posted, the shared result page shows which pairs are tied, and the Ride 3 uses the exact count: `deciders × SPRINT_DECIDER_MINUTES`, shown as **N heats** (0 when none). `parser.parse_sprint_deciders` reads it: each pair's header row (`Heat N`, or `Final 3-4`/`Final 1-2` on a Final) carries a 200m time per ride ridden, and each rider row a `Winner` (or a gap, or `REL` for a relegated rider) per ride. A pair needs a decider if it rode one or each rider won once. Upstream drops a Ride 3 row from the schedule when no pair needs it.
 
@@ -134,7 +136,9 @@ slot = heat_count × per_heat_duration + changeover
 
 The per-heat duration covers the full keirin race (~4:30) plus the short recovery and reset between heats.
 
-When heat count is unknown, the default assumes approximately one complete round:
+Without a start list, a placement final (`1-6 Final`, `7-12 Final`) counts 1 heat and a `1/2 Final` 2 (`disciplines.keirin_round_heats`; 5 of 5 observed keirin 1/2 Finals had 2). First rounds and repechages vary with the field (2–4 heats).
+
+Otherwise, the default assumes approximately one complete round:
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|

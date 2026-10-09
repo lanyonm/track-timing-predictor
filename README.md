@@ -19,7 +19,7 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 8. When results are posted, refines completed-event durations using the race's actual Finish Time, or the gap between consecutive result-page timestamps, and calibrates the competition's bunch-race changeover from them
 9. Auto-refreshes every 30 seconds so predictions stay current throughout the day
 
-The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N podiums** (medal ceremonies), or **est.** (default/learned fallback).
+The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N km** (a points or scratch race's start-list distance), **N deciders** (sprint Ride 3 after Ride 2), **0–N deciders est.** (sprint Ride 3 before Ride 2), **~N heats est.** (heats estimated from a round name or the Rider List), **N podiums** (medal ceremonies), or **est.** (default/learned fallback). Hover the label for how the duration was worked out.
 
 ## Taxonomy
 
@@ -143,9 +143,10 @@ Each event's slot duration is determined by the first available source:
 2. **Generated timestamps** — for completed events without a Finish Time, the gap between its result page's `Generated` timestamp and the previous event's (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
 3. **Start list** — on page load, start list pages are fetched concurrently for every event. Shown as **N heats** in the UI where a heat count is used.
    - Heat count × a per-heat duration constant. Medal finals label their heats `Final 3-4`/`Final 1-2` (sprints) or `For Bronze`/`For Gold` (pursuits, team events).
-   - Points and scratch races use their distance from the start list title (`- 10km - 40 Laps`) at 46 km/h, plus changeover.
-   - A best-of-3 sprint `Ride 3` is ridden only by pairs tied 1–1: 4.25 min per decider once Ride 2's results show how many, else 12% of the pairs.
-4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Sprint 1/2 Finals and Finals count 2 pairs (and 1/4 Finals 4) before their start list is posted. Shown as **est.** in the UI.
+   - Points and scratch races use their distance from the start list title (`- 10km - 40 Laps`) at 46 km/h, plus changeover. Shown as **N km**.
+   - A best-of-3 sprint `Ride 3` is ridden only by pairs tied 1–1: 4.25 min per decider once Ride 2's results show how many (shown as **N deciders**), else 12% of the pairs (shown as **0–N deciders est.**).
+   - Before the start list is posted, the round name gives the heats where it's fixed: sprint 1/2 Finals and Finals count 2 pairs and 1/4 Finals 4; pursuit, team pursuit and team sprint finals after a qualifying round 2 heats (bronze and gold); keirin placement finals (1-6, 7-12) 1 heat and 1/2 Finals 2. Masters sprint and pursuit qualifying rounds and time trials are sized from the Rider List: one heat per sprinter, one per two pursuiters or time triallists entered in the age band. Shown as **~N heats est.**
+4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
 
 **Medal ceremonies** at masters competitions take 13 min plus 3.3 min per podium. The podium count is forecast from the finals since the previous ceremony, with combined-age races split by category. Shown as **N podiums** in the UI. See [docs/medal-ceremony-durations.md](docs/medal-ceremony-durations.md).
 
