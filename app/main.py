@@ -63,6 +63,7 @@ from app.parser import (
     parse_start_list_riders,
 )
 from app.predictor import (
+    LiveDuration,
     get_generated_time,
     get_heat_count,
     get_rider_list,
@@ -70,6 +71,7 @@ from app.predictor import (
     has_start_list_riders,
     is_start_list_cached,
     latest_live_generated_time,
+    load_learned_durations,
     predict_schedule,
     record_generated_time,
     record_heat_count,
@@ -82,6 +84,7 @@ from app.predictor import (
     record_start_list_categories,
     record_start_list_riders,
     rider_list_retry_pending,
+    save_live_durations,
     update_status_cache,
 )
 from app.rider_list import needs_heat_estimate
@@ -252,7 +255,8 @@ async def _fetch_result_pages(
 
     Runs on every load/refresh but skips already-cached events, so only new
     completions are fetched. This makes predictions self-correcting throughout
-    the day, even when the app is loaded mid-event.
+    the day, even when the app is loaded mid-event. Observed durations go to the
+    learning database in one worker-thread call once every page is parsed.
     """
     to_fetch = [
         (competition_id, s.session_id, e.position, e.result_url, e.discipline, e.name)
@@ -264,6 +268,7 @@ async def _fetch_result_pages(
         return
 
     sem = asyncio.Semaphore(10)
+    observed: list[LiveDuration] = []
 
     async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str, name: str) -> None:
         async with sem:
@@ -280,7 +285,7 @@ async def _fetch_result_pages(
                     record_generated_time(ev_id, sess_id, pos, gen_time)
                 finish_time = parse_finish_time(html)
                 if finish_time is not None:
-                    record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name)
+                    observed.append(record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name))
                 if discipline == "sprint_match" and (ride := split_ride(name)) is not None:
                     deciders = parse_sprint_deciders(html)
                     if deciders is not None:
@@ -291,6 +296,8 @@ async def _fetch_result_pages(
                 )
 
     await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
+    if observed:
+        await asyncio.to_thread(save_live_durations, observed)
 
 
 async def _fetch_rider_list(client: httpx.AsyncClient, url: str) -> list[RiderListEntry] | None:
@@ -513,22 +520,25 @@ def _collect_palmares_entries(
     return entries
 
 
-def _save_and_count_palmares(
+async def _save_and_count_palmares(
     schedule: SchedulePrediction,
     competition_id: int,
 ) -> int:
     """Save matched palmares entries and return the count for the competition.
 
-    Returns 0 if no racer name is set or on error.
+    The database calls run in a worker thread. Returns 0 if no racer name is set or on error.
     """
     racer_name = schedule.racer_name
     if not racer_name:
         return 0
-    try:
-        entries = _collect_palmares_entries(schedule, competition_id)
+
+    def save_and_count(entries: list[PalmaresEntry]) -> int:
         if entries:
             save_palmares_entries(entries)
         return count_competition_palmares(racer_name, competition_id)
+
+    try:
+        return await asyncio.to_thread(save_and_count, _collect_palmares_entries(schedule, competition_id))
     except Exception:
         logger.warning("Palmares save failed", exc_info=True)
         return 0
@@ -573,8 +583,9 @@ async def get_schedule(
     )
     now = venue_now(latest_live_generated_time(event_id, sessions))
     use_learned = _use_learned(request)
+    learned = await asyncio.to_thread(load_learned_durations, sessions) if use_learned else None
     schedule = predict_schedule(
-        event_id, sessions, now=now, racer_name=racer_name, use_learned=use_learned, rider_list=rider_list
+        event_id, sessions, now=now, racer_name=racer_name, learned=learned, rider_list=rider_list
     )
 
     # Determine name source for logging
@@ -600,12 +611,13 @@ async def get_schedule(
     if racer_name:
         racer_encoded = _encode_racer_name(racer_name)
 
-    palmares_count = _save_and_count_palmares(schedule, event_id)
+    palmares_count = await _save_and_count_palmares(schedule, event_id)
 
     # Use racer's custom competition name if they've set one via /palmares/rename
     competition_name = f"Competition {event_id}"
     if racer_name and palmares_count:
-        competition_name = get_competition_name(racer_name, event_id) or competition_name
+        stored_name = await asyncio.to_thread(get_competition_name, racer_name, event_id)
+        competition_name = stored_name or competition_name
 
     response = templates.TemplateResponse(
         request,
@@ -671,18 +683,21 @@ async def refresh_schedule(
     now = venue_now(latest_live_generated_time(event_id, sessions))
 
     # Track status transitions for wall-clock fallback learning.
-    update_status_cache(event_id, sessions, now)
+    wall_clock = update_status_cache(event_id, sessions, now)
+    if wall_clock:
+        await asyncio.to_thread(save_live_durations, wall_clock)
 
+    learned = await asyncio.to_thread(load_learned_durations, sessions) if _use_learned(request) else None
     schedule = predict_schedule(
         event_id,
         sessions,
         now=now,
         racer_name=racer_name,
-        use_learned=_use_learned(request),
+        learned=learned,
         rider_list=rider_list,
     )
 
-    palmares_count = _save_and_count_palmares(schedule, event_id)
+    palmares_count = await _save_and_count_palmares(schedule, event_id)
     racer_encoded = _encode_racer_name(racer_name) if racer_name else None
 
     return templates.TemplateResponse(
@@ -747,7 +762,7 @@ async def palmares_page(
 
     if racer_name:
         racer_encoded = _encode_racer_name(racer_name)
-        competitions = get_palmares(racer_name)
+        competitions = await asyncio.to_thread(get_palmares, racer_name)
         # Behind CloudFront the request host is the IAM-protected Function URL,
         # so prod sets PUBLIC_BASE_URL to the public domain.
         base = settings.public_base_url.rstrip("/") or f"{request.url.scheme}://{request.url.netloc}"
@@ -829,7 +844,7 @@ async def palmares_remove(
     if not cookie_name:
         raise HTTPException(status_code=403, detail="Cookie-based identity required")
 
-    deleted = delete_competition_palmares(cookie_name, competition_id)
+    deleted = await asyncio.to_thread(delete_competition_palmares, cookie_name, competition_id)
     if deleted == 0:
         logger.warning("Palmares remove returned 0 for racer=%s comp=%d", cookie_name, competition_id)
     return RedirectResponse(url="/palmares", status_code=303)
@@ -848,7 +863,7 @@ async def palmares_rename(
     if not name.strip():
         raise HTTPException(status_code=400, detail="Name is required")
 
-    updated = update_competition_palmares(cookie_name, competition_id, name.strip())
+    updated = await asyncio.to_thread(update_competition_palmares, cookie_name, competition_id, name.strip())
     if updated == 0:
         logger.warning("Palmares rename returned 0 for racer=%s comp=%d", cookie_name, competition_id)
     return RedirectResponse(url="/palmares", status_code=303)
@@ -877,7 +892,7 @@ async def default_durations(request: Request) -> Response:
 @app.get("/learned", response_class=HTMLResponse)
 async def learned_durations(request: Request, settings: Settings = Depends(get_settings)) -> Response:
     """Display the learned duration database for inspection."""
-    durations = get_all_learned_durations()
+    durations = await asyncio.to_thread(get_all_learned_durations)
     return templates.TemplateResponse(
         request,
         "learned.html",

@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, time, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -25,6 +26,7 @@ from app.predictor import (
     _compute_delay,
     bunch_changeover,
     latest_live_generated_time,
+    load_learned_durations,
     predict_schedule,
     predict_session,
     record_generated_time,
@@ -33,6 +35,7 @@ from app.predictor import (
     record_observed_duration,
     record_race_distance,
     record_sprint_deciders,
+    save_live_durations,
     update_status_cache,
 )
 
@@ -851,9 +854,10 @@ class TestUpdateStatusCacheWallClockBound:
         # Transition UPCOMING → COMPLETED 10 min later (within 3 × 6.5 = 19.5 min)
         sessions2 = [self._make_session(EventStatus.COMPLETED, "keirin")]
         t_done = datetime(2026, 1, 1, 12, 10, 0)
-        update_status_cache(88001, sessions2, t_done)
-        # The 10-min value should be recorded (no assertion on DB here; this
-        # just verifies no exception is raised and the cache updates cleanly).
+        (record,) = update_status_cache(88001, sessions2, t_done)
+        assert record.duration_minutes == pytest.approx(10.0)
+        assert record.source == "wall_clock"
+        assert (record.competition_id, record.session_id, record.event_position) == (88001, 99, 1)
 
     def test_inflated_elapsed_exceeding_cap_is_not_recorded(self):
         """
@@ -877,8 +881,10 @@ class TestUpdateStatusCacheWallClockBound:
 
         # Transition after 37 min (exceeds 3 × 6.5 = 19.5 min cap)
         sessions2 = [self._make_session(EventStatus.COMPLETED, "keirin")]
-        update_status_cache(88002, sessions2, datetime(2026, 1, 1, 12, 37, 0))
+        records = update_status_cache(88002, sessions2, datetime(2026, 1, 1, 12, 37, 0))
+        save_live_durations(records)
 
+        assert records == []
         assert _keirin_row_count() == 0  # no row was inserted
 
 
@@ -991,9 +997,26 @@ class TestUseLearnedDefault:
         assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), SCRATCH_SLOT)
 
     def test_opt_in_uses_learned(self, learned_scratch_race):
-        sp = predict_session(7003, self._session(), use_learned=True)
+        sp = predict_session(7003, self._session(), learned=load_learned_durations([self._session()]))
         # The learned average includes the static changeover, swapped for the live one.
         assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), 99.0 + BUNCH_SHIFT)
+
+    def test_loads_each_discipline_once(self, learned_scratch_race):
+        session = self._session()
+        disciplines = {e.discipline for e in session.events}
+        with patch("app.predictor.get_learned_duration", return_value=None) as read:
+            assert load_learned_durations([session, session]) == {}
+        assert sorted(c.args[0] for c in read.call_args_list) == sorted(disciplines)
+
+    def test_omits_disciplines_without_enough_samples(self, learned_scratch_race):
+        assert load_learned_durations([self._session()]) == {"scratch_race": pytest.approx(99.0)}
+
+    def test_prediction_makes_no_database_reads(self, learned_scratch_race):
+        learned = load_learned_durations([self._session()])
+        with patch("app.predictor.get_learned_duration", side_effect=AssertionError("DB read")):
+            sched = predict_schedule(7003, [self._session()], learned=learned)
+        start = sched.sessions[0].event_predictions[1].predicted_start
+        assert start == _add_minutes(time(8, 0), 99.0 + BUNCH_SHIFT)
 
     def test_schedule_default_ignores_learned(self, learned_scratch_race):
         sched = predict_schedule(7003, [self._session()])

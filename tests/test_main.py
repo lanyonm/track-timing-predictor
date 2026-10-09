@@ -717,3 +717,36 @@ class TestLambdaHandler:
                 main.handler(_function_url_event("/health"), None)
         assert init_db.call_count == 1
         assert init_palmares_db.call_count == 1
+
+
+class TestLearnedReads:
+    """With use_learned on, a schedule request reads each discipline's learned average once,
+    in a worker thread; with it off, it doesn't read them at all."""
+
+    @pytest.mark.parametrize("path", ["/schedule/26008", "/schedule/26008/refresh"])
+    def test_one_read_per_discipline(self, client, path):
+        client.cookies.set("use_learned", "true")
+        with patch("app.predictor.get_learned_duration", return_value=None) as read:
+            assert client.get(path).status_code == 200
+        disciplines = [c.args[0] for c in read.call_args_list]
+        assert disciplines
+        assert len(disciplines) == len(set(disciplines))
+
+    def test_no_reads_when_off(self, client):
+        with patch("app.predictor.get_learned_duration") as read:
+            assert client.get("/schedule/26008").status_code == 200
+        read.assert_not_called()
+
+
+class TestLearnedPage:
+    def test_lists_learned_averages(self, client):
+        from app.database import record_duration_structured
+
+        for pos in range(3):
+            record_duration_structured(7100, 1, pos, "Keirin", "keirin", 8.0)
+        text = " ".join(client.get("/learned").text.split())
+        assert "keirin" in text
+        assert "8.0" in text
+
+    def test_empty_database(self, client):
+        assert "No learned durations yet" in client.get("/learned").text
