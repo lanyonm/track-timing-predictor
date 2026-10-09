@@ -1,6 +1,8 @@
 import logging
 import re
 
+from app.rider_list import event_band
+
 logger = logging.getLogger(__name__)
 
 # Discipline detection and default duration estimates for track cycling events.
@@ -309,6 +311,21 @@ def pursuit_discipline_from_urls(*urls: str | None) -> str | None:
         if url and (m := _PURSUIT_URL_DISTANCE.search(url)):
             return _PURSUIT_BY_METRES[m.group(1)]
     return None
+
+
+# Masters individual pursuit distance by age band (26037): 3 km up to 49, 2 km from 50.
+MASTERS_PURSUIT_2K_FROM_AGE = 50
+
+
+def pursuit_discipline_from_band(event_name: str) -> str | None:
+    """Pursuit distance key from a masters age band in the name ('60-64 Men Pursuit'), else None.
+
+    For events with no URL yet; pursuit_discipline_from_urls wins once there is one.
+    """
+    band = event_band(event_name)
+    if band is None:
+        return None
+    return "pursuit_2k" if band.lo >= MASTERS_PURSUIT_2K_FROM_AGE else "pursuit_3k"
 
 
 def get_default_duration(discipline: str) -> float:

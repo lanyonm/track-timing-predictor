@@ -4,7 +4,12 @@ from datetime import datetime, time
 
 from bs4 import BeautifulSoup, Tag
 
-from app.disciplines import SPECIAL_EVENT_NAMES, detect_discipline, pursuit_discipline_from_urls
+from app.disciplines import (
+    SPECIAL_EVENT_NAMES,
+    detect_discipline,
+    pursuit_discipline_from_band,
+    pursuit_discipline_from_urls,
+)
 from app.models import Event, EventStatus, RiderEntry, RiderListEntry, Session, normalize_rider_name
 
 logger = logging.getLogger(__name__)
@@ -480,6 +485,7 @@ def parse_schedule(jxn_data: dict) -> list[Session]:
                         audit_url,
                         live_url,
                     )
+                    or pursuit_discipline_from_band(name)
                     or discipline
                 )
 

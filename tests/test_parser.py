@@ -700,9 +700,20 @@ class TestPursuitDistanceFromUrl:
         # Team pursuit URLs also say 4000; they must not be reclassified.
         assert d[(tuesday, "65-74 Men Team Pursuit Qualifying")] == "team_pursuit"
 
-    def test_name_fallback_without_urls(self, by_name):
+    def test_band_fallback_without_urls(self, by_name):
+        # No URL yet: masters bands under 50 ride 3 km, 50 and over 2 km (as 26037's URLs show).
         d = by_name("schedule-26037-live.json")
         assert d[("Oct 7 - Wednesday Morning Session", "35-39 Men Pursuit Qualifying")] == "pursuit_3k"
+        assert d[("Oct 9 - Friday Morning Session", "60-64 Men Pursuit Qualifying")] == "pursuit_2k"  # was 3k
+        assert d[("Oct 10 - Saturday Afternoon Session", "70-74 Men Pursuit Final")] == "pursuit_2k"
+
+    def test_band_distance(self):
+        from app.disciplines import pursuit_discipline_from_band
+
+        assert pursuit_discipline_from_band("45-49 Women Pursuit Final") == "pursuit_3k"
+        assert pursuit_discipline_from_band("50-54 Men Pursuit Qualifying") == "pursuit_2k"
+        assert pursuit_discipline_from_band("80+ Men Pursuit Qualifying") == "pursuit_2k"
+        assert pursuit_discipline_from_band("Junior Women Pursuit Final") is None
 
     def test_26008_and_26009(self, by_name):
         d = {name: disc for (_, name), disc in by_name("sample-event-output.json").items()}
