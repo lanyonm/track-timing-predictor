@@ -286,6 +286,11 @@ Prod traffic is served through CloudFront at `https://ttp.lanyonm.org`:
   max-age=31536000, immutable` and unversioned ones with `no-cache`. PR stacks have no
   CloudFront; browsers there cache by the same headers.
 - **Viewer protocol:** HTTP redirects to HTTPS
+- **Security headers:** set by the app (`app.main.security_headers`), not a CloudFront
+  response headers policy, so PR stacks and local runs send the same ones: a CSP limited
+  to `'self'` (no inline scripts or styles; page behaviour is in `static/app.js`), HSTS
+  (one year), `nosniff`, `strict-origin-when-cross-origin` and `X-Frame-Options: DENY`.
+  CloudFront passes them through.
 
 **CDK workaround (dual auth):** AWS requires both `lambda:InvokeFunctionUrl` and
 `lambda:InvokeFunction` in the Lambda resource policy for CloudFront OAC access.
@@ -318,6 +323,11 @@ DNS is managed at Name.com (not Route53). Two CNAME records are required:
 ## Not Configured
 
 - **Rate limiting / WAF:** none. The CloudFront distribution and PR Function URLs
-  are publicly reachable without throttling, and the Lambda has no reserved
-  concurrency limit.
+  are publicly reachable without per-client throttling.
+- **Reserved concurrency:** none, and none can be set: the account's Lambda concurrency
+  quota is 10, and AWS keeps at least 10 unreserved. That quota caps all functions in the
+  account together (prod and PR stacks share it), which bounds cost but lets a PR
+  environment or a burst against one stack throttle the other. Raising the quota (Service
+  Quotas) would allow per-function limits, but would also remove that overall cap.
+- **Access logging:** CloudFront standard logs are off.
 - **Shared caches:** prediction caches are per Lambda container (see above).

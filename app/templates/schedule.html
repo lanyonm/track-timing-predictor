@@ -5,7 +5,7 @@
 
   <div class="flex items-baseline gap-3 flex-wrap">
     <h2 class="text-2xl font-semibold tracking-tight">{{ competition_name }}</h2>
-    <a href="https://tracktiming.live/eventpage.php?EventId={{ competition_id }}" target="_blank" class="link link-hover text-sm opacity-50">View on tracktiming.live</a>
+    <a href="{{ base_url }}/eventpage.php?EventId={{ competition_id }}" target="_blank" rel="noopener noreferrer" class="link link-hover text-sm opacity-50">View on tracktiming.live</a>
   </div>
 
   <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm opacity-60">
@@ -17,8 +17,7 @@
       <form action="/settings/use-learned" method="get" class="contents">
         <input type="hidden" name="event_id" value="{{ competition_id }}">
         <input type="checkbox" name="use_learned" value="on" class="toggle toggle-sm toggle-primary"
-               {% if use_learned %}checked{% endif %}
-               onchange="window.location.href='/settings/use-learned?event_id={{ competition_id }}&use_learned=' + (this.checked ? 'on' : 'off')">
+               {% if use_learned %}checked{% endif %} data-autosubmit>
         <span class="font-medium">Use learned durations</span>
         <noscript><button type="submit" class="btn btn-xs">Apply</button></noscript>
       </form>
@@ -50,46 +49,4 @@
   </span>
 </div>
 
-<script>
-  (function () {
-    var container = document.getElementById('schedule-container');
-    var openSessions = new Set();
-    var closedByUser = new Set();
-
-    container.addEventListener('htmx:beforeSwap', function () {
-      openSessions.clear();
-      container.querySelectorAll('details').forEach(function (el) {
-        var label = el.querySelector('summary .session-label').textContent.trim();
-        if (el.hasAttribute('open')) {
-          openSessions.add(label);
-        } else if (el.hasAttribute('data-pending-racer')) {
-          closedByUser.add(label);
-        }
-      });
-    });
-
-    container.addEventListener('htmx:afterSwap', function () {
-      container.querySelectorAll('details').forEach(function (el) {
-        var label = el.querySelector('summary .session-label').textContent.trim();
-        if (openSessions.has(label)) {
-          el.setAttribute('open', '');
-        } else {
-          el.removeAttribute('open');
-        }
-      });
-
-      container.querySelectorAll('details').forEach(function (el) {
-        var label = el.querySelector('summary .session-label').textContent.trim();
-        if (el.hasAttribute('data-pending-racer') && !closedByUser.has(label)) {
-          el.setAttribute('open', '');
-        }
-      });
-
-      var generatedAt = document.getElementById('schedule-generated-at');
-      if (generatedAt) {
-        document.getElementById('last-updated').textContent = generatedAt.dataset.generatedAt;
-      }
-    });
-  })();
-</script>
 {% endblock %}

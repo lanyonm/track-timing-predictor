@@ -140,6 +140,7 @@ data/
 └── competitions/    # Extracted JSON reports (gitignored)
 static/
 ├── app.css          # Built Tailwind + DaisyUI (from frontend/, committed)
+├── app.js           # Page behaviour (hand-written; the CSP blocks inline scripts)
 ├── htmx.min.js      # Vendored htmx (from frontend/, committed)
 └── style.css        # App-specific overrides
 frontend/            # npm build for static/app.css and static/htmx.min.js

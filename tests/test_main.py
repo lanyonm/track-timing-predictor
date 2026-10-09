@@ -765,7 +765,7 @@ class TestFrontendAssets:
         assert urls
         assert all(u.startswith("/static/") for u in urls), urls
 
-    @pytest.mark.parametrize("path", ["/static/app.css", "/static/style.css", "/static/htmx.min.js"])
+    @pytest.mark.parametrize("path", ["/static/app.css", "/static/style.css", "/static/htmx.min.js", "/static/app.js"])
     def test_assets_are_served(self, client, path):
         assert client.get(path).status_code == 200
 
@@ -792,3 +792,45 @@ class TestFrontendAssets:
 
         digest = hashlib.sha384((Path(__file__).parent.parent / "static" / "htmx.min.js").read_bytes()).digest()
         assert base64.b64encode(digest).decode() == self.HTMX_SHA384
+
+
+TEMPLATES_DIR = Path(__file__).parent.parent / "app" / "templates"
+
+
+class TestSecurityHeaders:
+    """Every response carries the CSP and other security headers (app.main.security_headers)."""
+
+    @pytest.mark.parametrize("path", ["/", "/static/app.css?v=1", "/health", "/static/nope.css"])
+    def test_headers_on_every_response(self, client, path):
+        headers = client.get(path).headers
+        csp = headers["content-security-policy"]
+        assert "script-src 'self'" in csp
+        assert "style-src 'self'" in csp
+        assert "frame-ancestors 'none'" in csp
+        assert headers["strict-transport-security"] == "max-age=31536000"
+        assert headers["x-content-type-options"] == "nosniff"
+        assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
+        assert headers["x-frame-options"] == "DENY"
+
+    @pytest.mark.parametrize("template", sorted(p.name for p in TEMPLATES_DIR.glob("*.html")))
+    def test_templates_have_no_inline_script_or_style(self, template):
+        """The CSP blocks inline code, so page behaviour must live in static/app.js."""
+        soup = BeautifulSoup((TEMPLATES_DIR / template).read_text(), "html.parser")
+        assert not [s for s in soup.find_all("script") if not s.get("src")]
+        assert not soup.find_all("style")
+        for el in soup.find_all(True):
+            attrs = [a for a in el.attrs if a.startswith("on") or a in ("style", "hx-on")]
+            assert not attrs, f"{template}: <{el.name}> has {attrs}"
+
+    @pytest.mark.parametrize("template", sorted(p.name for p in TEMPLATES_DIR.glob("*.html")))
+    def test_new_tab_links_are_noopener(self, template):
+        soup = BeautifulSoup((TEMPLATES_DIR / template).read_text(), "html.parser")
+        for a in soup.find_all("a", target="_blank"):
+            assert {"noopener", "noreferrer"} <= set(a.get("rel", [])), a
+            assert "tracktiming.live" not in a["href"], "use base_url"
+
+    def test_htmx_indicator_styles_disabled(self, client):
+        """htmx otherwise injects a <style> element, which style-src 'self' blocks."""
+        soup = BeautifulSoup(client.get("/").text, "html.parser")
+        meta = soup.find("meta", attrs={"name": "htmx-config"})
+        assert json.loads(meta["content"]) == {"includeIndicatorStyles": False}
