@@ -77,7 +77,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 **Configuration:** `app/config.py` exposes a module-level `settings` singleton and `get_settings()` for `Depends()`.
 
-**HTTP client:** the FastAPI `lifespan` creates an `httpx.AsyncClient` (`max_connections=50`, 15 s timeout) on `app.state.http_client`. Routes get it via `Depends(get_http_client)`. Under Mangum the lifespan runs per invocation, so on Lambda the client is not reused across requests.
+**HTTP client:** one `httpx.AsyncClient` (`max_connections=50`, 15 s timeout) lives on `app.state.http_client`; routes get it via `Depends(get_http_client)`. Under uvicorn the FastAPI `lifespan` creates and closes it and runs `init_db()`/`init_palmares_db()`. On Lambda, `handler` wraps `Mangum(app, lifespan="off")` (Mangum's `auto` would run the lifespan per invocation): it initialises the databases on the first invocation, `get_http_client` creates the client on first use, and Mangum's single per-container event loop lets later invocations reuse it and its connection pool.
 
 **Request flow (`/schedule/{event_id}`):**
 1. `fetcher.fetch_initial_layout` POSTs to the Jaxon endpoint (refresh uses `fetch_refresh`).

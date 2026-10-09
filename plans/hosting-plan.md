@@ -23,7 +23,10 @@ GitHub Actions (CI/CD)
 ### Compute: Lambda + Function URL
 
 The app runs as an AWS Lambda function using a Docker image from ECR. Mangum
-adapts the FastAPI ASGI app to the Lambda handler interface.
+adapts the FastAPI ASGI app to the Lambda handler interface. It runs with
+`lifespan="off"`, so the database schema is initialised once per container and
+the httpx client (and its connections to tracktiming.live) is reused across
+invocations.
 
 - **Prod:** Function URL uses `AWS_IAM` auth. CloudFront with Origin Access
   Control (OAC) signs requests to the Function URL, so it can only be accessed

@@ -656,3 +656,64 @@ class TestDefaultsPage:
         assert "46.0 km/h" in text
         assert "4.25 min per decider" in text
         assert "3.0 min until" in text
+
+
+def _function_url_event(path: str) -> dict:
+    """A minimal Lambda Function URL (payload v2.0) GET event."""
+    return {
+        "version": "2.0",
+        "routeKey": "$default",
+        "rawPath": path,
+        "rawQueryString": "",
+        "headers": {"host": "example.lambda-url.us-east-1.on.aws"},
+        "requestContext": {
+            "http": {"method": "GET", "path": path, "protocol": "HTTP/1.1", "sourceIp": "203.0.113.1"},
+            "stage": "$default",
+        },
+        "isBase64Encoded": False,
+    }
+
+
+class TestLambdaHandler:
+    @pytest.fixture(autouse=True)
+    def event_loop(self):
+        """Mangum runs every invocation on the thread's event loop, as in a Lambda container.
+        Other tests' asyncio.run() calls leave none set."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        yield loop
+        asyncio.set_event_loop(None)
+        loop.close()
+
+    def test_invocations_reuse_one_http_client(self, event_loop):
+        """Mangum runs with lifespan off, so the lazily created client outlives each invocation."""
+        import app.main as main
+
+        saved = app.state.http_client
+        del app.state.http_client
+        fetch = AsyncMock(side_effect=RuntimeError("upstream down"))
+        try:
+            with patch("app.main.fetch_initial_layout", fetch):
+                for _ in range(2):
+                    assert main.handler(_function_url_event("/schedule/26008"), None)["statusCode"] == 502
+            first, second = (c.args[0] for c in fetch.call_args_list)
+            assert first is second
+            assert not first.is_closed
+        finally:
+            created = getattr(app.state, "http_client", None)
+            app.state.http_client = saved
+            if created is not None:
+                event_loop.run_until_complete(created.aclose())
+
+    def test_initialises_databases_once(self):
+        import app.main as main
+
+        with (
+            patch.object(main, "_db_initialised", False),
+            patch("app.main.init_db") as init_db,
+            patch("app.main.init_palmares_db") as init_palmares_db,
+        ):
+            for _ in range(2):
+                main.handler(_function_url_event("/health"), None)
+        assert init_db.call_count == 1
+        assert init_palmares_db.call_count == 1

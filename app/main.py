@@ -6,6 +6,7 @@ import posixpath
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 from urllib.parse import quote, unquote
 
 import httpx
@@ -107,16 +108,21 @@ def setup_logging() -> None:
 setup_logging()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    init_db()
-    init_palmares_db()
+def _new_http_client() -> httpx.AsyncClient:
     settings = get_settings()
-    app.state.http_client = httpx.AsyncClient(
+    return httpx.AsyncClient(
         base_url=settings.tracktiming_base_url,
         timeout=15.0,
         limits=httpx.Limits(max_connections=50),
     )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup and shutdown under uvicorn. The Lambda handler runs with lifespan off."""
+    init_db()
+    init_palmares_db()
+    app.state.http_client = _new_http_client()
     yield
     await app.state.http_client.aclose()
 
@@ -131,7 +137,15 @@ templates.env.globals["decider_rate"] = SPRINT_DECIDER_RATE
 
 
 def get_http_client(request: Request) -> httpx.AsyncClient:
-    return request.app.state.http_client
+    """Return the shared client, creating it on first use when no lifespan ran (Lambda).
+
+    Mangum keeps one event loop per container, so the client and its connection pool
+    are reused by every invocation the container serves.
+    """
+    client: httpx.AsyncClient | None = getattr(request.app.state, "http_client", None)
+    if client is None or client.is_closed:
+        client = request.app.state.http_client = _new_http_client()
+    return client
 
 
 async def _fetch_live_heats(
@@ -874,4 +888,17 @@ async def learned_durations(request: Request, settings: Settings = Depends(get_s
     )
 
 
-handler = Mangum(app, lifespan="auto")
+# Mangum's lifespan="auto" runs the lifespan on every invocation, which would create and
+# close the HTTP client per request. With it off, the client is created lazily by
+# get_http_client and the database schema is initialised once per container.
+_mangum = Mangum(app, lifespan="off")
+_db_initialised = False
+
+
+def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    global _db_initialised
+    if not _db_initialised:
+        init_db()
+        init_palmares_db()
+        _db_initialised = True
+    return _mangum(event, context)
