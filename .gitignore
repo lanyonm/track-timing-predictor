@@ -25,3 +25,6 @@ cdk-outputs.json
 
 # Reference result-book PDFs (third-party, local only)
 docs/result-books/
+
+# Frontend build (frontend/package.json); the built static/app.css and static/htmx.min.js are committed
+frontend/node_modules/

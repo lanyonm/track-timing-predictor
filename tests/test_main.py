@@ -750,3 +750,27 @@ class TestLearnedPage:
 
     def test_empty_database(self, client):
         assert "No learned durations yet" in client.get("/learned").text
+
+
+class TestFrontendAssets:
+    """CSS and JS are built into static/ (frontend/), so pages load nothing from third parties."""
+
+    # Published SRI for htmx.org@1.9.12 dist/htmx.min.js (identical on unpkg and jsDelivr).
+    HTMX_SHA384 = "ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
+
+    def test_pages_load_only_self_hosted_assets(self, client):
+        soup = BeautifulSoup(client.get("/").text, "html.parser")
+        urls = [s["src"] for s in soup.find_all("script", src=True)]
+        urls += [link["href"] for link in soup.find_all("link", rel="stylesheet")]
+        assert urls
+        assert all(u.startswith("/static/") for u in urls), urls
+
+    @pytest.mark.parametrize("path", ["/static/app.css", "/static/style.css", "/static/htmx.min.js"])
+    def test_assets_are_served(self, client, path):
+        assert client.get(path).status_code == 200
+
+    def test_vendored_htmx_matches_release(self):
+        import hashlib
+
+        digest = hashlib.sha384((Path(__file__).parent.parent / "static" / "htmx.min.js").read_bytes()).digest()
+        assert base64.b64encode(digest).decode() == self.HTMX_SHA384

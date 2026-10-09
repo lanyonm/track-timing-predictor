@@ -32,7 +32,7 @@ uv pip compile pyproject.toml --extra dev -c requirements.txt --universal --pyth
 uv pip compile cdk/requirements.in --universal --python-version 3.13 --generate-hashes -o cdk/requirements.txt
 ```
 
-The dev lock is constrained by the runtime lock so shared packages match the image. The CDK CLI is pinned in the workflows (`npm install -g aws-cdk@<version>`); bump it with `aws-cdk-lib`. Dependabot (`.github/dependabot.yml`) proposes monthly updates for pip (root and `cdk/`), GitHub Actions (pinned by commit SHA) and the Dockerfile base image (pinned by digest).
+The dev lock is constrained by the runtime lock so shared packages match the image. The CDK CLI is pinned in the workflows (`npm install -g aws-cdk@<version>`); bump it with `aws-cdk-lib`. Dependabot (`.github/dependabot.yml`) proposes monthly updates for pip (root and `cdk/`), npm (`frontend/`; rebuild `static/` on those PRs), GitHub Actions (pinned by commit SHA) and the Dockerfile base image (pinned by digest).
 
 Lint, format and type checking (config in `pyproject.toml`; CI runs all three):
 
@@ -69,7 +69,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 **Deployment:** AWS Lambda (Docker image from ECR, `Dockerfile`) behind a Function URL, adapted with Mangum (`handler` in `app/main.py`). Prod sits behind CloudFront at `ttp.lanyonm.org`, which uses OAC to sign requests to an `AWS_IAM` Function URL. Infra is CDK in `cdk/`; details are in `plans/hosting-plan.md`. **All routes must be GET.** CloudFront OAC can't sign POST bodies to Function URLs (403).
 
 **CI/CD** (`.github/workflows/`):
-- `test.yml`: on pushes and PRs to `main`, a `lint` job (ruff check, ruff format --check, mypy) and a `test` job (pytest with coverage); `test` updates the coverage badge gist on `main`. Read-only token.
+- `test.yml`: on pushes and PRs to `main`, a `lint` job (ruff check, ruff format --check, mypy), an `assets` job (rebuilds `frontend/` and fails if `static/` differs) and a `test` job (pytest with coverage); `test` updates the coverage badge gist on `main`. Read-only token.
 - `deploy.yml`: runs via `workflow_run` after Tests succeeds for a push to `main`, so a red `main` doesn't deploy. Builds the tested commit's image (SHA tag + `prod-latest`) and runs `cdk deploy` for prod in the `production` environment (main only, no reviewer), serialised by the `deploy-prod` concurrency group.
 - `pr-environment.yml`: for same-repo PRs, builds the image (`pr-<N>-<sha>`), deploys `TrackTimingStack-pr-<N>` with a public Function URL, comments the URL on the PR, and destroys the stack on close. Runs serialised per PR.
 - `cleanup-pr-stacks.yml`: weekly sweep that deletes `TrackTimingStack-pr-*` stacks whose PR is closed.
@@ -163,7 +163,7 @@ A medal ceremony with a podium forecast skips all four and uses `CEREMONY_BASE_M
 - Entries are keyed by the raw racer name string. The DynamoDB keys are `RACER#{name}` and `COMP#{id}#S#{sid}#E#{pos}`.
 - `audit_parser.py` parses `-AUDIT-R.htm` pages (riders from `<p>`, heats from `<h3>`), filters with `normalize_rider_name`, and `format_csv` emits Heat, Dist, Time, Rank, Lap, Lap_Rank, Sect, Sect_Rank.
 
-**Frontend:** Jinja2 templates in `app/templates/` (`base.html`, `index.html`, `schedule.html` + `_schedule_body.html`, `palmares.html`, `defaults.html`, `learned.html`). DaisyUI v4 + Tailwind (Play CDN) + HTMX 1.9 are loaded from CDNs in `base.html`. `static/style.css` holds only app-specific overrides; the schedule table becomes cards below 768px (`.schedule-table`).
+**Frontend:** Jinja2 templates in `app/templates/` (`base.html`, `index.html`, `schedule.html` + `_schedule_body.html`, `palmares.html`, `defaults.html`, `learned.html`). No third-party assets load at runtime: `base.html` loads `static/app.css` (Tailwind 3 + DaisyUI 4, light and dark themes, compiled from the classes in `app/templates/` and `app/**/*.py`), then `static/style.css`, then `static/htmx.min.js` (1.9.12). The first and last are built by `frontend/` (`cd frontend && npm ci && npm run build`; versions pinned in `frontend/package-lock.json`) and committed, so rebuild after adding a class; a class built by string concatenation won't be found. `static/style.css` holds only app-specific overrides; the schedule table becomes cards below 768px (`.schedule-table`).
 
 ## Key Patterns
 
@@ -174,7 +174,7 @@ A medal ceremony with a podium forecast skips all four and uses `CEREMONY_BASE_M
 ## Repository map
 
 - `pyproject.toml`: project metadata, dependency ranges and ruff/mypy/pytest/coverage config.
-- `app/`: application. `tools/`: CLI importers and `rebuild_aggregates` (DynamoDB aggregate repair). `tests/`: pytest suite plus `fixtures/`. `cdk/`: infrastructure. `static/`: CSS.
+- `app/`: application. `tools/`: CLI importers and `rebuild_aggregates` (DynamoDB aggregate repair). `tests/`: pytest suite plus `fixtures/`. `cdk/`: infrastructure. `static/`: built CSS, vendored htmx and overrides. `frontend/`: npm build for the `static/` assets.
 - `specs/NNN-name/`: speckit feature artifacts (spec, plan, tasks, research, contracts). 001–005 are complete and historical; read them for rationale, not current behaviour.
 - `.specify/`: speckit config. Only `memory/constitution.md` (project principles that govern design trade-offs) and `templates/overrides/` (project-specific plan and task rules) are committed. The rest of `.specify/` and the `/speckit.*` commands in `.claude/commands/` are installed locally and gitignored. The project uses Spec Kit **v0.2.1**; to install it, run `uvx --from git+https://github.com/github/spec-kit.git@v0.2.1 specify init --here --ai claude --script sh --force`. This keeps the existing constitution and overrides; check `git status` afterwards.
 - `plans/`: pre-speckit design notes. `hosting-plan.md` is the current infrastructure reference; `data-pipeline*.md` and `dynamo-import-reload.md` are historical.

@@ -218,14 +218,18 @@ Weekly (Mondays 06:17 UTC) and on manual dispatch from `main`: lists
 
 ### Tests (`.github/workflows/test.yml`)
 
-Triggered on push/PR to `main`, with a read-only token (`contents: read`). Both jobs install the hashed `requirements-dev.txt`
-lock. `lint` runs `ruff check`, `ruff format --check` and `mypy`; `test` runs
+Triggered on push/PR to `main`, with a read-only token (`contents: read`). `lint` and `test` install the hashed `requirements-dev.txt`
+lock. `lint` runs `ruff check`, `ruff format --check` and `mypy`; `assets` runs
+`npm ci && npm run build` in `frontend/` and fails if the committed `static/app.css`
+or `static/htmx.min.js` differ; `test` runs
 `pytest` with coverage and, on `main`, publishes the coverage percentage to a gist
 for the README badge (`GIST_TOKEN` secret).
 
 All workflow actions are pinned by commit SHA, the CDK CLI by npm version and
 `cdk/requirements.txt` by hashed lock. Dependabot (`.github/dependabot.yml`)
-proposes monthly updates for pip, GitHub Actions and the base image.
+proposes monthly updates for pip, npm (`frontend/`), GitHub Actions and the base image.
+The frontend CSS and htmx are served by the app from `static/`, so pages make no
+third-party requests.
 
 ## Local Development
 

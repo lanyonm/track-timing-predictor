@@ -80,6 +80,16 @@ Open [http://localhost:8000](http://localhost:8000), enter a tracktiming.live Ev
 Event IDs can be found in the URL of any event on tracktiming.live:
 `https://tracktiming.live/eventpage.php?EventId=26008` → ID is `26008`
 
+### Frontend assets
+
+The pages load no third-party CSS or JS. `static/app.css` (Tailwind 3 + DaisyUI 4, compiled from the classes used in `app/templates/` and `app/`) and `static/htmx.min.js` are built from `frontend/` and committed. After adding or changing a Tailwind/DaisyUI class, rebuild them (Node required; versions are pinned in `frontend/package-lock.json`):
+
+```bash
+cd frontend && npm ci && npm run build
+```
+
+CI fails if the committed files don't match a fresh build.
+
 ## Testing
 
 ```bash
@@ -129,7 +139,10 @@ tools/
 data/
 └── competitions/    # Extracted JSON reports (gitignored)
 static/
-└── style.css
+├── app.css          # Built Tailwind + DaisyUI (from frontend/, committed)
+├── htmx.min.js      # Vendored htmx (from frontend/, committed)
+└── style.css        # App-specific overrides
+frontend/            # npm build for static/app.css and static/htmx.min.js
 tests/               # pytest suite and captured fixtures
 cdk/                 # AWS CDK infrastructure (Lambda, DynamoDB, CloudFront)
 specs/               # Feature specs (speckit), historical
