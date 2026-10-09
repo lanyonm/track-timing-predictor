@@ -769,6 +769,24 @@ class TestFrontendAssets:
     def test_assets_are_served(self, client, path):
         assert client.get(path).status_code == 200
 
+    def test_asset_urls_carry_content_hash(self, client):
+        import hashlib
+
+        soup = BeautifulSoup(client.get("/").text, "html.parser")
+        href = soup.find("link", href=re.compile(r"app\.css"))["href"]
+        expected = hashlib.sha256((Path(__file__).parent.parent / "static" / "app.css").read_bytes()).hexdigest()[:12]
+        assert href == f"/static/app.css?v={expected}"
+
+    def test_versioned_asset_is_cacheable(self, client):
+        resp = client.get("/static/app.css?v=abc123")
+        assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    def test_unversioned_asset_revalidates(self, client):
+        assert client.get("/static/app.css").headers["cache-control"] == "no-cache"
+
+    def test_missing_asset_is_404(self, client):
+        assert client.get("/static/nope.css?v=1").status_code == 404
+
     def test_vendored_htmx_matches_release(self):
         import hashlib
 

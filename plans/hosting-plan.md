@@ -271,8 +271,15 @@ Prod traffic is served through CloudFront at `https://ttp.lanyonm.org`:
 - **CloudFront distribution:** Origin Access Control (OAC) to the Lambda Function URL
 - **Origin request policy:** `ALL_VIEWER_EXCEPT_HOST_HEADER` — required so CloudFront
   doesn't forward its own domain as the `Host` header, which would break SigV4 signing
-- **Cache policy:** `CACHING_DISABLED` (the app is dynamic — predictions change
-  every 30 seconds)
+- **Cache policy:** `CACHING_DISABLED` on the default behavior (the app is dynamic —
+  predictions change every 30 seconds)
+- **`/static/*` behavior:** same origin and OAC, with a custom cache policy
+  (`track-timing-prod-static`) keyed on the `v` query string only, TTL default 1 day,
+  max 1 year, gzip/brotli. Pages link assets as `/static/<file>?v=<content hash>`
+  (`app.main.static_url`), so a rebuilt file gets a new URL and no invalidation is
+  needed. The app answers versioned requests with `Cache-Control: public,
+  max-age=31536000, immutable` and unversioned ones with `no-cache`. PR stacks have no
+  CloudFront; browsers there cache by the same headers.
 - **Viewer protocol:** HTTP redirects to HTTPS
 
 **CDK workaround (dual auth):** AWS requires both `lambda:InvokeFunctionUrl` and

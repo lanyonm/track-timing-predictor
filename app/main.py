@@ -1,13 +1,16 @@
 import asyncio
 import base64
 import binascii
+import functools
+import hashlib
 import logging
 import posixpath
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
-from urllib.parse import quote, unquote
+from urllib.parse import parse_qs, quote, unquote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -16,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from mangum import Mangum
 from pythonjsonlogger.json import JsonFormatter
+from starlette.types import Scope
 
 from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
 from app.ceremonies import needs_categories
@@ -130,9 +134,35 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await app.state.http_client.aclose()
 
 
+STATIC_DIR = Path("static")
+
+
+class VersionedStaticFiles(StaticFiles):
+    """Static files that browsers and CloudFront may cache for a year when requested with
+    the ?v= content hash from static_url; any other request revalidates (ETag)."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            versioned = "v" in parse_qs(scope.get("query_string", b"").decode("latin-1"))
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if versioned else "no-cache"
+        return response
+
+
+@functools.cache
+def _static_digest(path: str, mtime_ns: int) -> str:
+    return hashlib.sha256((STATIC_DIR / path).read_bytes()).hexdigest()[:12]
+
+
+def static_url(path: str) -> str:
+    """URL for a file in static/, with a content hash so a changed file gets a new URL."""
+    return f"/static/{path}?v={_static_digest(path, (STATIC_DIR / path).stat().st_mtime_ns)}"
+
+
 app = FastAPI(title="Track Timing Predictor", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", VersionedStaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory="app/templates")
+templates.env.globals["static_url"] = static_url
 templates.env.globals["per_heat_minutes"] = get_per_heat_duration
 templates.env.globals["changeover_minutes"] = get_changeover
 templates.env.globals["bunch_race_kmh"] = BUNCH_RACE_KMH

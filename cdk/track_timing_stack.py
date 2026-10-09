@@ -110,15 +110,40 @@ class TrackTimingStack(Stack):
                 validation=acm.CertificateValidation.from_dns(),
             )
 
+            # One origin (and OAC) shared by both behaviors
+            origin = origins.FunctionUrlOrigin.with_origin_access_control(fn_url)
             distribution = cloudfront.Distribution(
                 self,
                 "Distribution",
                 default_behavior=cloudfront.BehaviorOptions(
-                    origin=origins.FunctionUrlOrigin.with_origin_access_control(fn_url),
+                    origin=origin,
                     viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
                     cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
                     origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
                 ),
+                # static/ files are requested as /static/<file>?v=<content hash> (app.main.static_url),
+                # so a rebuilt file gets a new cache key. The app sends a one-year Cache-Control for
+                # versioned requests, which this policy honours (default 1 day, max 1 year).
+                additional_behaviors={
+                    "/static/*": cloudfront.BehaviorOptions(
+                        origin=origin,
+                        viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+                        cache_policy=cloudfront.CachePolicy(
+                            self,
+                            "StaticCachePolicy",
+                            cache_policy_name=f"track-timing-{env_name}-static",
+                            comment="static/ assets, keyed on the ?v= content hash",
+                            default_ttl=Duration.days(1),
+                            min_ttl=Duration.seconds(0),
+                            max_ttl=Duration.days(365),
+                            query_string_behavior=cloudfront.CacheQueryStringBehavior.allow_list("v"),
+                            header_behavior=cloudfront.CacheHeaderBehavior.none(),
+                            cookie_behavior=cloudfront.CacheCookieBehavior.none(),
+                            enable_accept_encoding_gzip=True,
+                            enable_accept_encoding_brotli=True,
+                        ),
+                    ),
+                },
                 domain_names=["ttp.lanyonm.org"],
                 certificate=certificate,
             )
