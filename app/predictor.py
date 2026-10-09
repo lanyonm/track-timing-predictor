@@ -10,12 +10,15 @@ from app.disciplines import (
     FINISH_TIME_DISCIPLINES,
     LIVE_BUNCH_CHANGEOVER_MINUTES,
     MAX_CHANGEOVER_MINUTES,
+    MEDAL_FINAL_DISCIPLINES,
     MIN_CHANGEOVER_SAMPLES,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
     get_changeover,
     get_default_duration,
     get_per_heat_duration,
+    keirin_round_heats,
+    qualifying_name,
     split_ride,
     sprint_round_pairs,
 )
@@ -254,7 +257,7 @@ def _base_estimate(
     event: Event,
     use_learned: bool,
     bunch: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
-    listed_heats: int | None = None,
+    inferred: tuple[int, HeatBasis] | None = None,
 ) -> _Estimate:
     """Pre-result duration: heat count × per-heat + changeover, else the default.
 
@@ -264,7 +267,7 @@ def _base_estimate(
 
     A points or scratch race with a start-list distance runs at BUNCH_RACE_KMH.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs),
-    and an individual qualifying round's heats from listed_heats (rider_list.estimate_heats).
+    and other events' heats from inferred (infer_heats: Rider List entrants or the round name).
     A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
     decider once Ride 2 is posted, else per expected decider (pairs × SPRINT_DECIDER_RATE).
     """
@@ -282,16 +285,43 @@ def _base_estimate(
                 return _Estimate(deciders * SPRINT_DECIDER_MINUTES, deciders, "decider")
             if pairs is None:
                 pairs = _get_duration(event.discipline, use_learned) / get_per_heat_duration(event.discipline)
-            return _Estimate(pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
+            return _Estimate(pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, round(pairs), "decider_pairs")
         if hc is None and pairs is not None:
             return _Estimate(pairs * get_per_heat_duration(event.discipline), int(pairs), "round")
     basis: HeatBasis = "start_list"
-    if hc is None and listed_heats is not None:
-        hc, basis = listed_heats, "rider_list"
+    if hc is None and inferred is not None:
+        hc, basis = inferred
     if hc is not None:
         return _Estimate(hc * get_per_heat_duration(event.discipline) + _changeover(event.discipline, bunch), hc, basis)
     shift = _changeover(event.discipline, bunch) - get_changeover(event.discipline)
     return _Estimate(_get_duration(event.discipline, use_learned) + shift)
+
+
+def infer_heats(
+    sessions: list[Session], rider_list: list[RiderListEntry] | None
+) -> dict[tuple[int, int], tuple[int, HeatBasis]]:
+    """Heat counts for events without a start list, keyed by (session_id, position).
+
+    From the round name: a pursuit, team pursuit or team sprint final that follows a
+    qualifying round of the same name is ridden for bronze and gold (2 heats), and a keirin
+    round's heats come from keirin_round_heats. From the Rider List: individual qualifying
+    rounds and time trials (rider_list.estimate_heats). Sprint rounds are sized in
+    _base_estimate, since a Ride 3 depends on them.
+    """
+    names = {e.name for s in sessions for e in s.events}
+    heats: dict[tuple[int, int], tuple[int, HeatBasis]] = {}
+    for s in sessions:
+        for e in s.events:
+            n = None
+            if e.discipline in MEDAL_FINAL_DISCIPLINES and qualifying_name(e.name) in names:
+                n = 2
+            elif e.discipline == "keirin":
+                n = keirin_round_heats(e.name)
+            if n is not None:
+                heats[(s.session_id, e.position)] = (n, "round")
+    if rider_list:
+        heats.update({k: (n, "rider_list") for k, n in estimate_heats(rider_list, sessions).items()})
+    return heats
 
 
 def is_start_list_cached(competition_id: int, session_id: int, position: int) -> bool:
@@ -489,7 +519,7 @@ def predict_session(
     rider_list_matches: dict[tuple[int, int], RiderMatch] | None = None,
     ceremony_podiums: dict[tuple[int, int], int] | None = None,
     changeover: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
-    listed_heats: dict[tuple[int, int], int] | None = None,
+    inferred_heats: dict[tuple[int, int], tuple[int, HeatBasis]] | None = None,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -512,10 +542,10 @@ def predict_session(
     ceremony_podiums: forecast podiums per medal ceremony from ceremonies.forecast_podiums,
             keyed by (session_id, position).
     changeover: the competition's bunch-race changeover from bunch_changeover.
-    listed_heats: heat counts from rider_list.estimate_heats, keyed by (session_id, position);
+    inferred_heats: heat counts and their basis from infer_heats, keyed by (session_id, position);
             used for events without a start-list heat count.
     """
-    listed_heats = listed_heats or {}
+    inferred_heats = inferred_heats or {}
     # Pre-tokenize racer name once for the entire session (avoids re-normalizing per event)
     user_tokens = normalize_rider_name(racer_name) if racer_name and racer_name.strip() else None
 
@@ -553,7 +583,7 @@ def predict_session(
             events[i],
             False,
             changeover,
-            listed_heats.get((session.session_id, events[i].position)),
+            inferred_heats.get((session.session_id, events[i].position)),
         ).minutes
         mins = generated_gap_duration(t0, t1, expected)
         if mins is not None:
@@ -583,7 +613,7 @@ def predict_session(
                 e,
                 use_learned,
                 changeover,
-                listed_heats.get((session.session_id, e.position)),
+                inferred_heats.get((session.session_id, e.position)),
             )
             durations.append(base.minutes)
             is_observed_list.append(False)
@@ -637,7 +667,8 @@ def predict_session(
         # For an active multi-heat event, determine which heat is currently running.
         # Priority: (1) live results page heat, (2) time-based fallback estimate.
         active_heat: int | None = None
-        if is_active and now is not None:
+        # Expected deciders aren't heats that will all be ridden, so they don't drive the heat counter.
+        if is_active and now is not None and not (est and est.basis == "decider_pairs"):
             live_heat = get_live_heat(competition_id, session.session_id, event.position)
             if live_heat is not None:
                 # live_heat = count of finished heats; the running heat is the next one.
@@ -746,7 +777,7 @@ def predict_schedule(
     categories = {(s, p): c for (comp, s, p), c in _start_list_categories.items() if comp == competition_id}
     ceremony_podiums = forecast_podiums(sessions, categories, rider_list)
     changeover = bunch_changeover(competition_id, sessions)
-    listed_heats = estimate_heats(rider_list, sessions) if rider_list else None
+    inferred_heats = infer_heats(sessions, rider_list)
 
     session_predictions = []
     total_events_without_start_lists = 0
@@ -767,7 +798,7 @@ def predict_schedule(
             rider_list_matches=rider_list_matches,
             ceremony_podiums=ceremony_podiums,
             changeover=changeover,
-            listed_heats=listed_heats,
+            inferred_heats=inferred_heats,
         )
         session_predictions.append(sp)
         total_events_without_start_lists += sp.events_without_start_lists

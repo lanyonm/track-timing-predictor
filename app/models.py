@@ -9,8 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
 # Where a pre-result heat count came from: a start list, Rider List entrants (estimated),
-# a sprint round's name (estimated), or Ride 2 results (sprint deciders).
-HeatBasis = Literal["start_list", "rider_list", "round", "decider"]
+# the round name (estimated), Ride 2 results (sprint deciders), or, for a sprint Ride 3
+# before Ride 2 is posted, the round's pairs (each may need a decider).
+HeatBasis = Literal["start_list", "rider_list", "round", "decider", "decider_pairs"]
 Gender = Literal["men", "women", "open"]
 
 

@@ -16,6 +16,7 @@ from app.disciplines import (
     PER_HEAT_DURATIONS,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
+    get_changeover,
 )
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
@@ -1157,7 +1158,7 @@ class TestSprintRide3:
         record_heat_count(26111, 1, 1, 4)
         ride3 = predict_session(26111, self._session()).event_predictions[1]
         assert ride3.estimated_duration_minutes == pytest.approx(4 * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
-        assert ride3.heat_count is None
+        assert (ride3.heat_count, ride3.heat_basis) == (4, "decider_pairs")
 
     def test_expected_deciders_without_start_list(self):
         ride3 = predict_session(26112, self._session()).event_predictions[1]
@@ -1233,6 +1234,7 @@ class TestSprintRoundPairs:
     def test_decider_scaled_from_round_name(self):
         pred = self._predict(26122, "65+ Women Sprint 1/2 Final Ride 3")
         assert pred.estimated_duration_minutes == pytest.approx(2 * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
+        assert (pred.heat_count, pred.heat_basis) == (2, "decider_pairs")
 
     def test_placement_final_keeps_default(self):
         # A sprint 5-8 Final is one race of 4 riders, not 2 pairs.
@@ -1250,6 +1252,64 @@ class TestSprintRoundPairs:
         assert pred.estimated_duration_minutes == pytest.approx(PER_HEAT_DURATIONS["sprint_match"])
         assert pred.heat_count == 1
         assert pred.heat_basis == "start_list"
+
+
+# ── Heat counts from the round name ────────────────────────────────────────────
+
+
+def _ev(position: int, name: str, discipline: str) -> Event:
+    return Event(position=position, name=name, discipline=discipline, status=EventStatus.NOT_READY, is_special=False)
+
+
+class TestRoundNameHeats:
+    """Without a start list, medal finals after a qualifying round and keirin finals are sized by name."""
+
+    def _preds(self, competition_id: int, events: list[Event]):
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        return predict_schedule(competition_id, [session]).sessions[0].event_predictions
+
+    @pytest.mark.parametrize(
+        ("discipline", "name"),
+        [
+            ("pursuit_2k", "55-59 Women Pursuit"),
+            ("team_pursuit", "55-64 Men Team Pursuit"),
+            ("team_sprint", "65-74 Men Team Sprint"),
+        ],
+    )
+    def test_final_after_qualifying_is_bronze_and_gold(self, discipline, name):
+        preds = self._preds(26141, [_ev(0, f"{name} Qualifying", discipline), _ev(1, f"{name} Final", discipline)])
+        final = preds[1]
+        assert (final.heat_count, final.heat_basis) == (2, "round")
+        assert final.estimated_duration_minutes == pytest.approx(
+            2 * PER_HEAT_DURATIONS[discipline] + get_changeover(discipline)
+        )
+        assert preds[0].heat_count is None
+
+    def test_final_without_qualifying_keeps_default(self):
+        # A regional "Pursuit Final" is the only round: every rider rides it.
+        final = self._preds(26142, [_ev(0, "Master A Women Pursuit Final", "pursuit_2k")])[0]
+        assert final.heat_count is None
+        assert final.estimated_duration_minutes == DEFAULT_DURATIONS["pursuit_2k"]
+
+    @pytest.mark.parametrize(
+        ("name", "heats"),
+        [("U15 Men Keirin 7-12 Final", 1), ("U15 Men Keirin 1-6 Final", 1), ("Elite/Junior Men Keirin 1/2 Final", 2)],
+    )
+    def test_keirin_rounds(self, name, heats):
+        pred = self._preds(26143, [_ev(0, name, "keirin")])[0]
+        assert (pred.heat_count, pred.heat_basis) == (heats, "round")
+
+    def test_keirin_first_round_keeps_default(self):
+        assert self._preds(26144, [_ev(0, "Elite Men Keirin Round 1", "keirin")])[0].heat_count is None
+
+    def test_start_list_wins(self):
+        record_heat_count(26145, 1, 1, 1)
+        events = [
+            _ev(0, "75+ Men Team Pursuit Qualifying", "team_pursuit"),
+            _ev(1, "75+ Men Team Pursuit Final", "team_pursuit"),
+        ]
+        final = self._preds(26145, events)[1]
+        assert (final.heat_count, final.heat_basis) == (1, "start_list")
 
 
 # ── Points and scratch race duration from distance ────────────────────────────────────────

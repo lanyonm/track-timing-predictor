@@ -127,6 +127,7 @@ templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["per_heat_minutes"] = get_per_heat_duration
 templates.env.globals["changeover_minutes"] = get_changeover
 templates.env.globals["bunch_race_kmh"] = BUNCH_RACE_KMH
+templates.env.globals["decider_rate"] = SPRINT_DECIDER_RATE
 
 
 def get_http_client(request: Request) -> httpx.AsyncClient:

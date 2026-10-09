@@ -133,8 +133,9 @@
               {%- elif pred.race_distance_km %}{% set tip = '%g' % pred.race_distance_km ~ " km from the start list at " ~ bunch_race_kmh | int ~ " km/h, plus changeover" %}
               {%- elif pred.heat_basis == 'start_list' %}{% set tip = heats ~ " from the start list × " ~ phd ~ " min" ~ plus_co %}
               {%- elif pred.heat_basis == 'rider_list' %}{% set tip = heats ~ " estimated from Rider List entrants × " ~ phd ~ " min" ~ plus_co %}
-              {%- elif pred.heat_basis == 'round' %}{% set tip = hc ~ " pair" ~ ('s' if hc != 1 else '') ~ " from the round name × " ~ phd ~ " min" %}
+              {%- elif pred.heat_basis == 'round' %}{% set tip = heats ~ " from the round name × " ~ phd ~ " min" ~ plus_co %}
               {%- elif pred.heat_basis == 'decider' %}{% set tip = hc ~ " pair" ~ ('s' if hc != 1 else '') ~ " tied after Ride 2" %}
+              {%- elif pred.heat_basis == 'decider_pairs' %}{% set tip = "Any of " ~ hc ~ " pair" ~ ('s' if hc != 1 else '') ~ " may need a decider; expected " ~ (decider_rate * 100) | round | int ~ "% of pairs until Ride 2 is posted" %}
               {%- elif pred.podium_count is not none %}{% set tip = "Forecast podiums for the finals since the last ceremony" %}
               {%- elif pred.event.is_special %}{% set tip = "Default duration" %}
               {%- else %}{% set tip = "No heat count yet: the discipline's default or learned duration" %}
@@ -144,6 +145,7 @@
                 {%- elif pred.is_active and pred.active_heat is not none -%}heat {{ pred.active_heat }}{% if hc is not none %}/{{ hc }}{% endif %}
                 {%- elif pred.race_distance_km -%}{{ '%g' % pred.race_distance_km }} km
                 {%- elif pred.heat_basis == 'decider' -%}{{ hc }} decider{{ 's' if hc != 1 else '' }}
+                {%- elif pred.heat_basis == 'decider_pairs' -%}0–{{ hc }} deciders est.
                 {%- elif pred.heat_basis in ('rider_list', 'round') -%}~{{ heats }} est.
                 {%- elif hc is not none -%}{{ heats }}
                 {%- elif pred.podium_count is not none -%}{{ pred.podium_count }} podium{{ 's' if pred.podium_count != 1 else '' }}
