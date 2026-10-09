@@ -78,7 +78,7 @@ class TrackTimingStack(Stack):
             "Handler",
             function_name=f"track-timing-{env_name}",
             code=lambda_.DockerImageCode.from_ecr(repository=repo, tag_or_digest=image_tag),
-            memory_size=512,
+            memory_size=1024,
             timeout=Duration.seconds(60),
             environment={
                 "DYNAMODB_TABLE": f"track-timing-{env_name}",

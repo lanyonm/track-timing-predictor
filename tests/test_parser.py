@@ -20,6 +20,7 @@ from app.parser import (
     parse_rider_list_url,
     parse_schedule,
     parse_sprint_deciders,
+    parse_start_list,
     parse_start_list_categories,
     parse_start_list_riders,
 )
@@ -786,3 +787,15 @@ class TestRiderList:
         html = rider_list_html.replace(f"{flag_cell}</td>", f"{flag_cell}{img}</td>")
         assert html != rider_list_html
         assert len(parse_rider_list(html)) == 480
+
+
+class TestParseStartList:
+    @pytest.mark.parametrize("fixture", sorted(p.name for p in FIXTURE_DIR.glob("start-list-*.html")))
+    def test_matches_individual_parsers(self, fixture):
+        html = (FIXTURE_DIR / fixture).read_text()
+        assert parse_start_list(html) == (
+            parse_heat_count(html),
+            parse_start_list_riders(html),
+            parse_start_list_categories(html),
+            parse_race_distance_km(html),
+        )

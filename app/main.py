@@ -56,15 +56,12 @@ from app.palmares import (
 from app.parser import (
     parse_finish_time,
     parse_generated_time,
-    parse_heat_count,
     parse_live_heat,
-    parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
     parse_sprint_deciders,
-    parse_start_list_categories,
-    parse_start_list_riders,
+    parse_start_list,
 )
 from app.predictor import (
     LiveDuration,
@@ -255,48 +252,48 @@ async def _fetch_start_lists(
     Concurrently fetch start list pages for all events that have a start_list_url
     and whose heat count or rider list has not yet been cached.
     Records heat counts and rider entries in-memory. A completed event's start list
-    is fetched at most once, since it can't change.
+    is fetched at most once, since it can't change. Events that share a start list
+    (the rides of a sprint round) share one fetch.
     """
-    to_fetch = [
-        (competition_id, s.session_id, e.position, e.start_list_url, e.discipline)
-        for s in sessions
-        for e in s.events
-        if e.start_list_url
-        and (
-            get_heat_count(competition_id, s.session_id, e.position) is None
-            or not has_start_list_riders(competition_id, s.session_id, e.position)
-        )
-        and not (e.status == EventStatus.COMPLETED and is_start_list_cached(competition_id, s.session_id, e.position))
-    ]
+    to_fetch: dict[str, list[tuple[int, int]]] = {}
+    for s in sessions:
+        for e in s.events:
+            if (
+                e.start_list_url
+                and (
+                    get_heat_count(competition_id, s.session_id, e.position) is None
+                    or not has_start_list_riders(competition_id, s.session_id, e.position)
+                )
+                and not (
+                    e.status == EventStatus.COMPLETED and is_start_list_cached(competition_id, s.session_id, e.position)
+                )
+            ):
+                to_fetch.setdefault(e.start_list_url, []).append((s.session_id, e.position))
     if not to_fetch:
         return
 
     sem = asyncio.Semaphore(10)
 
-    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str) -> None:
+    async def fetch_one(url: str, slots: list[tuple[int, int]]) -> None:
         async with sem:
             try:
                 html = await fetch_page_html(client, url)
             except Exception:
-                logger.warning(
-                    "Failed to fetch start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
-                )
+                logger.warning("Failed to fetch start list %s for event %d", url, competition_id, exc_info=True)
                 return
             try:
-                count = parse_heat_count(html)
-                if count:
-                    record_heat_count(ev_id, sess_id, pos, count)
-                riders = parse_start_list_riders(html)
-                record_start_list_riders(ev_id, sess_id, pos, riders)
-                record_start_list_categories(ev_id, sess_id, pos, parse_start_list_categories(html))
-                if (km := parse_race_distance_km(html)) is not None:
-                    record_race_distance(ev_id, sess_id, pos, km)
+                start_list = parse_start_list(html)
+                for sess_id, pos in slots:
+                    if start_list.heat_count:
+                        record_heat_count(competition_id, sess_id, pos, start_list.heat_count)
+                    record_start_list_riders(competition_id, sess_id, pos, start_list.riders)
+                    record_start_list_categories(competition_id, sess_id, pos, start_list.categories)
+                    if start_list.race_distance_km is not None:
+                        record_race_distance(competition_id, sess_id, pos, start_list.race_distance_km)
             except Exception:
-                logger.warning(
-                    "Failed to parse start list for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
-                )
+                logger.warning("Failed to parse start list %s for event %d", url, competition_id, exc_info=True)
 
-    await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
+    await asyncio.gather(*[fetch_one(url, slots) for url, slots in to_fetch.items()])
 
 
 async def _fetch_result_pages(
@@ -312,46 +309,48 @@ async def _fetch_result_pages(
     Runs on every load/refresh but skips already-cached events, so only new
     completions are fetched. This makes predictions self-correcting throughout
     the day, even when the app is loaded mid-event. Observed durations go to the
-    learning database in one worker-thread call once every page is parsed.
+    learning database in one worker-thread call once every page is parsed. Events
+    that share a result page (the rides of a sprint round) share one fetch.
     """
-    to_fetch = [
-        (competition_id, s.session_id, e.position, e.result_url, e.discipline, e.name)
-        for s in sessions
-        for e in s.events
-        if e.result_url and get_generated_time(competition_id, s.session_id, e.position) is None
-    ]
+    to_fetch: dict[str, list[tuple[int, int, str, str]]] = {}
+    for s in sessions:
+        for e in s.events:
+            if e.result_url and get_generated_time(competition_id, s.session_id, e.position) is None:
+                to_fetch.setdefault(e.result_url, []).append((s.session_id, e.position, e.discipline, e.name))
     if not to_fetch:
         return
 
     sem = asyncio.Semaphore(10)
     observed: list[LiveDuration] = []
 
-    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str, discipline: str, name: str) -> None:
+    async def fetch_one(url: str, slots: list[tuple[int, int, str, str]]) -> None:
         async with sem:
             try:
                 html = await fetch_page_html(client, url)
             except Exception:
-                logger.warning(
-                    "Failed to fetch result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
-                )
+                logger.warning("Failed to fetch result page %s for event %d", url, competition_id, exc_info=True)
                 return
             try:
                 gen_time = parse_generated_time(html)
-                if gen_time is not None:
-                    record_generated_time(ev_id, sess_id, pos, gen_time)
                 finish_time = parse_finish_time(html)
-                if finish_time is not None:
-                    observed.append(record_observed_duration(ev_id, sess_id, pos, finish_time, discipline, name))
-                if discipline == "sprint_match" and (ride := split_ride(name)) is not None:
-                    deciders = parse_sprint_deciders(html)
-                    if deciders is not None:
-                        record_sprint_deciders(ev_id, ride[0], deciders)
+                deciders: int | None = None
+                deciders_parsed = False
+                for sess_id, pos, discipline, name in slots:
+                    if gen_time is not None:
+                        record_generated_time(competition_id, sess_id, pos, gen_time)
+                    if finish_time is not None:
+                        observed.append(
+                            record_observed_duration(competition_id, sess_id, pos, finish_time, discipline, name)
+                        )
+                    if discipline == "sprint_match" and (ride := split_ride(name)) is not None:
+                        if not deciders_parsed:
+                            deciders, deciders_parsed = parse_sprint_deciders(html), True
+                        if deciders is not None:
+                            record_sprint_deciders(competition_id, ride[0], deciders)
             except Exception:
-                logger.warning(
-                    "Failed to parse result page for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
-                )
+                logger.warning("Failed to parse result page %s for event %d", url, competition_id, exc_info=True)
 
-    await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
+    await asyncio.gather(*[fetch_one(url, slots) for url, slots in to_fetch.items()])
     if observed:
         await asyncio.to_thread(save_live_durations, observed)
 

@@ -40,7 +40,7 @@ regions, indicating an account-level issue. Lambda avoids the health check
 requirement entirely and is simpler to operate.
 
 **Configuration:**
-- Memory: 512 MB (allocates ~1/3 vCPU; sufficient for concurrent httpx calls)
+- Memory: 1024 MB (~0.6 vCPU). A cold first request parses ~275 upstream pages, so it is CPU-bound: for EventId 26037 it took ~14 s at 512 MB and ~7 s at 1024 MB. Peak memory use is ~155 MB.
 - Timeout: 60 seconds (accommodates slow tracktiming.live responses)
 - Runtime: Python 3.13 via `public.ecr.aws/lambda/python:3.13`, pinned by digest in the `Dockerfile`; dependencies install from the hashed `requirements.txt` lock with `--require-hashes`
 

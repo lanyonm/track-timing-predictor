@@ -1,6 +1,7 @@
 import logging
 import re
 from datetime import datetime, time
+from typing import NamedTuple
 
 from bs4 import BeautifulSoup, Tag
 
@@ -179,7 +180,10 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
 
     Returns an empty list if no riders are found.
     """
-    soup = BeautifulSoup(html, "html.parser")
+    return _start_list_riders(BeautifulSoup(html, "html.parser"))
+
+
+def _start_list_riders(soup: BeautifulSoup) -> list[RiderEntry]:
     riders: list[RiderEntry] = []
     current_heat = 0
 
@@ -289,7 +293,10 @@ def parse_start_list_categories(html: str) -> frozenset[str]:
     W5054 … W7074), and each category gets its own podium. Returns an empty set
     when there is no Category column.
     """
-    soup = BeautifulSoup(html, "html.parser")
+    return _start_list_categories(BeautifulSoup(html, "html.parser"))
+
+
+def _start_list_categories(soup: BeautifulSoup) -> frozenset[str]:
     categories: set[str] = set()
     for table in soup.find_all("table"):
         headers = [th.get_text(strip=True) for th in table.find_all("th")]
@@ -313,7 +320,11 @@ def parse_race_distance_km(html: str) -> float | None:
     Some titles add a suffix ('- Sprint Every 5 Laps'). Distances in metres (sprints,
     time trials) return None.
     """
-    for h3 in BeautifulSoup(html, "html.parser").find_all("h3"):
+    return _race_distance_km(BeautifulSoup(html, "html.parser"))
+
+
+def _race_distance_km(soup: BeautifulSoup) -> float | None:
+    for h3 in soup.find_all("h3"):
         if m := _RACE_DISTANCE_RE.search(h3.get_text(" ", strip=True)):
             return float(m.group(1))
     return None
@@ -372,6 +383,30 @@ def parse_heat_count(html: str) -> int | None:
     heats = re.findall(r"\bHeat\s+\d+\b", html)
     heats += re.findall(r"<h4>(?:<strong>)?\s*(?:Final\s+\d+-\d+|For\s+(?:Bronze|Gold))\b", html, re.IGNORECASE)
     return len(heats) if heats else None
+
+
+class StartList(NamedTuple):
+    heat_count: int | None
+    riders: list[RiderEntry]
+    categories: frozenset[str]
+    race_distance_km: float | None
+
+
+def parse_start_list(html: str) -> StartList:
+    """
+    Everything the app reads from a start list page, from a single parse.
+
+    Equivalent to calling parse_heat_count, parse_start_list_riders,
+    parse_start_list_categories and parse_race_distance_km, which would each
+    parse the page again.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    return StartList(
+        heat_count=parse_heat_count(html),
+        riders=_start_list_riders(soup),
+        categories=_start_list_categories(soup),
+        race_distance_km=_race_distance_km(soup),
+    )
 
 
 def parse_live_heat(html: str) -> int | None:

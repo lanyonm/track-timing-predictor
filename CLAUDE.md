@@ -84,7 +84,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 **Request flow (`/schedule/{event_id}`):**
 1. `fetcher.fetch_initial_layout` POSTs to the Jaxon endpoint (refresh uses `fetch_refresh`).
 2. `parser.parse_schedule` turns the HTML into `Session`/`Event` models.
-3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. When a racer is set and some race has no start-list riders, a combined-age bunch final has no cached start-list categories, or a pending sprint/pursuit qualifying round or time trial has no start-list heat count (`rider_list.needs_heat_estimate`), the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
+3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. Start lists and result pages are fetched once per distinct URL (the rides of a sprint round share both) and the result recorded for every event using it; `parser.parse_start_list` reads heat count, riders, categories and distance from one parse. When a racer is set and some race has no start-list riders, a combined-age bunch final has no cached start-list categories, or a pending sprint/pursuit qualifying round or time trial has no start-list heat count (`rider_list.needs_heat_estimate`), the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
 4. `predictor.predict_schedule` builds a `SchedulePrediction`.
 5. Jinja2 renders `schedule.html`; HTMX polls `/schedule/{id}/refresh`, which returns `_schedule_body.html`.
 
