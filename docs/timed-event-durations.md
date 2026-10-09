@@ -93,7 +93,7 @@ Both use the same `heat_count × per_heat_duration` formula. Finals race two tea
 
 ### Distance and Event Type by Category
 
-Time trials are sequential — each rider does one timed effort from a standing start (kilo) or flying start (500m / 750m).
+Each rider does one timed effort from a standing start (kilo) or flying start (500m / 750m). Riders go **two per heat**, one on each side of the track: every competition with measured slots (25022, 26002, 26008, 26009, 26037) has about half as many heats as riders (e.g. 18 riders in 9 heats, 25 in 13). The start-list heat count is the number of these pairs.
 
 | Category | Distance | Type |
 |---|---|---|
@@ -107,45 +107,41 @@ Time trials are sequential — each rider does one timed effort from a standing 
 | U15 Men / U15 Women | 500 m | Flying start |
 | U13 / U11 | 500 m | Flying start |
 
-### Reference Times per Rider
+### Reference Times per Heat
 
-Each rider's slot includes the ride itself plus rolling off the track and the next rider rolling on.
+Each heat's slot covers both riders' efforts (run at once) plus clearing the track and the next pair setting up.
 
-| Distance | Typical Race Time | Slot per Rider |
+| Distance | Typical Race Time | Slot per Heat |
 |---|---|---|
 | 500 m | ~40–55 s | ~2:20 |
 | 750 m | ~55–65 s | ~2:40 |
 | 1000 m | ~1:00–1:20 | ~3:00 |
 
-Rider counts at E26008 ranged from 1 (Master A Women) to ~7 (Elite Men kilo), reflecting typical entry sizes at a regional championship. National and international events may have larger fields and correspondingly longer slots.
-
 ### Slot Duration Calculation
 
-When heat count (= rider count) is known from the start list:
+When the heat count is known from the start list:
 
 ```
-slot = rider_count × per_rider_duration
+slot = heat_count × per_heat_duration
 ```
 
-Per-rider durations used:
+| Discipline Key | Per-Heat Duration | Measured (Generated gap ÷ heats) |
+|---|---|---|
+| `time_trial_500` | 2.33 min | median 2.55 (n = 12): 1.65–3.40 at 25022, 26002, 26008, 26009; 3.28–3.71 at 26037 |
+| `time_trial_750` | 2.67 min | 2.21, 2.95 (26037), 5.25 (26002, likely includes a break) |
+| `time_trial_kilo` | 3.00 min | median 3.10 (n = 7), 2.65–3.92 |
 
-| Discipline Key | Per-Rider Duration |
-|---|---|
-| `time_trial_500` | 2.33 min (~2:20) |
-| `time_trial_750` | 2.67 min (~2:40) |
-| `time_trial_kilo` | 3.00 min (measured ~3:05, see below) |
+The constants are unchanged. The 500 m median is pulled up by 26037 (masters worlds), whose three clean measurements run about 3.3 min per heat; the other competitions' median is 2.31. Two 26037 measurements are excluded: 90+ Men (1 rider, 15.0 min, includes a break) and 40-44 Women 750 m (6.37 min per heat).
 
-The 500 m value matches the measured median (2.31 min over 9 events). The 750 m value has one measurement (5.25 min at 26002) and is unchanged until there is more data.
+Before the start list is posted, a masters time trial takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `TT` code. At 26037 this matched the start list for all 8 completed women's TTs and 3 of 6 men's; the other men's were 1–2 heats high from non-starters.
 
-At 26037 (masters worlds) time trials ran **two riders per heat** (e.g. 12 riders in 6 heats), so the start-list heat count there is half the rider count. Before the start list is posted, a masters time trial takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `TT` code. This matched the start list for all 8 completed women's TTs and 3 of 6 men's; the other men's were 1–2 heats high from non-starters. Observed 500 m slots there ran about 3.3 min per two-rider heat (median of 5), above the 2.33 min per-heat constant; the constant hasn't been refit.
-
-When rider count is unknown, the default assumes ~7–8 riders:
+When the heat count is unknown, the default assumes 7–8 heats (14–17 riders):
 
 | Discipline Key | Default Duration | Assumed Basis |
 |---|---|---|
-| `time_trial_500` | 20.0 min | 8 riders × 2:20 ≈ 19 min |
-| `time_trial_750` | 22.0 min | 8 riders × 2:40 ≈ 21 min |
-| `time_trial_kilo` | 22.0 min | ~7 riders × 3:00 ≈ 21 min |
+| `time_trial_500` | 20.0 min | ~8.5 heats × 2:20 |
+| `time_trial_750` | 22.0 min | ~8 heats × 2:40 |
+| `time_trial_kilo` | 22.0 min | ~7 heats × 3:00 |
 
 ---
 

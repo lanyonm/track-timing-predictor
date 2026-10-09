@@ -120,7 +120,7 @@ def match_events(entry: RiderListEntry, sessions: list[Session]) -> dict[tuple[i
 
 
 # Individual events whose heat count follows from the number of entrants: one sprint
-# qualifier (flying 200) per rider, two riders per pursuit or time trial heat (26037).
+# qualifier (flying 200) per rider, two riders per pursuit or time trial heat.
 _RIDERS_PER_HEAT = {
     "sprint_qualifying": 1,
     "pursuit_2k": 2,

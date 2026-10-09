@@ -86,7 +86,7 @@ DISCIPLINE_KEYWORDS: list[tuple[str, str]] = [
 #
 # Reference race times used for calibration (from event schedule sheet):
 #   200m TT: 1:15/rider  sprint match: 3:00  keirin: 4:30
-#   500m TT: 2:20/rider  750m TT: 2:40/rider  1000m TT: 2:30/rider
+#   500m TT: 2:20/heat  750m TT: 2:40/heat  1000m TT: 2:30/heat (two riders per heat)
 #   break: 10:00  medals: 20:00  team sprint: 2:40/ride
 #   madison 15k W: 25:30  madison 15k M: 21:00
 DEFAULT_DURATIONS: dict[str, float] = {
@@ -115,10 +115,10 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "madison": 22.0,
     # Keirin: 4:30 race + 2:00 changeover
     "keirin": 6.5,
-    # Time trials (one category, sequential starts): per-rider time × ~8 riders
-    "time_trial_500": 20.0,  # 500m: 2:20/rider
-    "time_trial_750": 22.0,  # 750m: 2:40/rider
-    "time_trial_kilo": 22.0,  # 1000m: ~7 riders × 3:00
+    # Time trials (one category, two riders per heat): per-heat time × ~8 heats
+    "time_trial_500": 20.0,  # 500m: ~8.5 heats × 2:20
+    "time_trial_750": 22.0,  # 750m: ~8 heats × 2:40
+    "time_trial_kilo": 22.0,  # 1000m: ~7 heats × 3:00
     "time_trial_generic": 20.0,
     # Non-race:
     "ceremony": 20.0,
@@ -168,10 +168,10 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "madison": 24.0,
     # Keirin: one heat of ~6 riders (~4:30 race + recovery between heats)
     "keirin": 4.5,
-    # Time trials: one rider per heat; per-rider time + small gap between starts
-    "time_trial_500": 2.33,  # 500m: ~2:20/rider
-    "time_trial_750": 2.67,  # 750m: ~2:40/rider
-    "time_trial_kilo": 3.0,  # 1000m: measured ~3:05/rider
+    # Time trials: two riders per heat (every measured competition); both rides + changeover
+    "time_trial_500": 2.33,  # 500m: measured median 2.55 (n=12), 26037 ~3.3
+    "time_trial_750": 2.67,  # 750m: too few clean measurements to refit
+    "time_trial_kilo": 3.0,  # 1000m: measured median 3.10 (n=7)
     "time_trial_generic": 3.0,
 }
 
