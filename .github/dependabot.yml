@@ -34,10 +34,14 @@ updates:
 
   # frontend/package-lock.json pins Tailwind, DaisyUI and htmx. After an update, run
   # `npm ci && npm run build` in frontend/ and commit static/app.css and static/htmx.min.js.
+  # Major versions are ignored: Tailwind 4, DaisyUI 5 and htmx 2 each need a migration.
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       frontend:
         patterns: ["*"]

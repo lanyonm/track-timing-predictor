@@ -32,7 +32,7 @@ uv pip compile pyproject.toml --extra dev -c requirements.txt --universal --pyth
 uv pip compile cdk/requirements.in --universal --python-version 3.13 --generate-hashes -o cdk/requirements.txt
 ```
 
-The dev lock is constrained by the runtime lock so shared packages match the image. The CDK CLI is pinned in the workflows (`npm install -g aws-cdk@<version>`); bump it with `aws-cdk-lib`. Dependabot (`.github/dependabot.yml`) proposes monthly updates for pip (root and `cdk/`), npm (`frontend/`; rebuild `static/` on those PRs), GitHub Actions (pinned by commit SHA) and the Dockerfile base image (pinned by digest).
+The dev lock is constrained by the runtime lock so shared packages match the image. The CDK CLI is pinned in the workflows (`npm install -g aws-cdk@<version>`); bump it with `aws-cdk-lib`. Dependabot (`.github/dependabot.yml`) proposes monthly updates for pip (root and `cdk/`), npm (`frontend/`, minor and patch only; rebuild `static/` on those PRs), GitHub Actions (pinned by commit SHA) and the Dockerfile base image (pinned by digest).
 
 Lint, format and type checking (config in `pyproject.toml`; CI runs all three):
 
@@ -71,7 +71,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 **CI/CD** (`.github/workflows/`):
 - `test.yml`: on pushes and PRs to `main`, a `lint` job (ruff check, ruff format --check, mypy), an `assets` job (rebuilds `frontend/` and fails if `static/` differs) and a `test` job (pytest with coverage); `test` updates the coverage badge gist on `main`. Read-only token.
 - `deploy.yml`: runs via `workflow_run` after Tests succeeds for a push to `main`, so a red `main` doesn't deploy. Builds the tested commit's image (SHA tag + `prod-latest`) and runs `cdk deploy` for prod in the `production` environment (main only, no reviewer), serialised by the `deploy-prod` concurrency group.
-- `pr-environment.yml`: for same-repo PRs, builds the image (`pr-<N>-<sha>`), deploys `TrackTimingStack-pr-<N>` with a public Function URL, comments the URL on the PR, and destroys the stack on close. Runs serialised per PR.
+- `pr-environment.yml`: for same-repo PRs, except runs started by Dependabot (which get no repo secrets, so the role ARN would be empty), builds the image (`pr-<N>-<sha>`), deploys `TrackTimingStack-pr-<N>` with a public Function URL, comments the URL on the PR, and destroys the stack on close. Runs serialised per PR.
 - `cleanup-pr-stacks.yml`: weekly sweep that deletes `TrackTimingStack-pr-*` stacks whose PR is closed.
 - Two OIDC roles (`cdk/base_stack.py`): the prod role trusts only the `production` environment and deploys through the CDK bootstrap roles; the PR role trusts PR and main-branch runs, and PR stacks deploy with its own credentials (`CliCredentialsStackSynthesizer`), so its policy limits PR workflows to `pr-*` stacks and resources. Details in `plans/hosting-plan.md`.
 
