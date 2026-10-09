@@ -159,10 +159,36 @@ def static_url(path: str) -> str:
     return f"/static/{path}?v={_static_digest(path, (STATIC_DIR / path).stat().st_mtime_ns)}"
 
 
+# Pages load only same-origin assets and have no inline scripts, styles or on* handlers
+# (page behaviour is in static/app.js), so scripts and styles can be limited to 'self'.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+        "frame-ancestors 'none'"
+    ),
+    "Strict-Transport-Security": "max-age=31536000",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+}
+
 app = FastAPI(title="Track Timing Predictor", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next: Any) -> Response:
+    """Add SECURITY_HEADERS to every response, so PR environments (no CloudFront) get them too."""
+    response: Response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 app.mount("/static", VersionedStaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["static_url"] = static_url
+templates.env.globals["base_url"] = get_settings().tracktiming_base_url
 templates.env.globals["per_heat_minutes"] = get_per_heat_duration
 templates.env.globals["changeover_minutes"] = get_changeover
 templates.env.globals["bunch_race_kmh"] = BUNCH_RACE_KMH
@@ -658,7 +684,6 @@ async def get_schedule(
             "competition_name": competition_name,
             "now": now,
             "refresh_seconds": settings.refresh_interval_seconds,
-            "base_url": settings.tracktiming_base_url,
             "use_learned": use_learned,
             "racer_name": racer_name,
             "racer_encoded": racer_encoded,
@@ -737,7 +762,6 @@ async def refresh_schedule(
             "schedule": schedule,
             "competition_id": event_id,
             "now": now,
-            "base_url": settings.tracktiming_base_url,
             "palmares_count": palmares_count,
             "racer_encoded": racer_encoded,
         },
@@ -811,7 +835,6 @@ async def palmares_page(
             "competitions": competitions,
             "is_owner": is_owner,
             "share_url": share_url,
-            "base_url": settings.tracktiming_base_url,
         },
     )
 

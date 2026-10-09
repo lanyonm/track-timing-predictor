@@ -155,16 +155,16 @@
             </td>
             <td class="status-col">
               {% if pred.event.live_url %}
-                <a href="{{ base_url }}/{{ pred.event.live_url }}" target="_blank" class="btn btn-xs btn-outline border-error/30 text-error/80 font-bold">Live</a>
+                <a href="{{ base_url }}/{{ pred.event.live_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-error/30 text-error/80 font-bold">Live</a>
               {% endif %}
               {% if pred.event.result_url %}
-                <a href="{{ base_url }}/{{ pred.event.result_url }}" target="_blank" class="btn btn-xs btn-outline border-success/30 text-success/70">Results</a>
+                <a href="{{ base_url }}/{{ pred.event.result_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-success/30 text-success/70">Results</a>
               {% endif %}
               {% if pred.event.audit_url %}
-                <a href="{{ base_url }}/{{ pred.event.audit_url }}" target="_blank" class="btn btn-xs btn-outline border-warning/30 text-warning/70">Audit</a>
+                <a href="{{ base_url }}/{{ pred.event.audit_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-warning/30 text-warning/70">Audit</a>
               {% endif %}
               {% if pred.event.start_list_url %}
-                <a href="{{ base_url }}/{{ pred.event.start_list_url }}" target="_blank" class="btn btn-xs btn-outline border-info/30 text-info/70">Start List</a>
+                <a href="{{ base_url }}/{{ pred.event.start_list_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-info/30 text-info/70">Start List</a>
               {% endif %}
               {% if not pred.event.live_url and not pred.event.result_url and not pred.event.audit_url and not pred.event.start_list_url %}
                 &mdash;

@@ -7,11 +7,11 @@
       <h2 class="card-title text-xl">Predict Event Start Times</h2>
       <p class="text-sm opacity-70">
         Enter a
-        <a href="https://tracktiming.live/" target="_blank" class="link link-hover">tracktiming.live</a>
+        <a href="{{ base_url }}/" target="_blank" rel="noopener noreferrer" class="link link-hover">tracktiming.live</a>
         Event ID to see predicted start times for each event in the schedule.
       </p>
 
-      <form action="/schedule" method="get" class="mt-4 space-y-4" onsubmit="var b=document.getElementById('load-btn'),s=document.getElementById('load-spinner'),t=document.getElementById('load-text');b.disabled=true;s.classList.remove('hidden');t.textContent='Loading\u2026';">
+      <form action="/schedule" method="get" id="load-form" class="mt-4 space-y-4">
         <div class="form-control w-full">
           <label class="label" for="event_id">
             <span class="label-text font-medium">Event ID</span>
