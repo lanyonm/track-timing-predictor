@@ -591,11 +591,20 @@ class TestFetchStartListsCaching:
 
     def test_completed_empty_start_lists_fetched_once(self, sessions):
         with_lists = [e for s in sessions for e in s.events if e.start_list_url]
-        completed = [e for e in with_lists if e.status == EventStatus.COMPLETED]
+        completed = {e.start_list_url for e in with_lists if e.status == EventStatus.COMPLETED}
+        pending = {e.start_list_url for e in with_lists if e.status != EventStatus.COMPLETED}
         assert completed
-        assert self._run(sessions, "") == len(with_lists)
+        assert self._run(sessions, "") == len({e.start_list_url for e in with_lists})
         # Second pass: only non-completed events with empty lists are retried.
-        assert self._run(sessions, "") == len(with_lists) - len(completed)
+        assert self._run(sessions, "") == len(pending)
+
+    def test_shared_start_list_fetched_once_for_every_event(self, sessions, start_list_html):
+        with_lists = [(s.session_id, e) for s in sessions for e in s.events if e.start_list_url]
+        urls = [e.start_list_url for _, e in with_lists]
+        assert len(set(urls)) < len(urls)  # sprint rides share a start list
+        assert self._run(sessions, start_list_html) == len(set(urls))
+        for sess_id, e in with_lists:
+            assert (26037, sess_id, e.position) in _heat_counts
 
     def test_records_categories(self, sessions):
         html = (FIXTURE_DIR / "start-list-points-race-combined-26037.html").read_text()
@@ -647,6 +656,19 @@ class TestFetchResultPagesDeciders:
         assert completed_rounds
         assert {k[1] for k in _sprint_deciders} == completed_rounds
         assert set(_sprint_deciders.values()) == {1}
+
+    def test_shared_result_page_fetched_once_for_every_event(self):
+        sessions = parse_schedule(_load_fixture("schedule-26037.json"))
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
+        page = AsyncMock(side_effect=lambda _client, _path: html)
+        with patch("app.main.fetch_page_html", page):
+            asyncio.run(_fetch_result_pages(None, 26037, sessions))
+        with_results = [(s.session_id, e) for s in sessions for e in s.events if e.result_url]
+        urls = [e.result_url for _, e in with_results]
+        assert len(set(urls)) < len(urls)  # sprint rides share a result page
+        assert page.call_count == len(set(urls))
+        for sess_id, e in with_results:
+            assert (26037, sess_id, e.position) in _generated_times
 
 
 class TestDefaultsPage:
