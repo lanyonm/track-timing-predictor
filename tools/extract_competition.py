@@ -36,6 +36,7 @@ from app.models import (
 )
 from app.parser import parse_finish_time, parse_generated_time, parse_heat_count, parse_schedule
 from app.predictor import generated_gap_duration
+from app.rider_list import event_band
 
 logger = logging.getLogger(__name__)
 
@@ -74,15 +75,17 @@ def extract_generated_diff_duration(
     return dur
 
 
-def extract_heat_count_duration(start_list_html: str, discipline: str) -> tuple[float | None, int | None]:
-    """Extract duration from start-list heat count.
+def extract_heat_count_duration(
+    start_list_html: str, discipline: str, event_name: str
+) -> tuple[float | None, int | None]:
+    """Extract duration from start-list heat count (per-heat by the name's age band).
 
     Returns (total_duration_minutes, heat_count) or (None, None).
     """
     count = parse_heat_count(start_list_html)
     if count is None or count == 0:
         return None, None
-    per_heat = get_per_heat_duration(discipline)
+    per_heat = get_per_heat_duration(discipline, event_band(event_name))
     changeover = get_changeover(discipline)
     return count * per_heat + changeover, count
 
@@ -233,6 +236,7 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
                         heat_count_dur, heat_count = extract_heat_count_duration(
                             start_list_html,
                             category.discipline,
+                            event.name,
                         )
 
                 duration_minutes, duration_source = select_best_duration(

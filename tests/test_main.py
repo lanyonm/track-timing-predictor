@@ -4,7 +4,7 @@ import asyncio
 import base64
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -13,8 +13,9 @@ import pytest
 from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
-from app.models import EventStatus
+from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
 from app.predictor import (
     _finish_times,
@@ -28,6 +29,9 @@ from app.predictor import (
     _start_list_categories,
     _start_list_riders,
     _status_cache,
+    predict_schedule,
+    record_heat_count,
+    record_race_distance,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -321,8 +325,6 @@ class TestVenueLocalClock:
     """Routes must compute "now" in the venue's timezone, not the server's (UTC on Lambda)."""
 
     def _captured_now(self, client, path):
-        import app.main as main_module
-
         with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
             resp = client.get(path)
         assert resp.status_code == 200
@@ -374,8 +376,6 @@ class TestVenueOffsetInferredFromResults:
 
     @pytest.mark.parametrize("path", ["/schedule/26037", "/schedule/26037/refresh"])
     def test_now_uses_inferred_offset(self, client, path):
-        import app.main as main_module
-
         with patch("app.main.predict_schedule", wraps=main_module.predict_schedule) as spy:
             resp = client.get(path)
         assert resp.status_code == 200
@@ -675,9 +675,18 @@ class TestDefaultsPage:
     def test_lists_duration_rules(self, client):
         text = " ".join(client.get("/defaults").text.split())
         assert "13.0 min + 3.3 min per podium" in text
-        assert "46.0 km/h" in text
         assert "4.25 min per decider" in text
         assert "3.0 min until" in text
+
+    def test_lists_pace_and_masters_per_heat_tables(self, client):
+        text = " ".join(client.get("/defaults").text.split())
+        assert "<td>No age band in the name</td> <td>46</td>" in text
+        assert "<td>Men under 70</td> <td>48</td>" in text
+        assert "<td>Men 70-74</td> <td>41.5</td>" in text
+        assert "<td>Men 75+</td> <td>36</td>" in text
+        assert "<td>Women 50+</td> <td>41</td>" in text
+        assert "<td>Time Trial 500</td> <td>70+</td> <td>2.75</td> <td>2.33</td>" in text
+        assert "<td>Team Sprint</td> <td>all ages</td> <td>3.5</td> <td>3.0</td>" in text
 
 
 def _function_url_event(path: str) -> dict:
@@ -856,3 +865,37 @@ class TestSecurityHeaders:
         soup = BeautifulSoup(client.get("/").text, "html.parser")
         meta = soup.find("meta", attrs={"name": "htmx-config"})
         assert json.loads(meta["content"]) == {"includeIndicatorStyles": False}
+
+
+class TestDurationTooltips:
+    """The duration column's tooltip names the pace and per-heat minutes actually used."""
+
+    def _render(self, competition_id: int, events: list[Event]) -> str:
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        schedule = predict_schedule(competition_id, [session])
+        html = main_module.templates.get_template("_schedule_body.html").render(
+            schedule=schedule,
+            competition_id=competition_id,
+            now=datetime(2026, 1, 1, 9, 0),
+            palmares_count=0,
+            racer_encoded="",
+        )
+        return " ".join(html.split())
+
+    def _event(self, name: str, discipline: str) -> Event:
+        return Event(position=0, name=name, discipline=discipline, status=EventStatus.NOT_READY, is_special=False)
+
+    def test_km_tooltip_shows_band_pace(self):
+        record_race_distance(26161, 1, 0, 10.0)
+        html = self._render(26161, [self._event("70-74 Men Points Race Final", "points_race")])
+        assert "10 km from the start list at 41.5 km/h, plus changeover" in html
+
+    def test_km_tooltip_shows_default_pace(self):
+        record_race_distance(26162, 1, 0, 10.0)
+        html = self._render(26162, [self._event("ME Points Race", "points_race")])
+        assert "10 km from the start list at 46 km/h, plus changeover" in html
+
+    def test_heats_tooltip_shows_band_per_heat(self):
+        record_heat_count(26163, 1, 0, 6)
+        html = self._render(26163, [self._event("75-79 Men 500m Time Trial Final", "time_trial_500")])
+        assert "6 heats from the start list × 2.75 min" in html

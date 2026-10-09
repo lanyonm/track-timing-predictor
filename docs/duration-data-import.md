@@ -68,7 +68,7 @@ The extractor fetches a competition's schedule from the tracktiming.live Jaxon A
 
 1. **Finish Time** — from the result page (`Finish Time: MM:SS`) plus the static discipline changeover (`CHANGEOVER_MINUTES`; the live predictor calibrates its own per competition, see `docs/mass-start-race-durations.md`). Available for bunch races (scratch, points, elimination, tempo, madison, keirin).
 2. **Generated timestamp diff** — the difference between consecutive `Generated:` timestamps on result pages. A plausibility filter rejects diffs outside [0.5x, 2.0x] of the static default for that discipline.
-3. **Heat count** — from the start-list page (`Heat N` labels, or the `Final N-M` and `For Bronze`/`For Gold` headings on medal finals), computed as `heat_count * per_heat_duration + changeover`.
+3. **Heat count** — from the start-list page (`Heat N` labels, or the `Final N-M` and `For Bronze`/`For Gold` headings on medal finals), computed as `heat_count * per_heat_duration + changeover`, with the per-heat value for the event name's masters age band if it has one (`disciplines.get_per_heat_duration`).
 
 Each event name is also decomposed into structured categories by the categorizer (see [Event Name Categorization](#event-name-categorization) below).
 
@@ -141,7 +141,7 @@ python -m tools.load_durations --force data/competitions/*.json
 
 Before writing, each observation is checked against the expected duration for its discipline:
 
-- **Bounds check** — when `heat_count` is available, the expected duration is `heat_count * per_heat_duration + changeover`; otherwise the static `DEFAULT_DURATIONS[discipline]` is used. Durations outside [0.5x, 2.0x] of the expected value are rejected as outliers with a warning.
+- **Bounds check** — when `heat_count` is available, the expected duration is `heat_count * per_heat_duration + changeover` (per-heat by the event name's age band, as in the app); otherwise the static `DEFAULT_DURATIONS[discipline]` is used. Durations outside [0.5x, 2.0x] of the expected value are rejected as outliers with a warning.
 - **Idempotent upsert** — uses the natural key `(competition_id, session_id, event_position)` so re-running the loader on the same file is safe. In SQLite, `INSERT OR REPLACE` overwrites previous values. In DynamoDB, the loader compares old vs. new OBS# item fields — identical data is skipped (`"unchanged"`), while corrected data triggers delta-based aggregate corrections before overwriting the OBS# item (`"updated"`).
 
 ### Per-Heat Duration Computation

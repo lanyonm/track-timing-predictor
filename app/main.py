@@ -33,12 +33,14 @@ from app.disciplines import (
     CHANGEOVER_MINUTES,
     DEFAULT_DURATIONS,
     LIVE_BUNCH_CHANGEOVER_MINUTES,
+    MASTERS_BUNCH_RACE_KMH,
+    MASTERS_PER_HEAT_DURATIONS,
     MIN_CHANGEOVER_SAMPLES,
     PER_HEAT_DURATIONS,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
+    AgeBracket,
     get_changeover,
-    get_per_heat_duration,
     split_ride,
 )
 from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
@@ -186,9 +188,7 @@ app.mount("/static", VersionedStaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory="app/templates")
 templates.env.globals["static_url"] = static_url
 templates.env.globals["base_url"] = get_settings().tracktiming_base_url
-templates.env.globals["per_heat_minutes"] = get_per_heat_duration
 templates.env.globals["changeover_minutes"] = get_changeover
-templates.env.globals["bunch_race_kmh"] = BUNCH_RACE_KMH
 templates.env.globals["decider_rate"] = SPRINT_DECIDER_RATE
 
 
@@ -928,17 +928,38 @@ async def default_durations(request: Request) -> Response:
         {"discipline": d, "default": DEFAULT_DURATIONS[d], "per_heat": PER_HEAT_DURATIONS.get(d)}
         for d in DEFAULT_DURATIONS
     ]
+    genders = {"M": "Men", "W": "Women"}
+    paces = [{"group": "No age band in the name", "kmh": BUNCH_RACE_KMH}] + [
+        {"group": f"{genders[g]} {_age_label(b)}", "kmh": b.value}
+        for g, brackets in MASTERS_BUNCH_RACE_KMH.items()
+        for b in brackets
+    ]
+    masters_per_heat = [
+        {"discipline": d, "ages": _age_label(b), "per_heat": b.value, "default": PER_HEAT_DURATIONS[d]}
+        for d, brackets in MASTERS_PER_HEAT_DURATIONS.items()
+        for b in brackets
+    ]
     rules = {
         "ceremony_base": CEREMONY_BASE_MINUTES,
         "ceremony_per_podium": CEREMONY_PER_PODIUM_MINUTES,
-        "bunch_kmh": BUNCH_RACE_KMH,
         "decider_minutes": SPRINT_DECIDER_MINUTES,
         "decider_rate": SPRINT_DECIDER_RATE,
         "live_changeover": LIVE_BUNCH_CHANGEOVER_MINUTES,
         "min_changeover_samples": MIN_CHANGEOVER_SAMPLES,
         "static_changeover": CHANGEOVER_MINUTES["scratch_race"],
     }
-    return templates.TemplateResponse(request, "defaults.html", {"rows": rows, "rules": rules})
+    return templates.TemplateResponse(
+        request,
+        "defaults.html",
+        {"rows": rows, "rules": rules, "paces": paces, "masters_per_heat": masters_per_heat},
+    )
+
+
+def _age_label(bracket: AgeBracket) -> str:
+    """'under 70', '70-74', '75+' or 'all ages' for an age bracket's youngest-age range."""
+    if bracket.lo == 0:
+        return "all ages" if bracket.hi is None else f"under {bracket.hi}"
+    return f"{bracket.lo}+" if bracket.hi is None else f"{bracket.lo}-{bracket.hi - 1}"
 
 
 @app.get("/learned", response_class=HTMLResponse)

@@ -6,7 +6,6 @@ from typing import NamedTuple
 from app.ceremonies import ceremony_duration, forecast_podiums
 from app.database import LiveSource, get_learned_duration, record_live_duration
 from app.disciplines import (
-    BUNCH_RACE_KMH,
     DISTANCE_DISCIPLINES,
     FINISH_TIME_DISCIPLINES,
     LIVE_BUNCH_CHANGEOVER_MINUTES,
@@ -15,6 +14,7 @@ from app.disciplines import (
     MIN_CHANGEOVER_SAMPLES,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
+    bunch_race_kmh,
     get_changeover,
     get_default_duration,
     get_per_heat_duration,
@@ -37,7 +37,7 @@ from app.models import (
     SessionPrediction,
     normalize_rider_name,
 )
-from app.rider_list import estimate_heats, find_rider, match_events
+from app.rider_list import AgeBand, estimate_heats, event_band, find_rider, match_events
 
 # Disciplines that contribute zero minutes to the cumulative timeline
 _ZERO_DURATION_DISCIPLINES = {"end_of_session"}
@@ -268,6 +268,8 @@ class _Estimate(NamedTuple):
     heats: int | None = None
     basis: HeatBasis | None = None
     km: float | None = None
+    kmh: float | None = None  # pace used with km
+    per_heat: float | None = None  # minutes per heat used with heats
 
 
 def _base_estimate(
@@ -284,17 +286,21 @@ def _base_estimate(
     learned averages for Finish-Time races include the static changeover, so it's
     swapped for bunch.
 
-    A points or scratch race with a start-list distance runs at BUNCH_RACE_KMH.
+    A points or scratch race with a start-list distance runs at bunch_race_kmh for the
+    event's age band. Per-heat minutes come from get_per_heat_duration with the same band.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs),
     and other events' heats from inferred (infer_heats: Rider List entrants or the round name).
     A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
     decider once Ride 2 is posted, else per expected decider (pairs × SPRINT_DECIDER_RATE).
     """
+    band = event_band(event.name)
     if event.discipline in DISTANCE_DISCIPLINES and (
         km := _race_distances.get((competition_id, session_id, event.position))
     ):
-        return _Estimate(km / BUNCH_RACE_KMH * 60 + bunch, km=km)
+        kmh = bunch_race_kmh(band)
+        return _Estimate(km / kmh * 60 + bunch, km=km, kmh=kmh)
     hc = get_heat_count(competition_id, session_id, event.position)
+    phd = get_per_heat_duration(event.discipline, band)
     if event.discipline == "sprint_match":
         pairs: float | None = hc if hc is not None else sprint_round_pairs(event.name)
         ride = split_ride(event.name)
@@ -303,15 +309,15 @@ def _base_estimate(
             if deciders is not None:
                 return _Estimate(deciders * SPRINT_DECIDER_MINUTES, deciders, "decider")
             if pairs is None:
-                pairs = _get_duration(event.discipline, learned) / get_per_heat_duration(event.discipline)
+                pairs = _get_duration(event.discipline, learned) / phd
             return _Estimate(pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, round(pairs), "decider_pairs")
         if hc is None and pairs is not None:
-            return _Estimate(pairs * get_per_heat_duration(event.discipline), int(pairs), "round")
+            return _Estimate(pairs * phd, int(pairs), "round", per_heat=phd)
     basis: HeatBasis = "start_list"
     if hc is None and inferred is not None:
         hc, basis = inferred
     if hc is not None:
-        return _Estimate(hc * get_per_heat_duration(event.discipline) + _changeover(event.discipline, bunch), hc, basis)
+        return _Estimate(hc * phd + _changeover(event.discipline, bunch), hc, basis, per_heat=phd)
     shift = _changeover(event.discipline, bunch) - get_changeover(event.discipline)
     return _Estimate(_get_duration(event.discipline, learned) + shift)
 
@@ -376,12 +382,14 @@ def get_rider_match(
     user_tokens: frozenset[str],
     event_start: datetime | None,
     discipline: str,
+    band: AgeBand | None,
 ) -> RiderMatch | None:
     """
     Match pre-tokenized racer name tokens against cached start list riders.
 
     Expects a frozenset of lowercased, normalized tokens (computed once via
     _normalize_rider_name) for case-insensitive, order-independent matching.
+    band is the event's age band (rider_list.event_band), for its per-heat duration.
     """
     key = (competition_id, session_id, position)
     riders = _start_list_riders.get(key)
@@ -398,7 +406,7 @@ def get_rider_match(
                 hc = 1
             heat_predicted_start = None
             if event_start is not None:
-                phd = get_per_heat_duration(discipline)
+                phd = get_per_heat_duration(discipline, band)
                 heat_predicted_start = event_start + timedelta(minutes=(rider.heat - 1) * phd)
             return RiderMatch(
                 heat=rider.heat,
@@ -694,6 +702,7 @@ def predict_session(
         is_active = i == active_index
         est = estimates[i]
         hc = est.heats if est else None
+        band = event_band(event.name)
 
         # For an active multi-heat event, determine which heat is currently running.
         # Priority: (1) live results page heat, (2) time-based fallback estimate.
@@ -709,7 +718,7 @@ def predict_session(
                 # Time-based fallback: elapsed since scheduled event start ÷ per-heat duration.
                 # Uses scheduled (not delay-adjusted) start so prior-event overrun doesn't
                 # incorrectly advance the heat counter.
-                phd = get_per_heat_duration(event.discipline)
+                phd = (est.per_heat if est else None) or get_per_heat_duration(event.discipline, band)
                 sched_start_minutes = _time_to_minutes(session.scheduled_start)
                 now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
                 actual_elapsed = now_minutes - sched_start_minutes
@@ -735,6 +744,7 @@ def predict_session(
                     user_tokens,
                     _on_day_of(now, predicted_start),
                     event.discipline,
+                    band,
                 )
             if rider_match:
                 has_racer_match = True
@@ -752,6 +762,8 @@ def predict_session(
                 heat_count=hc,
                 heat_basis=est.basis if est else None,
                 race_distance_km=est.km if est else None,
+                race_kmh=est.kmh if est else None,
+                per_heat_minutes=est.per_heat if est else None,
                 podium_count=podium_list[i],
                 is_active=is_active,
                 active_heat=active_heat,

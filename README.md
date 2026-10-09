@@ -105,7 +105,7 @@ Tests use a temporary SQLite database and captured fixtures in `tests/fixtures/`
 | `/` | Enter an Event ID |
 | `/schedule/{id}` | Predicted schedule for an event (`?r=` highlights a racer) |
 | `/palmares` | A racer's timed-event results across competitions, with per-event CSV export |
-| `/defaults` | Built-in default and per-heat durations, plus the rules that replace them (distance, changeover, deciders, ceremonies) |
+| `/defaults` | Built-in default and per-heat durations, the rules that replace them (distance, changeover, deciders, ceremonies), the bunch-race pace table and the masters per-heat overrides |
 | `/learned` | Learned duration averages |
 | `/health` | Health check (JSON) |
 
@@ -156,8 +156,8 @@ Each event's slot duration is determined by the first available source:
 1. **Observed** — once results are posted, a bunch race's `Finish Time` (actual race duration) plus the competition's changeover (below). Shown as **obs.** in the UI.
 2. **Generated timestamps** — for completed events without a Finish Time, the gap between its result page's `Generated` timestamp and the previous event's (kept only if within 0.5×–2.0× of the expected duration). Also shown as **obs.**
 3. **Start list** — on page load, start list pages are fetched concurrently for every event. Shown as **N heats** in the UI where a heat count is used.
-   - Heat count × a per-heat duration constant. Medal finals label their heats `Final 3-4`/`Final 1-2` (sprints) or `For Bronze`/`For Gold` (pursuits, team events).
-   - Points and scratch races use their distance from the start list title (`- 10km - 40 Laps`) at 46 km/h, plus changeover. Shown as **N km**.
+   - Heat count × a per-heat duration constant. Masters events with an age band in the name (`70-74 Men`) use their own value where the data differs: 2 km pursuits under 70 (4.5 min), 500 m time trials 70+ (2.75) and team sprints (3.5). Medal finals label their heats `Final 3-4`/`Final 1-2` (sprints) or `For Bronze`/`For Gold` (pursuits, team events).
+   - Points and scratch races use their distance from the start list title (`- 10km - 40 Laps`) at 46 km/h, plus changeover. Masters races with an age band go at their group's pace, set by the youngest age in the band: men under 70 48 km/h, 70-74 41.5, 75+ 36; women under 50 43.5, 50+ 41. Shown as **N km**; the tooltip names the pace.
    - A best-of-3 sprint `Ride 3` is ridden only by pairs tied 1–1: 4.25 min per decider once Ride 2's results show how many (shown as **N deciders**), else 12% of the pairs (shown as **0–N deciders est.**).
    - Before the start list is posted, the round name gives the heats where it's fixed: sprint 1/2 Finals and Finals count 2 pairs and 1/4 Finals 4; pursuit, team pursuit and team sprint finals after a qualifying round 2 heats (bronze and gold); keirin placement finals (1-6, 7-12) 1 heat and 1/2 Finals 2. Masters sprint and pursuit qualifying rounds and time trials are sized from the Rider List: one heat per sprinter, one per two pursuiters or time triallists entered in the age band. Shown as **~N heats est.**
 4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
@@ -170,7 +170,7 @@ Rationale and data for each constant: [sprint](docs/sprint-durations.md), [mass 
 
 Learned averages are stored in SQLite locally and DynamoDB in production.
 
-Per-heat constants (`PER_HEAT_DURATIONS`) and overall fallback defaults (`DEFAULT_DURATIONS`) can both be adjusted in [app/disciplines.py](app/disciplines.py).
+Per-heat constants (`PER_HEAT_DURATIONS`, with masters overrides in `MASTERS_PER_HEAT_DURATIONS`), bunch-race paces (`BUNCH_RACE_KMH`, `MASTERS_BUNCH_RACE_KMH`) and overall fallback defaults (`DEFAULT_DURATIONS`) can both be adjusted in [app/disciplines.py](app/disciplines.py).
 
 ## Importing historical duration data
 

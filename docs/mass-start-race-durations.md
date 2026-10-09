@@ -111,10 +111,39 @@ Points races award sprint points every N laps; the distance varies widely by cat
 Every points and scratch race start list titles the race with its distance and laps (`50+ Women Points Race Final - 10km - 40 Laps`, sometimes with `- Sprint Every 5 Laps` after), in the same form at 26002, 26008, 26009, 26010 and 26037. Once the start list is posted, the slot is
 
 ```
-slot = km / BUNCH_RACE_KMH × 60 + changeover   (BUNCH_RACE_KMH = 46)
+slot = km / pace × 60 + changeover   (pace = disciplines.bunch_race_kmh(band); BUNCH_RACE_KMH = 46 without a band)
 ```
 
 46 km/h is the median Finish Time speed of both disciplines across 26002–26037: 32 points races (35–52.5 km/h) and 38 scratch races (36–54.5 km/h). Speed depends on the field: elite men 50–53 km/h, masters men 45–50, elite and masters women 41–46, youth and some masters women 35–41. A single speed is within ~5 min on every measured race (slower fields come out short, the safe direction); the flat defaults were off by up to 17 min (points, 20) and 9 min (scratch, 12). At 26037 it's within 1.7 min of all 10 points races (7.5–30 km).
+
+### Masters Pace by Age and Gender
+
+Masters events whose name carries an age band (`50-54 Men`, `35-49 Women`, `80+ Men`; `rider_list.event_band`) use a pace for their gender and the band's youngest age (`MASTERS_BUNCH_RACE_KMH`). A combined-age race is paced by its youngest riders, so `35-49 Women` takes the under-50 value and `65+ Men` the under-70 one. Names without a band (26008's `ME`, `MU17`, `Master A Men`, elite and junior events) keep 46 km/h.
+
+| Group (youngest age in band) | km/h | n | Median (range) |
+|---|---|---|---|
+| Men under 70 | 48.0 | 59 | 48.1 (39.5–54.5) |
+| Men 70–74 | 41.5 | 5 | 41.5 (39.8–43.4) |
+| Men 75+ | 36.0 | 6 | 35.8 (34.9–39.1) |
+| Women under 50 | 43.5 | 5 | 43.5 (42.1–47.2) |
+| Women 50+ | 41.0 | 7 | 41.1 (38.2–45.8) |
+
+Data: 82 points and scratch races at the masters worlds 22023 (2022), 25032 (2025) and 26037 (2026). Ride time is the result-page Finish Time; km is the start list's title distance (`parser.parse_race_distance_km`). Values are group medians rounded to 0.5 km/h.
+
+Cut points were chosen by leave-one-competition-out error over the three worlds (fit the medians on two, predict ride time on the third). Men's speeds by five-year band are flat from 35 to 64 (47.6–48.8 km/h medians), dip a little at 65–69 (46.3, n = 7) and drop at 70 and again at 75. Women split at 50.
+
+| Groups | Mean absolute error (min) |
+|---|---|
+| Flat 46 km/h | 0.83 |
+| Men <70 / 70–74 / 75+, women <50 / 50+ (chosen) | 0.39 (22023 0.39, 25032 0.38, 26037 0.39) |
+| Men <65 / 65–69 / 70–74 / 75+, women <50 / 50+ | 0.39 |
+| Men <70 / 70+, women <50 / 50+ | 0.42 |
+| Men <65 / 65–69 / 70+, women <50 / 50+ | 0.41 |
+| Men <70 / 70–74 / 75+, women one group | 0.39 |
+
+A separate 65–69 group adds nothing out of sample, so it's folded into under 70. On 17 races at 25022 (a masters nationals with the same band naming, not used in the fit) the table gives 0.85 min against 1.01 for a flat 46.
+
+The unbanded default stays 46. Those competitions mix elite men (50–53 km/h) with youth and women (35–46), and masters men under 70 at 48 km/h aren't a reason to speed up the rest.
 
 Start lists appear about an hour before the race, so earlier views still use the defaults. Tempo races carry a distance too but haven't been measured, so they keep their default.
 

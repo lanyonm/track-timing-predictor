@@ -97,14 +97,14 @@ class TestExtractGeneratedDiffDuration:
 class TestExtractHeatCountDuration:
     def test_start_list_with_heats(self):
         html = _load_fixture("start-list-sprint-qualifying-26009.html")
-        dur, count = extract_heat_count_duration(html, "sprint_qualifying")
+        dur, count = extract_heat_count_duration(html, "sprint_qualifying", "Elite Men Sprint Qualifying")
         assert dur is not None
         assert count is not None
         assert count > 0
         assert dur > 0
 
     def test_no_heats_returns_none(self):
-        dur, count = extract_heat_count_duration("<html></html>", "sprint_qualifying")
+        dur, count = extract_heat_count_duration("<html></html>", "sprint_qualifying", "Elite Men Sprint Qualifying")
         assert dur is None
         assert count is None
 

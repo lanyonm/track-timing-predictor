@@ -67,7 +67,7 @@ Per-heat durations come from the measured data in [Measured Per-Heat Durations](
 |---|---|
 | 4 km | 7.5 min |
 | 3 km | 6.25 min |
-| 2 km | 5.0 min |
+| 2 km | 5.0 min (4.5 for a masters age band under 70, see [Masters Per-Heat Durations](#masters-per-heat-durations)) |
 
 Before the start list is posted, a masters pursuit qualifying round takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `IP` code (`rider_list.estimate_heats`). At 26037 this matched the start list for 6 of 11 qualifying rounds and was one heat high for the rest, from non-starters (e.g. 8 entrants, 3 heats for 80+ Men). Team qualifying rounds aren't sized this way. The Rider List's `TP`/`TS` codes undercount team riders, since teams are made up after entries close: of the 24 riders in 26037's 55-64 Men team pursuit qualifying, 13 had `TP`, one was an M6569 riding down, and the team column holds the nation, not the team. ⌈TP entrants ÷ 4⌉ would give 4 heats against 6 ridden, so these keep the default.
 
@@ -85,7 +85,7 @@ Otherwise, when heat count is unknown, the default duration covers an assumed 2-
 
 ## Team Pursuit and Team Sprint
 
-Both use the same `heat_count × per_heat_duration` formula. Finals race two teams per heat (bronze, gold); qualifying can be one team per heat (26037's 55-64 Men team pursuit: 6 teams, 6 heats). Per-heat durations are 6.75 min for `team_pursuit` and 3.0 min for `team_sprint`, from the measured data below. The flat defaults (10.0 min each) match the measured whole-event medians (10.4 and 9.4 min) and are unchanged.
+Both use the same `heat_count × per_heat_duration` formula. Finals race two teams per heat (bronze, gold); qualifying can be one team per heat (26037's 55-64 Men team pursuit: 6 teams, 6 heats). Per-heat durations are 6.75 min for `team_pursuit` and 3.0 min for `team_sprint`, from the measured data below; masters team sprints with an age band in the name use 3.5 min ([Masters Per-Heat Durations](#masters-per-heat-durations)). The flat defaults (10.0 min each) match the measured whole-event medians (10.4 and 9.4 min) and are unchanged.
 
 ---
 
@@ -127,11 +127,11 @@ slot = heat_count × per_heat_duration
 
 | Discipline Key | Per-Heat Duration | Measured (Generated gap ÷ heats) |
 |---|---|---|
-| `time_trial_500` | 2.33 min | median 2.55 (n = 12): 1.65–3.40 at 25022, 26002, 26008, 26009; 3.28–3.71 at 26037 |
+| `time_trial_500` | 2.33 min (2.75 for a masters age band 70+) | median 2.55 (n = 12): 1.65–3.40 at 25022, 26002, 26008, 26009; 3.28–3.71 at 26037 |
 | `time_trial_750` | 2.67 min | 2.21, 2.95 (26037), 5.25 (26002, likely includes a break) |
 | `time_trial_kilo` | 3.00 min | median 3.10 (n = 7), 2.65–3.92 |
 
-The constants are unchanged. The 500 m median is pulled up by 26037 (masters worlds), whose three clean measurements run about 3.3 min per heat; the other competitions' median is 2.31. Two 26037 measurements are excluded: 90+ Men (1 rider, 15.0 min, includes a break) and 40-44 Women 750 m (6.37 min per heat).
+The constants are unchanged. The 500 m median is pulled up by 26037 (masters worlds), whose three clean measurements run about 3.3 min per heat; the other competitions' median is 2.31. Two of those three (75-79 and 80-84 Men) are 70+ events, which now use 2.75 (below). Two 26037 measurements are excluded: 90+ Men (1 rider, 15.0 min, includes a break) and 40-44 Women 750 m (6.37 min per heat).
 
 Before the start list is posted, a masters time trial takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `TT` code. At 26037 this matched the start list for all 8 completed women's TTs and 3 of 6 men's; the other men's were 1–2 heats high from non-starters.
 
@@ -166,6 +166,30 @@ New values are the all-competition median rounded to a quarter-minute. They roun
 The same method confirmed the existing values for `sprint_qualifying` (median 1.36 vs 1.25), `sprint_match` (3.00 vs 3.0) and `keirin` (4.53 vs 4.5), so those are unchanged.
 
 **Fixed per-event overhead: not added.** Rounds with only a few heats run long per heat at 26037 (a 5-heat sprint qualifying at 2.94 min per heat). Across the other competitions, sprint qualifying with 4–16 heats stays at 1.1–1.5 min per heat with no visible trend by heat count, so the data doesn't yet support a fixed term.
+
+## Masters Per-Heat Durations
+
+Masters events whose name carries an age band (`60-64 Women Pursuit Qualifying`, `75+ Men Team Sprint`; `rider_list.event_band`) can override the per-heat constant by the band's youngest age (`MASTERS_PER_HEAT_DURATIONS`, read by `disciplines.get_per_heat_duration(discipline, band)`). Unbanded events and disciplines without an override use the constants above. The override applies wherever the per-heat value does: the heat-count estimate, the expected duration that bounds a Generated gap, the active-heat counter and a racer's heat start. Learned averages stay per discipline.
+
+Data: `generated_diff` observations with a start-list heat count at the masters worlds 22023, 25032 and 26037 and the masters nationals 25022 (the overrides apply to any banded name, so 25022's faster officiating counts too). Per heat = Generated gap ÷ heats. Measurements outside 0.5×–2.0× the current constant are dropped as break-inflated or out of order, the same bounds the live predictor puts on a Generated gap: 26037 90+ Men 500 m (1 heat, 14.97 min), 26037 40-44 Women 750 m (6.37), 25032 70-74 Men 2 km pursuit qualifying (1.73), and the team sprints 22023 35-44 Men Final (6.37), 25032 45-54 Women Qualifying (6.37), 25022 35+ Men Final (6.57) and 26037 55+ Women Final (8.87, 1 heat).
+
+Decision rule: an override for a (discipline, age group) needs n ≥ 5, a quarter-minute-rounded median at least 0.25 min from the constant, and leave-one-competition-out error (fit on three competitions, whole-slot mean absolute error on the fourth) no worse than the constant's. Age groups are under 70 and 70+ (the youngest age in the band), except team events, which are combined-age (`35-44`, `55+`, `75+`) with a single 70+ measurement each, so they're one masters group.
+
+| Discipline | Group | n | Median | Constant | LOCO MAE: constant → override | Decision |
+|---|---|---|---|---|---|---|
+| `pursuit_2k` | under 70 | 22 | 4.48 | 5.0 | 1.91 → 1.87 | **4.5** |
+| `pursuit_2k` | 70+ | 12 | 5.00 | 5.0 | | no change: matches |
+| `pursuit_3k` | under 70 (all 35–49) | 10 | 6.20 | 6.25 | | no change: within 0.25 |
+| `time_trial_500` | under 70 | 12 | 2.51 | 2.33 | | no change: within 0.25 (masters worlds alone 2.67; 25022 1.65–2.50) |
+| `time_trial_500` | 70+ | 7 | 2.75 | 2.33 | 4.45 → 3.67 | **2.75** |
+| `time_trial_750` | under 70 | 3 | 2.95 | 2.67 | | no change: n < 5 |
+| `time_trial_kilo` | | 0 | | 3.0 | | no change: no clean masters measurements |
+| `team_sprint` | all bands | 15 | 3.39 | 3.0 | 1.78 → 1.27 | **3.5** |
+| `team_pursuit` | all bands | 12 | 7.50 | 6.75 | 2.63 → 2.84 | no change: worse out of sample |
+
+Team pursuit passes the first two tests but not the third. Worlds slots mostly run 7.3–10.2 min per heat and 25022's multi-heat finals 5.5–5.7, so the gap is the competition, not the age band, and a masters value fitted to one misses the other. The 2 km pursuit override helps 22023, 25022 and 25032 and costs 26037 (1.66 → 2.53 min), whose qualifying rounds set the 5.0 constant; on balance it's neutral-to-better.
+
+**Masters worlds pace (500 m TT).** 26037's slow 500 m heats (3.28, 3.34) are 75-79 and 80-84 Men; with the 70+ override they're predicted at 2.75 instead of 2.33. Its third (60-64 Women, 3.71) and 22023's 70-74 Men (3.88) remain slow outliers. Under 70, the worlds run ~2.67 per heat against 1.65–2.50 at the 25022 nationals and 2.31 at non-masters events, so some of the gap is the event, not the age. That residual is too small and inconsistent to justify a masters-event multiplier; a per-competition calibration like the bunch changeover remains the option if it matters. The unbanded 500 m (2.33, measured 2.31) and kilo (3.0, measured 3.10) constants stay.
 
 ## Caveats and Future Work
 
