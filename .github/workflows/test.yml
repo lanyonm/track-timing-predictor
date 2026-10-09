@@ -32,6 +32,20 @@ jobs:
       - name: Mypy
         run: mypy
 
+  assets:
+    # static/app.css and static/htmx.min.js are built from frontend/ and committed;
+    # fail if a template uses a class that isn't in the built CSS.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Build frontend assets
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: Check committed assets are up to date
+        run: git diff --exit-code -- static/
+
   test:
     runs-on: ubuntu-latest
     steps:

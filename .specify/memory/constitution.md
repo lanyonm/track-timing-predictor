@@ -1,11 +1,12 @@
 <!--
-Sync Impact Report (2026-10-06)
-- Version change: 1.5.0 → 1.6.0
-- Modified principles:
-  - VIII. Security & Data Minimization — added explicit exception for
-    publicly published racer names (palmares storage, racer_name cookie,
-    r= parameter).
+Sync Impact Report (2026-10-09)
+- Version change: 1.6.0 → 1.7.0
+- Modified sections:
+  - FastAPI guidance and External Data Sources — the shared httpx client
+    is created lazily and reused per Lambda container (Mangum runs with
+    lifespan off); the lifespan manages it only under uvicorn.
 - Amendment history:
+  - 1.7.0 (2026-10-09): shared httpx client lifecycle on Lambda
   - 1.6.0 (2026-10-06): racer-name exception to VIII
   - 1.5.0 (2026-03-19): research review on plan-assumption changes
   - 1.4.0 (2026-03-18): behaviour-affecting deviations found during
@@ -72,8 +73,13 @@ code.
   `os.getenv()` calls. This provides type validation, `.env` file
   support, and compatibility with FastAPI's `Depends()` system.
 - Shared resources with setup/teardown semantics (HTTP clients, database
-  connections) MUST be managed via the FastAPI `lifespan` context and
-  injected into route handlers via `Depends()`, not created inline.
+  connections) MUST be created once per process, not per request, and
+  injected into route handlers via `Depends()`, not created inline. Under
+  uvicorn the FastAPI `lifespan` creates and closes them. On Lambda,
+  Mangum runs with `lifespan="off"` (its `auto` mode would run the
+  lifespan on every invocation), so the dependency creates the resource
+  on first use and every invocation in the container reuses it; one-time
+  setup such as schema initialisation runs on the first invocation.
 - Route handlers SHOULD use `Depends()` for cross-cutting concerns
   (settings access, cookie/header reading, shared clients) rather than
   importing module-level singletons directly.
@@ -156,9 +162,10 @@ trade-off.
 - Data source-specific logic MUST be isolated so it doesn't leak into
   the prediction engine.
 - HTTP clients for upstream fetching MUST be shared via a single
-  `httpx.AsyncClient` instance managed by the FastAPI lifespan, not
-  created and destroyed per call. This reuses TCP connections and
-  reduces latency, especially under Lambda's concurrent fetch patterns.
+  `httpx.AsyncClient` instance (on `app.state`, via `get_http_client`),
+  not created and destroyed per call or per Lambda invocation. This
+  reuses TCP connections and reduces latency, especially under Lambda's
+  concurrent fetch patterns.
 
 ## Development Workflow
 
@@ -208,4 +215,4 @@ trade-off.
 - CLAUDE.md is the runtime development guidance file; the constitution
   governs design principles and trade-off evaluation.
 
-**Version**: 1.6.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-10-06
+**Version**: 1.7.0 | **Ratified**: 2026-03-13 | **Last Amended**: 2026-10-09

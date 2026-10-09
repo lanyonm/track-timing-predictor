@@ -1,9 +1,10 @@
+from collections.abc import Iterable, Mapping
 from datetime import datetime, time, timedelta
 from statistics import median
 from typing import NamedTuple
 
 from app.ceremonies import ceremony_duration, forecast_podiums
-from app.database import get_learned_duration, record_live_duration
+from app.database import LiveSource, get_learned_duration, record_live_duration
 from app.disciplines import (
     BUNCH_RACE_KMH,
     DISTANCE_DISCIPLINES,
@@ -95,6 +96,18 @@ _rider_list_retry_at: dict[str, float] = {}
 RIDER_LIST_RETRY_SECONDS = 600.0
 
 
+class LiveDuration(NamedTuple):
+    """A duration the live app measured, to be written by save_live_durations."""
+
+    competition_id: int
+    session_id: int
+    event_position: int
+    event_name: str
+    discipline: str
+    duration_minutes: float
+    source: LiveSource
+
+
 def record_observed_duration(
     competition_id: int,
     session_id: int,
@@ -102,25 +115,31 @@ def record_observed_duration(
     finish_time_minutes: float,
     discipline: str,
     event_name: str,
-) -> None:
+) -> LiveDuration:
     """
-    Store a result-page Finish Time.
+    Store a result-page Finish Time and return the learning record for it.
 
     The prediction adds the competition's calibrated changeover (bunch_changeover).
-    The learning database gets Finish Time + the static changeover, so learned
-    averages stay comparable across competitions.
+    The learning record is Finish Time + the static changeover, so learned
+    averages stay comparable across competitions. The caller persists it with
+    save_live_durations, off the event loop.
     """
     _finish_times[(competition_id, session_id, position)] = finish_time_minutes
-    slot = finish_time_minutes + get_changeover(discipline)
-    record_live_duration(
+    return LiveDuration(
         competition_id=competition_id,
         session_id=session_id,
         event_position=position,
         event_name=event_name,
         discipline=discipline,
-        duration_minutes=slot,
+        duration_minutes=finish_time_minutes + get_changeover(discipline),
         source="observed",
     )
+
+
+def save_live_durations(durations: Iterable[LiveDuration]) -> None:
+    """Write live learning records to the database. Blocking: run it in a worker thread."""
+    for d in durations:
+        record_live_duration(**d._asdict())
 
 
 def record_heat_count(
@@ -255,7 +274,7 @@ def _base_estimate(
     competition_id: int,
     session_id: int,
     event: Event,
-    use_learned: bool,
+    learned: Mapping[str, float] | None,
     bunch: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
     inferred: tuple[int, HeatBasis] | None = None,
 ) -> _Estimate:
@@ -284,7 +303,7 @@ def _base_estimate(
             if deciders is not None:
                 return _Estimate(deciders * SPRINT_DECIDER_MINUTES, deciders, "decider")
             if pairs is None:
-                pairs = _get_duration(event.discipline, use_learned) / get_per_heat_duration(event.discipline)
+                pairs = _get_duration(event.discipline, learned) / get_per_heat_duration(event.discipline)
             return _Estimate(pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, round(pairs), "decider_pairs")
         if hc is None and pairs is not None:
             return _Estimate(pairs * get_per_heat_duration(event.discipline), int(pairs), "round")
@@ -294,7 +313,7 @@ def _base_estimate(
     if hc is not None:
         return _Estimate(hc * get_per_heat_duration(event.discipline) + _changeover(event.discipline, bunch), hc, basis)
     shift = _changeover(event.discipline, bunch) - get_changeover(event.discipline)
-    return _Estimate(_get_duration(event.discipline, use_learned) + shift)
+    return _Estimate(_get_duration(event.discipline, learned) + shift)
 
 
 def infer_heats(
@@ -445,12 +464,24 @@ def generated_gap_duration(
     return mins
 
 
-def _get_duration(discipline: str, use_learned: bool = False) -> float:
-    """Return learned duration if available and enabled, otherwise use the default."""
-    if use_learned:
-        learned = get_learned_duration(discipline)
-        if learned is not None:
-            return learned
+def load_learned_durations(sessions: list[Session]) -> dict[str, float]:
+    """Read the learned average for each distinct discipline in sessions, once each.
+
+    Blocking (SQLite or DynamoDB): run it in a worker thread. Disciplines without
+    enough samples are left out, so they fall back to the default.
+    """
+    learned: dict[str, float] = {}
+    for discipline in sorted({e.discipline for s in sessions for e in s.events}):
+        value = get_learned_duration(discipline)
+        if value is not None:
+            learned[discipline] = value
+    return learned
+
+
+def _get_duration(discipline: str, learned: Mapping[str, float] | None = None) -> float:
+    """Return the learned duration when one was loaded (use_learned on), otherwise the default."""
+    if learned and discipline in learned:
+        return learned[discipline]
     return get_default_duration(discipline)
 
 
@@ -515,7 +546,7 @@ def predict_session(
     session: Session,
     now: datetime | None = None,
     racer_name: str | None = None,
-    use_learned: bool = False,
+    learned: Mapping[str, float] | None = None,
     rider_list_matches: dict[tuple[int, int], RiderMatch] | None = None,
     ceremony_podiums: dict[tuple[int, int], int] | None = None,
     changeover: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
@@ -581,7 +612,7 @@ def predict_session(
             competition_id,
             session.session_id,
             events[i],
-            False,
+            None,
             changeover,
             inferred_heats.get((session.session_id, events[i].position)),
         ).minutes
@@ -611,7 +642,7 @@ def predict_session(
                 competition_id,
                 session.session_id,
                 e,
-                use_learned,
+                learned,
                 changeover,
                 inferred_heats.get((session.session_id, e.position)),
             )
@@ -765,7 +796,7 @@ def predict_schedule(
     sessions: list[Session],
     now: datetime | None = None,
     racer_name: str | None = None,
-    use_learned: bool = False,
+    learned: Mapping[str, float] | None = None,
     rider_list: list[RiderListEntry] | None = None,
 ) -> SchedulePrediction:
     rider_entry = None
@@ -794,7 +825,7 @@ def predict_schedule(
             s,
             now=now,
             racer_name=racer_name,
-            use_learned=use_learned,
+            learned=learned,
             rider_list_matches=rider_list_matches,
             ceremony_podiums=ceremony_podiums,
             changeover=changeover,
@@ -840,17 +871,15 @@ def update_status_cache(
     competition_id: int,
     sessions: list[Session],
     now: datetime,
-) -> list[tuple[int, int, int, str]]:
+) -> list[LiveDuration]:
     """
     Compare current event statuses against the cache.
 
-    - When an event transitions UPCOMING -> COMPLETED, records the wall-clock
-      elapsed time to the learning database (fallback when no Finish Time).
-    - Returns a list of (competition_id, session_id, position, result_url) for
-      newly-completed events that have a result URL, so the caller can fetch
-      result pages to obtain precise Finish Times.
+    When an event transitions UPCOMING -> COMPLETED, returns the wall-clock
+    elapsed time as a learning record (fallback when no Finish Time). The caller
+    persists the records with save_live_durations, off the event loop.
     """
-    newly_completed: list[tuple[int, int, int, str]] = []
+    wall_clock: list[LiveDuration] = []
 
     for session in sessions:
         for event in session.events:
@@ -874,22 +903,20 @@ def update_status_cache(
                 elapsed = (now - cached["seen_at"]).total_seconds() / 60.0
                 max_elapsed = 3.0 * get_default_duration(event.discipline)
                 if 0.5 <= elapsed <= max_elapsed:
-                    record_live_duration(
-                        competition_id=competition_id,
-                        session_id=session.session_id,
-                        event_position=event.position,
-                        event_name=event.name,
-                        discipline=event.discipline,
-                        duration_minutes=elapsed,
-                        source="wall_clock",
+                    wall_clock.append(
+                        LiveDuration(
+                            competition_id=competition_id,
+                            session_id=session.session_id,
+                            event_position=event.position,
+                            event_name=event.name,
+                            discipline=event.discipline,
+                            duration_minutes=elapsed,
+                            source="wall_clock",
+                        )
                     )
                 _status_cache[key] = {"status": event.status, "seen_at": now}
-
-                # Signal caller to fetch result page if URL is available.
-                if event.result_url:
-                    newly_completed.append((competition_id, session.session_id, event.position, event.result_url))
 
             elif cached["status"] != event.status:
                 _status_cache[key] = {"status": event.status, "seen_at": now}
 
-    return newly_completed
+    return wall_clock

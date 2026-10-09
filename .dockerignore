@@ -22,3 +22,4 @@ data/
 coverage.json
 cdk-outputs.json
 *.md
+frontend/

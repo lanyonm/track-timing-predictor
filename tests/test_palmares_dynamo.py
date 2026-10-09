@@ -175,3 +175,86 @@ class TestDynamoGetPalmares:
         assert len(result) == 2
         assert result[0].competition_id == 25023
         assert result[1].competition_id == 25022
+
+
+class TestDynamoGetCompetitionName:
+    def test_returns_stored_name(self, dynamo_table):
+        palmares.save_palmares_entries([_make_entry(racer="name dyn", comp_id=80001, comp_name="Nationals")])
+        assert palmares.get_competition_name("name dyn", 80001) == "Nationals"
+
+    def test_none_without_entries(self, dynamo_table):
+        assert palmares.get_competition_name("name dyn", 80002) is None
+
+
+class _OneItemPages:
+    """Wraps the table so every query returns one item per page, forcing pagination."""
+
+    def __init__(self, table):
+        self._table = table
+
+    def query(self, **kwargs):
+        return self._table.query(Limit=1, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._table, name)
+
+
+class TestDynamoPagination:
+    @pytest.fixture
+    def paged(self, dynamo_table):
+        palmares.save_palmares_entries(
+            [_make_entry(racer="paged dyn", comp_id=90001, position=p) for p in range(3)]
+            + [_make_entry(racer="paged dyn", comp_id=90002, position=1)]
+        )
+        palmares._palmares_table_cache = _OneItemPages(palmares._palmares_dynamo_table())
+
+    def test_update_reaches_every_page(self, paged):
+        assert palmares.update_competition_palmares("paged dyn", 90001, "Renamed") == 3
+        names = {c.competition_id: c.competition_name for c in palmares.get_palmares("paged dyn")}
+        assert names[90001] == "Renamed"
+        assert names[90002] != "Renamed"
+
+    def test_delete_reaches_every_page(self, paged):
+        assert palmares.delete_competition_palmares("paged dyn", 90001) == 3
+        assert [c.competition_id for c in palmares.get_palmares("paged dyn")] == [90002]
+
+
+def _client_error(code: str):
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": code, "Message": code}}, "Query")
+
+
+def _failing_table(code: str):
+    def table():
+        raise _client_error(code)
+
+    return table
+
+
+class TestPublicApiErrors:
+    """Backend failures are logged and swallowed, except credential errors, which surface."""
+
+    CALLS = [
+        (lambda: palmares.save_palmares_entries([_make_entry()]), 0),
+        (lambda: palmares.get_competition_name("x", 1), None),
+        (lambda: palmares.get_palmares("x"), []),
+        (lambda: palmares.count_competition_palmares("x", 1), 0),
+        (lambda: palmares.update_competition_palmares("x", 1, "n"), 0),
+        (lambda: palmares.delete_competition_palmares("x", 1), 0),
+    ]
+
+    @pytest.mark.parametrize(("call", "fallback"), CALLS)
+    def test_other_errors_return_fallback(self, call, fallback):
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(palmares, "_palmares_dynamo_table", _failing_table("ThrottlingException"))
+            assert call() == fallback
+
+    @pytest.mark.parametrize(("call", "fallback"), CALLS)
+    def test_auth_errors_raise(self, call, fallback):
+        from botocore.exceptions import ClientError
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(palmares, "_palmares_dynamo_table", _failing_table("ExpiredTokenException"))
+            with pytest.raises(ClientError):
+                call()

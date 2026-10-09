@@ -31,3 +31,13 @@ updates:
     directory: /
     schedule:
       interval: monthly
+
+  # frontend/package-lock.json pins Tailwind, DaisyUI and htmx. After an update, run
+  # `npm ci && npm run build` in frontend/ and commit static/app.css and static/htmx.min.js.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    groups:
+      frontend:
+        patterns: ["*"]

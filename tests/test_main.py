@@ -656,3 +656,139 @@ class TestDefaultsPage:
         assert "46.0 km/h" in text
         assert "4.25 min per decider" in text
         assert "3.0 min until" in text
+
+
+def _function_url_event(path: str) -> dict:
+    """A minimal Lambda Function URL (payload v2.0) GET event."""
+    return {
+        "version": "2.0",
+        "routeKey": "$default",
+        "rawPath": path,
+        "rawQueryString": "",
+        "headers": {"host": "example.lambda-url.us-east-1.on.aws"},
+        "requestContext": {
+            "http": {"method": "GET", "path": path, "protocol": "HTTP/1.1", "sourceIp": "203.0.113.1"},
+            "stage": "$default",
+        },
+        "isBase64Encoded": False,
+    }
+
+
+class TestLambdaHandler:
+    @pytest.fixture(autouse=True)
+    def event_loop(self):
+        """Mangum runs every invocation on the thread's event loop, as in a Lambda container.
+        Other tests' asyncio.run() calls leave none set."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        yield loop
+        asyncio.set_event_loop(None)
+        loop.close()
+
+    def test_invocations_reuse_one_http_client(self, event_loop):
+        """Mangum runs with lifespan off, so the lazily created client outlives each invocation."""
+        import app.main as main
+
+        saved = app.state.http_client
+        del app.state.http_client
+        fetch = AsyncMock(side_effect=RuntimeError("upstream down"))
+        try:
+            with patch("app.main.fetch_initial_layout", fetch):
+                for _ in range(2):
+                    assert main.handler(_function_url_event("/schedule/26008"), None)["statusCode"] == 502
+            first, second = (c.args[0] for c in fetch.call_args_list)
+            assert first is second
+            assert not first.is_closed
+        finally:
+            created = getattr(app.state, "http_client", None)
+            app.state.http_client = saved
+            if created is not None:
+                event_loop.run_until_complete(created.aclose())
+
+    def test_initialises_databases_once(self):
+        import app.main as main
+
+        with (
+            patch.object(main, "_db_initialised", False),
+            patch("app.main.init_db") as init_db,
+            patch("app.main.init_palmares_db") as init_palmares_db,
+        ):
+            for _ in range(2):
+                main.handler(_function_url_event("/health"), None)
+        assert init_db.call_count == 1
+        assert init_palmares_db.call_count == 1
+
+
+class TestLearnedReads:
+    """With use_learned on, a schedule request reads each discipline's learned average once,
+    in a worker thread; with it off, it doesn't read them at all."""
+
+    @pytest.mark.parametrize("path", ["/schedule/26008", "/schedule/26008/refresh"])
+    def test_one_read_per_discipline(self, client, path):
+        client.cookies.set("use_learned", "true")
+        with patch("app.predictor.get_learned_duration", return_value=None) as read:
+            assert client.get(path).status_code == 200
+        disciplines = [c.args[0] for c in read.call_args_list]
+        assert disciplines
+        assert len(disciplines) == len(set(disciplines))
+
+    def test_no_reads_when_off(self, client):
+        with patch("app.predictor.get_learned_duration") as read:
+            assert client.get("/schedule/26008").status_code == 200
+        read.assert_not_called()
+
+
+class TestLearnedPage:
+    def test_lists_learned_averages(self, client):
+        from app.database import record_duration_structured
+
+        for pos in range(3):
+            record_duration_structured(7100, 1, pos, "Keirin", "keirin", 8.0)
+        text = " ".join(client.get("/learned").text.split())
+        assert "keirin" in text
+        assert "8.0" in text
+
+    def test_empty_database(self, client):
+        assert "No learned durations yet" in client.get("/learned").text
+
+
+class TestFrontendAssets:
+    """CSS and JS are built into static/ (frontend/), so pages load nothing from third parties."""
+
+    # Published SRI for htmx.org@1.9.12 dist/htmx.min.js (identical on unpkg and jsDelivr).
+    HTMX_SHA384 = "ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
+
+    def test_pages_load_only_self_hosted_assets(self, client):
+        soup = BeautifulSoup(client.get("/").text, "html.parser")
+        urls = [s["src"] for s in soup.find_all("script", src=True)]
+        urls += [link["href"] for link in soup.find_all("link", rel="stylesheet")]
+        assert urls
+        assert all(u.startswith("/static/") for u in urls), urls
+
+    @pytest.mark.parametrize("path", ["/static/app.css", "/static/style.css", "/static/htmx.min.js"])
+    def test_assets_are_served(self, client, path):
+        assert client.get(path).status_code == 200
+
+    def test_asset_urls_carry_content_hash(self, client):
+        import hashlib
+
+        soup = BeautifulSoup(client.get("/").text, "html.parser")
+        href = soup.find("link", href=re.compile(r"app\.css"))["href"]
+        expected = hashlib.sha256((Path(__file__).parent.parent / "static" / "app.css").read_bytes()).hexdigest()[:12]
+        assert href == f"/static/app.css?v={expected}"
+
+    def test_versioned_asset_is_cacheable(self, client):
+        resp = client.get("/static/app.css?v=abc123")
+        assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+    def test_unversioned_asset_revalidates(self, client):
+        assert client.get("/static/app.css").headers["cache-control"] == "no-cache"
+
+    def test_missing_asset_is_404(self, client):
+        assert client.get("/static/nope.css?v=1").status_code == 404
+
+    def test_vendored_htmx_matches_release(self):
+        import hashlib
+
+        digest = hashlib.sha384((Path(__file__).parent.parent / "static" / "htmx.min.js").read_bytes()).digest()
+        assert base64.b64encode(digest).decode() == self.HTMX_SHA384

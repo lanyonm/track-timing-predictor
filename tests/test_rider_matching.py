@@ -188,7 +188,7 @@ class TestNextRace:
 
         # now must be set so that completed_count > 0 and has_pending => active_index = 1
         now = datetime(2024, 6, 1, 18, 15, 0)
-        result = predict_schedule(COMP_ID, [session], now=now, racer_name="Sean Hall", use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=now, racer_name="Sean Hall")
 
         assert result.next_race is not None
         assert result.next_race.event_name == "Elite Men Keirin"
@@ -207,7 +207,7 @@ class TestNextRace:
         seed_riders(1, [("HALL Sean", 1)])
 
         # No completed events => no active index. now=None means pre-event mode.
-        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall", use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall")
 
         assert result.next_race is not None
         assert result.next_race.event_name == "Elite Men Keirin"
@@ -224,7 +224,7 @@ class TestNextRace:
         seed_riders(0, [("HALL Sean", 1)])
         seed_riders(1, [("HALL Sean", 1)])
 
-        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall", use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall")
 
         assert result.next_race is None
 
@@ -252,7 +252,7 @@ class TestNextRace:
         session = make_session(events=events, scheduled_start=time(18, 0))
 
         # No start lists seeded for any event. Only non-special events should count.
-        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall", use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=None, racer_name="Sean Hall")
 
         # Only the keirin at position 0 should count as missing a start list
         assert result.events_without_start_lists == 1
@@ -274,7 +274,7 @@ class TestNextRace:
         session = make_session(events=events, scheduled_start=time(18, 0))
         seed_riders(0, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall")
 
         assert sp.has_racer_match is True
 
@@ -286,7 +286,7 @@ class TestNextRace:
         session = make_session(events=events, scheduled_start=time(18, 0))
         seed_riders(0, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall")
 
         assert sp.has_pending_racer_match is True
 
@@ -298,7 +298,7 @@ class TestNextRace:
         session = make_session(events=events, scheduled_start=time(18, 0))
         seed_riders(0, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall")
 
         assert sp.has_racer_match is True
         assert sp.has_pending_racer_match is False
@@ -319,7 +319,7 @@ class TestNextRace:
         ]
         session = make_session(events=events, scheduled_start=time(18, 0))
 
-        result = predict_schedule(COMP_ID, [session], now=None, use_learned=False)
+        result = predict_schedule(COMP_ID, [session], now=None)
 
         assert result.total_events == 2
 
@@ -339,7 +339,7 @@ class TestNextRace:
         seed_riders(1, [("HALL Sean", 2)], session_id=2)
 
         now = datetime(2024, 6, 1, 18, 15, 0)
-        result = predict_schedule(COMP_ID, [session1, session2], now=now, racer_name="Sean Hall", use_learned=False)
+        result = predict_schedule(COMP_ID, [session1, session2], now=now, racer_name="Sean Hall")
 
         assert result.next_race is not None
         assert result.next_race.event_name == "Elite Men Keirin"
@@ -357,7 +357,7 @@ class TestNextRace:
         seed_riders(0, [("HALL Sean", 1)])
         seed_riders(1, [("HALL Sean", 1)])
 
-        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall", use_learned=False)
+        sp = predict_session(COMP_ID, session, now=None, racer_name="Sean Hall")
 
         for pred in sp.event_predictions:
             assert pred.is_active is False
