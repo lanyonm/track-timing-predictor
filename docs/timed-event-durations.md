@@ -69,7 +69,7 @@ Per-heat durations come from the measured data in [Measured Per-Heat Durations](
 | 3 km | 6.25 min |
 | 2 km | 5.0 min |
 
-Before the start list is posted, a masters pursuit qualifying round takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `IP` code (`rider_list.estimate_heats`). At 26037 this matched the start list for 6 of 11 qualifying rounds and was one heat high for the rest, from non-starters (e.g. 8 entrants, 3 heats for 80+ Men). Team events aren't sized this way: the Rider List doesn't say who rides together.
+Before the start list is posted, a masters pursuit qualifying round takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `IP` code (`rider_list.estimate_heats`). At 26037 this matched the start list for 6 of 11 qualifying rounds and was one heat high for the rest, from non-starters (e.g. 8 entrants, 3 heats for 80+ Men). Team qualifying rounds aren't sized this way. The Rider List's `TP`/`TS` codes undercount team riders, since teams are made up after entries close: of the 24 riders in 26037's 55-64 Men team pursuit qualifying, 13 had `TP`, one was an M6569 riding down, and the team column holds the nation, not the team. ⌈TP entrants ÷ 4⌉ would give 4 heats against 6 ridden, so these keep the default.
 
 A final that follows a qualifying round of the same name (`45-49 Men Pursuit Qualifying` → `45-49 Men Pursuit Final`) is ridden for bronze and gold, so it counts 2 heats before its start list is posted (`predictor.infer_heats`). At 26037, 18 of 21 such finals (pursuit, team pursuit, team sprint) had 2 heats; the other 3, with small fields, had 1. A final with no qualifying round (regional `Pursuit Final`s, where every rider rides) isn't sized by name.
 
@@ -85,7 +85,7 @@ Otherwise, when heat count is unknown, the default duration covers an assumed 2-
 
 ## Team Pursuit and Team Sprint
 
-Both race two teams per heat, so they use the same `heat_count × per_heat_duration` formula. Per-heat durations are 6.75 min for `team_pursuit` and 3.0 min for `team_sprint`, from the measured data below. The flat defaults (10.0 min each) match the measured whole-event medians (10.4 and 9.4 min) and are unchanged.
+Both use the same `heat_count × per_heat_duration` formula. Finals race two teams per heat (bronze, gold); qualifying can be one team per heat (26037's 55-64 Men team pursuit: 6 teams, 6 heats). Per-heat durations are 6.75 min for `team_pursuit` and 3.0 min for `team_sprint`, from the measured data below. The flat defaults (10.0 min each) match the measured whole-event medians (10.4 and 9.4 min) and are unchanged.
 
 ---
 
