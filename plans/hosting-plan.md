@@ -200,7 +200,11 @@ change and updates the Lambda function.
 ### PR Environments (`.github/workflows/pr-environment.yml`)
 
 Triggered on PR open/sync/close against `main`, for PRs from branches in this
-repository only (fork PRs are skipped on deploy and destroy). Uses the PR role.
+repository only (fork PRs are skipped on deploy and destroy). Runs started by
+Dependabot are skipped too: they get only Dependabot secrets, so `AWS_ACCOUNT_ID`
+is empty and the OIDC role ARN is invalid. A maintainer's push to a Dependabot
+branch deploys as usual; a stack left when Dependabot closes its own PR is removed
+by the weekly sweeper. Uses the PR role.
 Each PR's runs share the `pr-<N>` concurrency group, so a close waits for an
 in-flight deploy instead of racing it.
 - **open/synchronize:** Build image, push as `pr-<N>-<sha>`, deploy ephemeral
@@ -227,7 +231,8 @@ for the README badge (`GIST_TOKEN` secret).
 
 All workflow actions are pinned by commit SHA, the CDK CLI by npm version and
 `cdk/requirements.txt` by hashed lock. Dependabot (`.github/dependabot.yml`)
-proposes monthly updates for pip, npm (`frontend/`), GitHub Actions and the base image.
+proposes monthly updates for pip, npm (`frontend/`, minor and patch only), GitHub Actions
+and the base image.
 The frontend CSS and htmx are served by the app from `static/`, so pages make no
 third-party requests.
 
