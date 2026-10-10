@@ -842,6 +842,44 @@ class TestFetchResultPagesDeciders:
         assert pending_sprint_rides(26037, session) == set()
         assert all(e.status == EventStatus.COMPLETED for e in apply_sprint_ride_status(26037, [session])[0].events)
 
+    def test_skipped_decider_does_not_move_session_past(self):
+        """26037 Saturday afternoon: the 75-79 round needed no Ride 3, so its Ride 3 counts
+        as done without being ridden; that mustn't mark the 80+ Ride 2 before it done."""
+
+        def ride(pos: int, age: str, n: int) -> Event:
+            return Event(
+                position=pos,
+                name=f"{age} Men Sprint 1/2 Final Ride {n}",
+                discipline="sprint_match",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+                result_url=f"results/E26037/M{age}-S-2-R1-R.htm",
+                start_list_url=f"results/E26037/M{age}-S-2-R1-S.htm",
+            )
+
+        tt = Event(
+            position=6,
+            name="60-64 Men 500m Time Trial Final",
+            discipline="time_trial_500",
+            status=EventStatus.UPCOMING,
+            is_special=False,
+        )
+        session = Session(
+            session_id=12,
+            day="Saturday",
+            scheduled_start=time(15, 0),
+            events=[ride(1, "75-79", 1), ride(2, "80+", 1), ride(4, "75-79", 2), ride(5, "80+", 2), tt]
+            + [ride(7, "75-79", 3), ride(8, "80+", 3)],
+        )
+        record_sprint_rides_done(26037, "75-79 Men Sprint 1/2 Final", 3)
+        record_sprint_decider_range(26037, "75-79 Men Sprint 1/2 Final", 0, 0)
+        record_sprint_rides_done(26037, "80+ Men Sprint 1/2 Final", 1)
+
+        assert pending_sprint_rides(26037, session) == {5, 8}
+        statuses = {e.position: e.status for e in apply_sprint_ride_status(26037, [session])[0].events}
+        assert statuses[5] == EventStatus.UPCOMING
+        assert statuses[8] == EventStatus.UPCOMING
+
     def test_pending_until_session_moves_past(self):
         record_sprint_rides_done(26037, "75-79 Men Sprint 1/4 Final", 1)
         assert pending_sprint_rides(26037, self._live_rides_session(EventStatus.UPCOMING)) == {2, 3}

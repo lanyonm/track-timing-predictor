@@ -383,13 +383,19 @@ def pending_sprint_rides(competition_id: int, session: Session) -> set[int]:
 
     A ride is confirmed done by its round's shared page (sprint_ride_done) or, as a safety
     net for a page the parser can't read, once a later event in the session is done: a
-    completed non-special event that isn't a ride, or a ride its page confirms.
+    completed non-special event that isn't a ride, or a ride its page confirms was ridden.
+    A Ride 3 its round didn't need counts as done without being ridden, so it isn't one.
     """
 
     def confirmed_done(e: Event) -> bool:
         if e.status != EventStatus.COMPLETED or e.is_special:
             return False
-        return split_ride(e.name) is None or sprint_ride_done(competition_id, e.name) is True
+        ride = split_ride(e.name)
+        if ride is None:
+            return True
+        if ride[1] == 3 and not _sprint_deciders.get((competition_id, ride[0])):
+            return False
+        return sprint_ride_done(competition_id, e.name) is True
 
     pending: set[int] = set()
     moved_past = False
