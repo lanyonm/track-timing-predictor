@@ -552,7 +552,7 @@ class TestRiderListRoutes:
         # ALVIS Norman (M6064, TP) matches the completed 55-64 Men Team Pursuit
         # events from the Rider List; they have audit URLs but no start-list riders.
         client.cookies.set("racer_name", "Norman Alvis")
-        with patch("app.main.save_palmares_entries") as save:
+        with patch("app.palmares_service.save_palmares_entries") as save:
             response = client.get("/schedule/26037")
         assert response.status_code == 200
         assert "55-64 Men Team Pursuit Qualifying" in response.text
@@ -639,6 +639,47 @@ class TestFetchStartListsCaching:
         self._run(sessions, "")
         for key, riders in cached.items():
             assert _start_list_riders[key] == riders
+
+
+class TestFetchFailureIsolation:
+    """A fetch or parse failure for one URL leaves the other URLs' events recorded and
+    every event sharing the failed URL uncached."""
+
+    def test_failed_urls_leave_only_their_slots_uncached(self, start_list_html):
+        urls = {1: "ok.htm", 2: "down.htm", 3: "down.htm", 4: "garbled.htm", 5: "garbled.htm"}
+        events = [
+            Event(
+                position=pos,
+                name=f"Event {pos}",
+                discipline="sprint_match",
+                status=EventStatus.UPCOMING,
+                is_special=False,
+                start_list_url=url,
+            )
+            for pos, url in urls.items()
+        ]
+        sessions = [Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)]
+        pages = {"ok.htm": start_list_html, "garbled.htm": "garbled"}
+
+        async def fetch(_client, path):
+            if path not in pages:
+                raise httpx.ConnectError("upstream down")
+            return pages[path]
+
+        real_parse = main_module.parse_start_list
+
+        def parse(html):
+            if html == "garbled":
+                raise ValueError("unparseable")
+            return real_parse(html)
+
+        with patch("app.main.fetch_page_html", fetch), patch("app.main.parse_start_list", parse):
+            asyncio.run(_fetch_start_lists(None, 1, sessions))
+
+        assert _start_list_riders.get((1, 1, 1))
+        for pos in (2, 3, 4, 5):
+            assert (1, 1, pos) not in _start_list_riders
+            assert (1, 1, pos) not in _heat_counts
 
 
 class TestParallelQualifierRoute:
@@ -889,7 +930,8 @@ class TestLambdaHandler:
         import app.main as main
 
         with (
-            patch.object(main, "_db_initialised", False),
+            patch.object(main, "_initialised", False),
+            patch("app.main.setup_logging") as setup_logging,
             patch("app.main.init_db") as init_db,
             patch("app.main.init_palmares_db") as init_palmares_db,
         ):
@@ -897,6 +939,7 @@ class TestLambdaHandler:
                 main.handler(_function_url_event("/health"), None)
         assert init_db.call_count == 1
         assert init_palmares_db.call_count == 1
+        assert setup_logging.call_count == 1
 
 
 class TestLearnedReads:

@@ -115,7 +115,6 @@ class TestCompetitionDate:
         """Competition date should come from Generated timestamps, not datetime.now()."""
         from datetime import datetime as dt, time
 
-        from app.main import _collect_palmares_entries
         from app.models import (
             Event,
             EventStatus,
@@ -125,6 +124,7 @@ class TestCompetitionDate:
             Session,
             SessionPrediction,
         )
+        from app.palmares_service import collect_palmares_entries
 
         fake_gen_time = dt(2026, 2, 27, 9, 49, 52)
         event = Event(
@@ -147,11 +147,15 @@ class TestCompetitionDate:
         sp = SessionPrediction(session=session, event_predictions=[pred], observed_delay_minutes=0.0)
         schedule = SchedulePrediction(competition_id=26008, sessions=[sp], racer_name="date racer")
 
-        with patch("app.main.get_generated_time", return_value=fake_gen_time):
-            entries = _collect_palmares_entries(schedule, 26008)
+        with patch("app.palmares_service.get_generated_time", return_value=fake_gen_time):
+            entries = collect_palmares_entries(schedule, 26008)
 
         assert len(entries) == 1
         assert entries[0].competition_date == "2026-02-27"
+
+        # No Generated timestamp yet: saves never overwrite, so wait for a dated view.
+        with patch("app.palmares_service.get_generated_time", return_value=None):
+            assert collect_palmares_entries(schedule, 26008) == []
 
 
 # ---------------------------------------------------------------------------

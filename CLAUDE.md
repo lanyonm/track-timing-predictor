@@ -78,14 +78,14 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 
 **Configuration:** `app/config.py` exposes a module-level `settings` singleton and `get_settings()` for `Depends()`.
 
-**HTTP client:** one `httpx.AsyncClient` (`max_connections=50`, 15 s timeout) lives on `app.state.http_client`; routes get it via `Depends(get_http_client)`. Under uvicorn the FastAPI `lifespan` creates and closes it and runs `init_db()`/`init_palmares_db()`. On Lambda, `handler` wraps `Mangum(app, lifespan="off")` (Mangum's `auto` would run the lifespan per invocation): it initialises the databases on the first invocation, `get_http_client` creates the client on first use, and Mangum's single per-container event loop lets later invocations reuse it and its connection pool.
+**HTTP client:** one `httpx.AsyncClient` (`max_connections=50`, 15 s timeout) lives on `app.state.http_client`; routes get it via `Depends(get_http_client)`. Under uvicorn the FastAPI `lifespan` creates and closes it and runs `setup_logging()` (JSON logs on the root logger) and `init_db()`/`init_palmares_db()`. On Lambda, `handler` wraps `Mangum(app, lifespan="off")` (Mangum's `auto` would run the lifespan per invocation): it sets up logging and initialises the databases on the first invocation, `get_http_client` creates the client on first use, and Mangum's single per-container event loop lets later invocations reuse it and its connection pool.
 
 **Blocking I/O:** SQLite and boto3 calls are synchronous, so `async def` routes run them with `asyncio.to_thread` (learned-duration reads and live-duration writes, palmares reads and writes, `/learned`). Prediction itself (`predict_schedule`) makes no database calls.
 
 **Request flow (`/schedule/{event_id}`):**
 1. `fetcher.fetch_initial_layout` POSTs to the Jaxon endpoint (refresh uses `fetch_refresh`).
 2. `parser.parse_schedule` turns the HTML into `Session`/`Event` models.
-3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. Start lists and result pages are fetched once per distinct URL (the rides of a sprint round share both) and the result recorded for every event using it; `parser.parse_start_list` reads heat count, riders, categories and distance from one parse. When a racer is set and some race has no start-list riders, a combined-age bunch final has no cached start-list categories, or a pending sprint/pursuit qualifying round or time trial has no start-list heat count (`rider_list.needs_heat_estimate`), the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
+3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. Each helper builds a URL → event slots map and hands it to `_fetch_each`, which fetches every URL once (the rides of a sprint round share their pages) under the helper's concurrency limit (live pages 5, start lists 10, result and audit pages 10 shared) and records the parse for every slot; a fetch or parse error is logged and leaves only that URL's slots uncached; `parser.parse_start_list` reads heat count, riders, categories and distance from one parse. When a racer is set and some race has no start-list riders, a combined-age bunch final has no cached start-list categories, or a pending sprint/pursuit qualifying round or time trial has no start-list heat count (`rider_list.needs_heat_estimate`), the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
 4. `predictor.predict_schedule` builds a `SchedulePrediction`.
 5. Jinja2 renders `schedule.html`; HTMX polls `/schedule/{id}/refresh`, which returns `_schedule_body.html`.
 
@@ -164,11 +164,12 @@ A medal ceremony with a podium forecast skips all four and uses `CEREMONY_BASE_M
 - Combined-age points and scratch finals (`35-49 Women`, `50+ Women`) are one podium per category: start-list Category column, else Rider List categories with that event code inside the band, else five-year bands in the name (1 for an open band).
 - Scope is 26037's naming: a ceremony whose window has a final without an `event_band` gets no forecast and keeps `DEFAULT_DURATIONS["ceremony"]`. Rationale and data in `docs/medal-ceremony-durations.md`.
 
-**Palmares** (`palmares.py`; DynamoDB when `PALMARES_TABLE` is set, otherwise SQLite `palmares_entries`):
-- Collected automatically on schedule views when a racer is identified and matched on a start list to a timed event that has an audit URL.
-- Timed disciplines are listed in `_TIMED_DISCIPLINES` in `main.py`: pursuits, `team_pursuit`, `team_sprint` and time trials.
+**Palmares** (storage in `palmares.py`, DynamoDB when `PALMARES_TABLE` is set, otherwise SQLite `palmares_entries`; collection and CSV export in `palmares_service.py`):
+- Collected automatically on schedule views (`save_and_count_palmares`) when a racer is identified and matched on a start list to a timed event that has an audit URL.
+- Timed disciplines are listed in `TIMED_DISCIPLINES` in `palmares_service.py`: pursuits, `team_pursuit`, `team_sprint` and time trials.
 - Team start lists pack the team name and riders into `<h4>` separated by `<br/>`; `parser._extract_names_from_h4` splits them, and `team_name` is stored because audit pages use team names.
-- The competition date is the earliest result-page Generated timestamp.
+- The competition date is the earliest result-page Generated timestamp. Saves never overwrite an entry, so nothing is collected until some event has a cached Generated timestamp.
+- `/palmares/export` uses `safe_audit_path`, `fetch_audit_page` and `audit_csv` from `palmares_service.py`.
 - Public API: `save_palmares_entries`, `get_palmares`, `count_competition_palmares`, `update_competition_palmares`, `delete_competition_palmares`.
 - Entries are keyed by the raw racer name string. The DynamoDB keys are `RACER#{name}` and `COMP#{id}#S#{sid}#E#{pos}`.
 - `audit_parser.py` parses `-AUDIT-R.htm` pages (riders from `<p>`, heats from `<h3>`), filters with `normalize_rider_name`, and `format_csv` emits Heat, Dist, Time, Rank, Lap, Lap_Rank, Sect, Sect_Rank.
