@@ -4,7 +4,7 @@ from datetime import datetime, time, timedelta
 
 import pytest
 
-from app.disciplines import get_changeover, get_per_heat_duration
+from app.disciplines import WARM_UP_LEAD_MINUTES, get_changeover, get_per_heat_duration
 from app.models import (
     Event,
     EventStatus,
@@ -229,6 +229,30 @@ class TestNextRace:
         assert result.next_race is not None
         assert result.next_race.event_name == "Elite Men Keirin"
         assert result.next_race.is_active is False
+
+    def test_next_race_straight_and_warm_up(self):
+        """The next race carries the racer's straight and a warm-up time WARM_UP_LEAD_MINUTES before their heat."""
+        events = [make_event(position=0, name="50-54 Women 500m Time Trial Final", discipline="time_trial_500")]
+        session = make_session(events=events, scheduled_start=time(14, 0))
+        record_start_list_riders(
+            COMP_ID,
+            SESSION_ID,
+            0,
+            [
+                RiderEntry(name="RIDER Alice", heat=1, straight="home"),
+                RiderEntry(name="HALL Sean", heat=2, straight="back"),
+            ],
+        )
+        record_heat_count(COMP_ID, SESSION_ID, 0, 2)
+
+        result = predict_schedule(COMP_ID, [session], now=datetime(2024, 6, 1, 9, 0), racer_name="Sean Hall")
+
+        nr = result.next_race
+        assert nr is not None
+        assert nr.straight == "back"
+        assert nr.predicted_start is not None
+        assert nr.warm_up_from == nr.predicted_start - timedelta(minutes=WARM_UP_LEAD_MINUTES)
+        assert result.sessions[0].event_predictions[0].rider_match.straight == "back"
 
     def test_next_race_all_completed(self):
         """When all events are completed, next_race_event_name is None."""

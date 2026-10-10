@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 import app.main as main_module
 from app.main import _fetch_live_heats, _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
 from app.models import Event, EventStatus, Session
-from app.parser import parse_schedule
+from app.parser import parse_schedule, parse_start_list_riders
 from app.predictor import (
     _finish_times,
     _generated_times,
@@ -40,6 +40,7 @@ from app.predictor import (
     record_race_distance,
     record_sprint_decider_range,
     record_sprint_rides_done,
+    record_start_list_riders,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -1070,6 +1071,43 @@ class TestDeciderLabel:
         text = " ".join(html.split())
         assert "1–3 deciders est." in text
         assert "1 pair tied after Ride 2; any of the 2 still to ride Ride 2 may need a decider" in text
+
+
+class TestStartStraightLabels:
+    def _render(self, competition_id: int, now: datetime, racer: str) -> str:
+        event = Event(
+            position=0,
+            name="50-54 Women 500m Time Trial Final",
+            discipline="time_trial_500",
+            status=EventStatus.UPCOMING,
+            is_special=False,
+            start_list_url="results/E1/W5054-TT-500-F-0-S.htm",
+        )
+        record_start_list_riders(
+            competition_id,
+            1,
+            0,
+            parse_start_list_riders((FIXTURE_DIR / "start-list-time-trial-26037.html").read_text()),
+        )
+        record_heat_count(competition_id, 1, 0, 3)
+        session = Session(session_id=1, day="Day", scheduled_start=time(14, 0), events=[event])
+        html = main_module.templates.get_template("_schedule_body.html").render(
+            schedule=predict_schedule(competition_id, [session], now=now, racer_name=racer),
+            competition_id=competition_id,
+            now=now,
+            palmares_count=0,
+            racer_encoded="",
+        )
+        return " ".join(BeautifulSoup(html, "html.parser").get_text().split())
+
+    def test_heat_badge_and_next_race_show_straight_and_warm_up(self):
+        text = self._render(26191, datetime(2026, 1, 1, 9, 0), "Emiko Koshita")
+        assert "Heat 2 · back straight" in text
+        assert re.search(
+            r"Your next race: 50-54 Women 500m Time Trial Final, Heat 2, back straight "
+            r"at \d{2}:\d{2} \(warm up from \d{2}:\d{2}\)",
+            text,
+        )
 
 
 class TestActiveHeatLabel:

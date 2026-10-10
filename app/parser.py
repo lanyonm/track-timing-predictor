@@ -1,7 +1,7 @@
 import logging
 import re
 from datetime import datetime, time
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from bs4 import BeautifulSoup, Tag
 
@@ -178,57 +178,76 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
       <h4>TEAM NAME<br/>95 RIDER1<br/>72 RIDER2<br/>65 RIDER3</h4>
       Individual rider names are extracted alongside the team name.
 
+    Medal finals label their heats "Final 3-4"/"Final 1-2" (sprints) or
+    "For Bronze"/"For Gold" (pursuits, team events) instead of "Heat N"; each
+    label starts the next heat, so bronze is heat 1 and gold heat 2.
+
+    Pursuit, time trial and team start lists carry an <h4> "First rider (team)
+    listed starts on the home straight": a heat's first row gets
+    straight="home" and its second "back". Without it, straight is None.
+
     Returns an empty list if no riders are found.
     """
     return _start_list_riders(BeautifulSoup(html, "html.parser"))
 
 
+# Medal finals label their two heats with <h4> headings instead of "Heat N" (see parse_heat_count).
+_FINAL_HEAT_LABEL_RE = re.compile(r"^(?:Final\s+\d+-\d+|For\s+(?:Bronze|Gold))$", re.IGNORECASE)
+_HOME_STRAIGHT_RE = re.compile(r"First\s+(?:rider|team)\s+listed\s+starts\s+on\s+the\s+home\s+straight", re.IGNORECASE)
+
+
+def _heat_label(row: Tag, current_heat: int) -> int | None:
+    """The heat a row starts, or None if it starts none: "Heat N" gives N, and a medal
+    final's "Final 3-4"/"Final 1-2" or "For Bronze"/"For Gold" heading the next heat."""
+    heat_match = re.search(r"\bHeat\s+(\d+)\b", row.get_text(" ", strip=True))
+    if heat_match:
+        return int(heat_match.group(1))
+    if any(_FINAL_HEAT_LABEL_RE.match(h4.get_text(" ", strip=True)) for h4 in row.find_all("h4")):
+        return current_heat + 1
+    return None
+
+
 def _start_list_riders(soup: BeautifulSoup) -> list[RiderEntry]:
     riders: list[RiderEntry] = []
     current_heat = 0
+    order = 0  # rider (or team) rows so far in the current heat
+    home_first = any(_HOME_STRAIGHT_RE.search(h4.get_text(" ", strip=True)) for h4 in soup.find_all("h4"))
 
     for row in soup.find_all("tr"):
         cells = row.find_all("td")
         if not cells:
             continue
 
-        # Check if this row contains a "Heat N" label
-        row_text = row.get_text(" ", strip=True)
-        heat_match = re.search(r"\bHeat\s+(\d+)\b", row_text)
+        heat = _heat_label(row, current_heat)
+        if heat is not None:
+            current_heat = heat
+            order = 0
 
-        if heat_match:
-            current_heat = int(heat_match.group(1))
-
-            # Extract names from h4 tags in this row (handles both
-            # sprint qualifying single-rider and team multi-rider formats)
-            for h4 in row.find_all("h4"):
-                for name, team in _extract_names_from_h4(h4):
-                    if _is_rider_name(name):
-                        tokens = normalize_rider_name(name)
-                        riders.append(
-                            RiderEntry(
-                                name=name,
-                                heat=current_heat,
-                                normalized_tokens=tokens,
-                                team_name=team,
-                            )
-                        )
-        else:
-            # Rider row: either within a multi-rider heat (current_heat > 0)
-            # or a bunch race with no heat labels (current_heat == 0 → heat 1)
-            heat = current_heat or 1
-            for h4 in row.find_all("h4"):
-                for name, team in _extract_names_from_h4(h4):
-                    if _is_rider_name(name):
-                        tokens = normalize_rider_name(name)
-                        riders.append(
-                            RiderEntry(
-                                name=name,
-                                heat=heat,
-                                normalized_tokens=tokens,
-                                team_name=team,
-                            )
-                        )
+        # A labelled row can carry its heat's first rider (sprint qualifying, pursuit finals)
+        # or team. Rows without a label belong to the current heat, or heat 1 in a bunch race
+        # (no labels at all).
+        row_riders = [
+            (name, team)
+            for h4 in row.find_all("h4")
+            for name, team in _extract_names_from_h4(h4)
+            if _is_rider_name(name)
+        ]
+        if not row_riders:
+            continue
+        order += 1
+        straight: Literal["home", "back"] | None = None
+        if home_first and order <= 2:
+            straight = "home" if order == 1 else "back"
+        for name, team in row_riders:
+            riders.append(
+                RiderEntry(
+                    name=name,
+                    heat=current_heat or 1,
+                    normalized_tokens=normalize_rider_name(name),
+                    team_name=team,
+                    straight=straight,
+                )
+            )
 
     if not riders and soup.find("tr"):
         logger.warning("parse_start_list_riders found 0 riders in HTML with %d rows", len(soup.find_all("tr")))

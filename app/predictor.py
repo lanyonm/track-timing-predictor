@@ -14,6 +14,7 @@ from app.disciplines import (
     MIN_CHANGEOVER_SAMPLES,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
+    WARM_UP_LEAD_MINUTES,
     bunch_race_kmh,
     get_changeover,
     get_default_duration,
@@ -602,6 +603,7 @@ def get_rider_match(
                 heat_count=hc,
                 heat_predicted_start=heat_predicted_start,
                 team_name=rider.team_name,
+                straight=rider.straight,
             )
 
     return None
@@ -1093,11 +1095,15 @@ def _build_next_race(pred: Prediction, match: RiderMatch, now: datetime | None) 
     """Build a NextRace from a matched Prediction.
 
     Start-list matches use the racer's heat start. Rider List matches have no heat,
-    so they use the event's predicted start.
+    so they use the event's predicted start. The warm-up time leads either by
+    WARM_UP_LEAD_MINUTES.
     """
     predicted_start = match.heat_predicted_start
     if match.source == "rider_list":
         predicted_start = _on_day_of(now, pred.predicted_start)
+    warm_up_from = None
+    if predicted_start is not None:
+        warm_up_from = predicted_start - timedelta(minutes=WARM_UP_LEAD_MINUTES)
     return NextRace(
         event_name=pred.event.name,
         heat=match.heat,
@@ -1106,6 +1112,8 @@ def _build_next_race(pred: Prediction, match: RiderMatch, now: datetime | None) 
         is_active=pred.is_active,
         tentative=match.tentative,
         parallel_qualifier=match.parallel_qualifier,
+        straight=match.straight,
+        warm_up_from=warm_up_from,
     )
 
 

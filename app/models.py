@@ -84,6 +84,10 @@ class _NamedRider(BaseModel):
 class RiderEntry(_NamedRider):
     heat: int = Field(ge=1)
     team_name: str | None = None
+    # Start straight in a 2-up heat, from the "First rider listed starts on the home straight"
+    # heading: the heat's first row starts on the home straight, the second on the back.
+    # None without the heading.
+    straight: Literal["home", "back"] | None = None
 
 
 class RiderListEntry(_NamedRider):
@@ -136,6 +140,7 @@ class RiderMatch(BaseModel):
     heat_count: int | None = Field(default=None, ge=1)
     heat_predicted_start: datetime | None = None
     team_name: str | None = None
+    straight: Literal["home", "back"] | None = None  # Start straight (RiderEntry.straight)
     source: Literal["start_list", "rider_list"] = "start_list"
     tentative: bool = False  # Rider List match for a later round ("if advancing")
     # Rider List match for one of several numbered qualifiers; the rider rides only one,
@@ -191,6 +196,8 @@ class NextRace(BaseModel):
     is_active: bool = False
     tentative: bool = False
     parallel_qualifier: bool = False
+    straight: Literal["home", "back"] | None = None
+    warm_up_from: datetime | None = None  # predicted_start − WARM_UP_LEAD_MINUTES
 
 
 class SchedulePrediction(BaseModel):
