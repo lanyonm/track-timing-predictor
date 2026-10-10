@@ -39,6 +39,7 @@ from app.disciplines import (
     PER_HEAT_DURATIONS,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
+    WARM_UP_LEAD_MINUTES,
     AgeBracket,
     get_changeover,
     split_ride,
@@ -997,6 +998,7 @@ async def default_durations(request: Request) -> Response:
         "live_changeover": LIVE_BUNCH_CHANGEOVER_MINUTES,
         "min_changeover_samples": MIN_CHANGEOVER_SAMPLES,
         "static_changeover": CHANGEOVER_MINUTES["scratch_race"],
+        "warm_up_lead": WARM_UP_LEAD_MINUTES,
     }
     return templates.TemplateResponse(
         request,

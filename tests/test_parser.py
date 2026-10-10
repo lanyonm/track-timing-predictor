@@ -695,6 +695,65 @@ class TestParseStartListRiders:
         assert len(riders) == 2
         assert all(r.heat == 1 for r in riders)
 
+    def test_time_trial_straights_alternate_within_each_heat(self):
+        # "First rider listed starts on the home straight"; 2 riders per heat
+        html = (FIXTURE_DIR / "start-list-time-trial-26037.html").read_text()
+        riders = {r.name: (r.heat, r.straight) for r in parse_start_list_riders(html)}
+        assert riders["MAGENTA Lucia Amelia Maria"] == (1, "home")
+        assert riders["WOODS Denedra"] == (1, "back")
+        assert riders["THOMPSON Heather"] == (2, "home")
+        assert riders["KOSHITA Emiko"] == (2, "back")
+
+    def test_team_riders_share_their_teams_straight(self):
+        # "First team listed starts on the home straight"; one team per qualifying heat
+        html = (FIXTURE_DIR / "start-list-team-pursuit-26037.html").read_text()
+        riders = {r.name: (r.heat, r.straight) for r in parse_start_list_riders(html)}
+        assert riders["BARBER Robert"] == (1, "home")
+        assert riders["GORDON John"] == (1, "home")
+        assert riders["DANGLETERRE Marc"] == (2, "home")
+
+    def test_medal_final_heats_are_bronze_then_gold(self):
+        # "For Bronze" is heat 1 and "For Gold" heat 2, as parse_heat_count counts them
+        html = (FIXTURE_DIR / "start-list-team-sprint-final-26037.html").read_text()
+        riders = {r.name: (r.heat, r.straight, r.team_name) for r in parse_start_list_riders(html)}
+        assert riders["PAULS Mathilde"] == (1, "home", "SONIC BOOMERS")
+        assert riders["HOWELLS Kristy"] == (1, "back", "AWEN")
+        assert riders["SITLER Cynthia"] == (2, "home", "USA STARS & SPARKLES")
+        assert riders["RYCHNOVSKÁ Zuzana"] == (2, "back", "CZECHIA")
+
+    def test_pursuit_final_heats_and_straights(self):
+        html = (FIXTURE_DIR / "start-list-pursuit-final-26037.html").read_text()
+        riders = {r.name: (r.heat, r.straight) for r in parse_start_list_riders(html)}
+        assert riders == {
+            "COX Scott": (1, "home"),
+            "HOPE Ian": (1, "back"),
+            "MATHIESEN Andrew": (2, "home"),
+            "WEST Robert": (2, "back"),
+        }
+
+    def test_sprint_final_matches_are_heats_without_straights(self):
+        # "Final 3-4" then "Final 1-2"; sprint start lists have no home-straight heading
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        riders = {r.name: (r.heat, r.straight) for r in parse_start_list_riders(html)}
+        assert riders["WONG William"] == (1, None)
+        assert riders["ICHIMOTO Ryuji"] == (2, None)
+
+    def test_no_straight_without_the_heading(self):
+        html = """<table><tbody>
+        <tr><td><h4>Heat 1</h4></td><td><h4><Strong>101</Strong></h4></td><td><h4>RIDER Alice</h4></td></tr>
+        <tr><td></td><td><h4><Strong>102</Strong></h4></td><td><h4>RIDER Bob</h4></td></tr>
+        </tbody></table>"""
+        assert [r.straight for r in parse_start_list_riders(html)] == [None, None]
+
+    def test_no_straight_beyond_the_second_row_of_a_heat(self):
+        html = """<div><h4>First rider listed starts on the home straight</h4></div><table><tbody>
+        <tr><td colspan="6"><h4><Strong>Heat 1</Strong></h4></td></tr>
+        <tr><td><h4><Strong>101</Strong></h4></td><td><h4>RIDER Alice</h4></td></tr>
+        <tr><td><h4><Strong>102</Strong></h4></td><td><h4>RIDER Bob</h4></td></tr>
+        <tr><td><h4><Strong>103</Strong></h4></td><td><h4>RIDER Carol</h4></td></tr>
+        </tbody></table>"""
+        assert [r.straight for r in parse_start_list_riders(html)] == ["home", "back", None]
+
     def test_empty_html_returns_empty(self):
         """Empty string and malformed HTML return empty list."""
         assert parse_start_list_riders("") == []

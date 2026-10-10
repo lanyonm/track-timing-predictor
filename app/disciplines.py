@@ -225,6 +225,10 @@ SPRINT_DECIDER_RATE = 0.12
 # median 4.23), longer than a match's share of a full round (sprint_match per-heat 3.0).
 SPRINT_DECIDER_MINUTES = 4.25
 
+# Presentation only: the next-race line suggests warming up this long before the racer's
+# predicted start. A fixed lead for every discipline; no prediction uses it.
+WARM_UP_LEAD_MINUTES = 45.0
+
 _RIDE_RE = re.compile(r"^(.*\S)\s+Ride\s+(\d+)\s*$")
 
 # Minutes to add to a result-page Finish Time to account for changeover between events.

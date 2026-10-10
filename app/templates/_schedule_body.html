@@ -21,13 +21,16 @@
         {%- if nr.tentative %} (if advancing){% endif %}
         {%- if nr.parallel_qualifier %} (or a later qualifier){% endif %}
         {%- if nr.heat_count and nr.heat_count > 1 %}, Heat {{ nr.heat }}{% endif %}
+        {%- if nr.straight %}, {{ nr.straight }} straight{% endif %}
       {% else %}
         Your next race: {{ nr.event_name }}
         {%- if nr.tentative %} (if advancing){% endif %}
         {%- if nr.heat_count and nr.heat_count > 1 %}, Heat {{ nr.heat }}{% endif %}
+        {%- if nr.straight %}, {{ nr.straight }} straight{% endif %}
         {%- if nr.parallel_qualifier %} (or a later qualifier)
           {%- if nr.predicted_start %}, be ready by {{ nr.predicted_start.strftime('%H:%M') }}{% endif %}
         {%- elif nr.predicted_start %} at {{ nr.predicted_start.strftime('%H:%M') }}{% endif %}
+        {%- if nr.warm_up_from %} (warm up from {{ nr.warm_up_from.strftime('%H:%M') }}){% endif %}
       {% endif %}
     </span>
   </div>
@@ -113,10 +116,9 @@
                 <span class="{{ racer_badge }} border-dashed">If advancing</span>
               {% elif pred.rider_match and pred.rider_match.source == 'rider_list' %}
                 <span class="{{ racer_badge }}">Entered</span>
-              {% elif pred.rider_match and pred.rider_match.heat_count > 1 %}
-                <span class="{{ racer_badge }}">Heat {{ pred.rider_match.heat }}</span>
               {% elif pred.rider_match %}
-                <span class="{{ racer_badge }}">Racing</span>
+                {%- set straight = ' · ' ~ pred.rider_match.straight ~ ' straight' if pred.rider_match.straight else '' %}
+                <span class="{{ racer_badge }}">{{ 'Heat ' ~ pred.rider_match.heat if pred.rider_match.heat_count > 1 else 'Racing' }}{{ straight }}</span>
               {% endif %}
               {% if pred.rider_match and pred.rider_match.heat_count and pred.rider_match.heat_count > 1 and pred.rider_match.heat_predicted_start %}
                 <span class="block text-xs font-semibold ink-info mt-0.5">Your heat: {{ pred.rider_match.heat_predicted_start.strftime('%H:%M') }}</span>
