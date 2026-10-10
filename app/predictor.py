@@ -97,6 +97,36 @@ _race_distances: dict[tuple[int, int, int], float] = {}
 # Key: (competition_id, round name without "Ride N"), Value: number of deciders
 _sprint_deciders: dict[tuple[int, str], int] = {}
 
+# Partial decider counts while a best-of-3 round's Ride 2 is ridden, from its live timing or
+# result page (parser.parse_sprint_decider_range): (pairs known to need a decider, pairs yet
+# to ride Ride 2). The most progressed reading is kept.
+# Key: (competition_id, round name without "Ride N"), Value: (known, open)
+_sprint_decider_ranges: dict[tuple[int, str], tuple[int, int]] = {}
+
+# Rides (0-3) every pair of a best-of-3 sprint round has finished, from its shared result
+# page (parser.parse_sprint_rides_done). Upstream shows every ride as having results once
+# Ride 1 does, so apply_sprint_ride_status uses this instead.
+# Key: (competition_id, round name without "Ride N"), Value: rides done
+_sprint_rides_done: dict[tuple[int, str], int] = {}
+
+# The caches above keyed by (competition_id, session_id, position). Upstream can add or remove
+# rows mid-session (a Ride 3 nobody needs is deleted once Ride 2 ends), which shifts every later
+# event's position, so reconcile_positions moves their entries along with the events.
+_POSITION_CACHES: tuple[dict, ...] = (
+    _status_cache,
+    _finish_times,
+    _heat_counts,
+    _live_heats,
+    _generated_times,
+    _start_list_riders,
+    _start_list_categories,
+    _race_distances,
+)
+
+# Each session's events as last seen, as (position, name) pairs.
+# Key: (competition_id, session_id)
+_session_layouts: dict[tuple[int, int], tuple[tuple[int, str], ...]] = {}
+
 # Parsed Rider Lists. The file is immutable for a competition, so entries never expire.
 # Key: Rider List relative URL, Value: non-empty list of RiderListEntry
 _rider_lists: dict[str, list[RiderListEntry]] = {}
@@ -279,6 +309,127 @@ def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) 
     _sprint_deciders[(competition_id, round_name)] = deciders
 
 
+def _name_occurrences(layout: tuple[tuple[int, str], ...]) -> dict[tuple[str, int], int]:
+    """Position of each (name, nth time the name appears) in a session layout."""
+    seen: dict[str, int] = {}
+    keys: dict[tuple[str, int], int] = {}
+    for position, name in layout:
+        keys[(name, seen.get(name, 0))] = position
+        seen[name] = seen.get(name, 0) + 1
+    return keys
+
+
+def reconcile_positions(competition_id: int, sessions: list[Session]) -> None:
+    """Move position-keyed cache entries when a session's rows change.
+
+    Events are matched by name (and which occurrence of it, for repeated names such as
+    Break). An event that's gone loses its entries. Call it right after parsing a schedule,
+    before anything reads or writes the caches.
+    """
+    for session in sessions:
+        layout = tuple((e.position, e.name) for e in session.events)
+        key = (competition_id, session.session_id)
+        old = _session_layouts.get(key)
+        _session_layouts[key] = layout
+        if old is None or old == layout:
+            continue
+        new_positions = _name_occurrences(layout)
+        moves = {pos: new_positions.get(name_key) for name_key, pos in _name_occurrences(old).items()}
+        if all(old_pos == new_pos for old_pos, new_pos in moves.items()):
+            continue
+        for cache in _POSITION_CACHES:
+            entries = [k for k in cache if k[0] == competition_id and k[1] == session.session_id]
+            moved = {}
+            for k in entries:
+                value = cache.pop(k)
+                new_pos = moves.get(k[2])
+                if new_pos is not None:
+                    moved[(competition_id, session.session_id, new_pos)] = value
+            cache.update(moved)
+
+
+def record_sprint_decider_range(competition_id: int, round_name: str, known: int, open_pairs: int) -> None:
+    """Store a sprint round's partial decider count; once no pair is left to ride Ride 2 it's exact.
+
+    A reading with more pairs still to ride Ride 2 than the stored one (a result page that
+    lags the live page) is ignored.
+    """
+    key = (competition_id, round_name)
+    stored = _sprint_decider_ranges.get(key)
+    if stored is not None and open_pairs > stored[1]:
+        return
+    _sprint_decider_ranges[key] = (known, open_pairs)
+    if open_pairs == 0:
+        record_sprint_deciders(competition_id, round_name, known)
+
+
+def record_sprint_rides_done(competition_id: int, round_name: str, rides: int) -> None:
+    """Store how many rides of a sprint round every pair has finished."""
+    _sprint_rides_done[(competition_id, round_name)] = rides
+
+
+def sprint_ride_done(competition_id: int, event_name: str) -> bool | None:
+    """Whether a best-of-3 ride has been ridden by every pair; None when unknown or not a ride."""
+    ride = split_ride(event_name)
+    if ride is None:
+        return None
+    done = _sprint_rides_done.get((competition_id, ride[0]))
+    return None if done is None else ride[1] <= done
+
+
+def pending_sprint_rides(competition_id: int, session: Session) -> set[int]:
+    """Positions of best-of-3 rides with a result page whose completion isn't confirmed.
+
+    A ride is confirmed done by its round's shared page (sprint_ride_done) or, as a safety
+    net for a page the parser can't read, once a later event in the session is done: a
+    completed non-special event that isn't a ride, or a ride its page confirms.
+    """
+
+    def confirmed_done(e: Event) -> bool:
+        if e.status != EventStatus.COMPLETED or e.is_special:
+            return False
+        return split_ride(e.name) is None or sprint_ride_done(competition_id, e.name) is True
+
+    pending: set[int] = set()
+    moved_past = False
+    for e in reversed(session.events):
+        if (
+            not moved_past
+            and e.result_url
+            and e.discipline == "sprint_match"
+            and split_ride(e.name) is not None
+            and sprint_ride_done(competition_id, e.name) is not True
+        ):
+            pending.add(e.position)
+        moved_past = moved_past or confirmed_done(e)
+    return pending
+
+
+def apply_sprint_ride_status(competition_id: int, sessions: list[Session]) -> list[Session]:
+    """Mark sprint rides not yet ridden as UPCOMING (or NOT_READY without a start list).
+
+    The rides of a best-of-3 round share one result page, so upstream gives Ride 2 and
+    Ride 3 an enabled Results button, and parse_schedule marks them COMPLETED, as soon as
+    Ride 1 is posted. A ride whose completion isn't known yet keeps its parsed status, and
+    so does one the session has moved past (pending_sprint_rides).
+    """
+    result = []
+    for session in sessions:
+        pending = pending_sprint_rides(competition_id, session)
+        events = []
+        for e in session.events:
+            if (
+                e.status == EventStatus.COMPLETED
+                and e.position in pending
+                and sprint_ride_done(competition_id, e.name) is False
+            ):
+                status = EventStatus.UPCOMING if e.start_list_url else EventStatus.NOT_READY
+                e = e.model_copy(update={"status": status})
+            events.append(e)
+        result.append(session.model_copy(update={"events": events}))
+    return result
+
+
 class _Estimate(NamedTuple):
     """A pre-result duration and what it was built from."""
 
@@ -289,6 +440,7 @@ class _Estimate(NamedTuple):
     kmh: float | None = None  # pace used with km
     km_basis: DistanceBasis | None = None
     per_heat: float | None = None  # minutes per heat used with heats
+    deciders_known: int | None = None  # with "decider_pairs": pairs already tied after Ride 2
 
 
 def _base_estimate(
@@ -334,6 +486,12 @@ def _base_estimate(
             deciders = _sprint_deciders.get((competition_id, ride[0]))
             if deciders is not None:
                 return _Estimate(deciders * SPRINT_DECIDER_MINUTES, deciders, "decider")
+            decider_range = _sprint_decider_ranges.get((competition_id, ride[0]))
+            if decider_range is not None and sum(decider_range) > 0:
+                # During Ride 2: tied pairs ride a decider, the rest still at the expected rate.
+                known, open_pairs = decider_range
+                minutes = (known + open_pairs * SPRINT_DECIDER_RATE) * SPRINT_DECIDER_MINUTES
+                return _Estimate(minutes, known + open_pairs, "decider_pairs", deciders_known=known)
             if pairs is None:
                 pairs = _get_duration(event.discipline, learned) / phd
             return _Estimate(pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, round(pairs), "decider_pairs")
@@ -910,6 +1068,7 @@ def predict_session(
                 race_kmh=est.kmh if est else None,
                 distance_basis=est.km_basis if est else None,
                 per_heat_minutes=est.per_heat if est else None,
+                deciders_known=est.deciders_known if est else None,
                 podium_count=podium_list[i],
                 is_active=is_active,
                 active_heat=active_heat,

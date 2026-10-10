@@ -29,15 +29,18 @@ from app.predictor import (
     _compute_delay,
     bunch_changeover,
     get_generated_time,
+    get_heat_count,
     latest_live_generated_time,
     load_learned_durations,
     predict_schedule,
     predict_session,
+    reconcile_positions,
     record_generated_time,
     record_heat_count,
     record_live_heat,
     record_observed_duration,
     record_race_distance,
+    record_sprint_decider_range,
     record_sprint_deciders,
     save_live_durations,
     update_status_cache,
@@ -198,6 +201,54 @@ def test_record_generated_time_keeps_earliest():
     record_generated_time(26920, 1, 1, datetime(2026, 10, 10, 11, 12, 55))
     record_generated_time(26920, 1, 1, datetime(2026, 10, 10, 11, 40))
     assert get_generated_time(26920, 1, 1) == datetime(2026, 10, 10, 11, 12, 55)
+
+
+class TestReconcilePositions:
+    """Upstream deletes rows mid-session (a Ride 3 nobody needs), shifting later events up."""
+
+    ROUND = "Men Sprint 1/4 Final Ride 3"
+
+    def _session(self, names: list[str], session_id: int = 1) -> Session:
+        events = [
+            Event(position=i, name=n, discipline="sprint_match", status=EventStatus.UPCOMING, is_special=False)
+            for i, n in enumerate(names)
+        ]
+        return Session(session_id=session_id, day="Day", scheduled_start=time(10, 0), events=events)
+
+    def test_removed_row_shifts_later_events(self):
+        before = ["TP Qualifying", f"75-79 {self.ROUND}", f"80+ {self.ROUND}", "TS Qualifying"]
+        reconcile_positions(26930, [self._session(before)])
+        record_generated_time(26930, 1, 1, datetime(2026, 10, 10, 12, 30))  # 75-79 Ride 3
+        record_heat_count(26930, 1, 2, 3)  # 80+ Ride 3
+        record_heat_count(26930, 1, 3, 8)  # TS Qualifying
+
+        reconcile_positions(26930, [self._session(["TP Qualifying", f"80+ {self.ROUND}", "TS Qualifying"])])
+
+        assert get_heat_count(26930, 1, 1) == 3
+        assert get_heat_count(26930, 1, 2) == 8
+        assert get_heat_count(26930, 1, 3) is None
+        assert get_generated_time(26930, 1, 1) is None  # the deleted row's timestamp is gone
+
+    def test_unchanged_layout_keeps_entries(self):
+        names = ["A", "B"]
+        reconcile_positions(26931, [self._session(names)])
+        record_heat_count(26931, 1, 1, 4)
+        reconcile_positions(26931, [self._session(names)])
+        assert get_heat_count(26931, 1, 1) == 4
+
+    def test_repeated_names_matched_by_occurrence(self):
+        reconcile_positions(26932, [self._session(["Break", "A", "Break", "B"])])
+        record_heat_count(26932, 1, 3, 5)  # B
+        record_heat_count(26932, 1, 2, 9)  # second Break
+        reconcile_positions(26932, [self._session(["New", "Break", "A", "Break", "B"])])
+        assert get_heat_count(26932, 1, 4) == 5
+        assert get_heat_count(26932, 1, 3) == 9
+
+    def test_other_sessions_untouched(self):
+        reconcile_positions(26933, [self._session(["A", "B"]), self._session(["C", "D"], session_id=2)])
+        record_heat_count(26933, 2, 1, 6)
+        reconcile_positions(26933, [self._session(["B"]), self._session(["C", "D"], session_id=2)])
+        assert get_heat_count(26933, 2, 1) == 6
 
 
 class TestActiveEventStart:
@@ -1370,6 +1421,29 @@ class TestSprintRide3:
         ride3 = predict_session(26114, self._session()).event_predictions[1]
         assert ride3.estimated_duration_minutes == 0.0
         assert ride3.heat_count == 0
+
+    def test_partial_deciders_during_ride_2(self):
+        """One pair tied after Ride 2, two still to ride it: 1 + 2 × rate expected deciders."""
+        record_heat_count(26116, 1, 1, 4)
+        record_sprint_decider_range(26116, self.ROUND, 1, 2)
+        ride3 = predict_session(26116, self._session()).event_predictions[1]
+        expected = (1 + 2 * SPRINT_DECIDER_RATE) * SPRINT_DECIDER_MINUTES
+        assert ride3.estimated_duration_minutes == pytest.approx(expected)
+        assert (ride3.heat_count, ride3.heat_basis, ride3.deciders_known) == (3, "decider_pairs", 1)
+
+    def test_partial_range_ignores_staler_reading(self):
+        """A result page lagging the live page (more pairs left to ride Ride 2) doesn't undo progress."""
+        record_sprint_decider_range(26117, self.ROUND, 1, 1)
+        record_sprint_decider_range(26117, self.ROUND, 0, 4)
+        ride3 = predict_session(26117, self._session()).event_predictions[1]
+        assert (ride3.heat_count, ride3.deciders_known) == (2, 1)
+
+    def test_range_exact_once_ride_2_done(self):
+        record_sprint_decider_range(26118, self.ROUND, 1, 1)
+        record_sprint_decider_range(26118, self.ROUND, 2, 0)
+        ride3 = predict_session(26118, self._session()).event_predictions[1]
+        assert (ride3.heat_count, ride3.heat_basis) == (2, "decider")
+        assert ride3.estimated_duration_minutes == pytest.approx(2 * SPRINT_DECIDER_MINUTES)
 
     def test_ride_2_unaffected(self):
         record_heat_count(26115, 1, 0, 4)
