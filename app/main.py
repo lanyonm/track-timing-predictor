@@ -4,13 +4,12 @@ import binascii
 import functools
 import hashlib
 import logging
-import posixpath
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, quote, unquote
+from urllib.parse import parse_qs, quote
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -21,7 +20,6 @@ from mangum import Mangum
 from pythonjsonlogger.json import JsonFormatter
 from starlette.types import Scope
 
-from app.audit_parser import filter_rider_data, format_csv, parse_audit_riders
 from app.ceremonies import needs_categories
 from app.clock import venue_now
 from app.config import Settings, get_settings
@@ -45,17 +43,16 @@ from app.disciplines import (
     split_ride,
 )
 from app.fetcher import fetch_initial_layout, fetch_live_results, fetch_page_html, fetch_refresh
-from app.models import EventStatus, PalmaresEntry, RiderListEntry, SchedulePrediction, Session
+from app.models import EventStatus, RiderListEntry, Session
 from app.palmares import (
     check_palmares_health,
-    count_competition_palmares,
     delete_competition_palmares,
     get_competition_name,
     get_palmares,
     init_palmares_db,
-    save_palmares_entries,
     update_competition_palmares,
 )
+from app.palmares_service import audit_csv, fetch_audit_page, safe_audit_path, save_and_count_palmares
 from app.parser import (
     live_results_show_event,
     parse_finish_time,
@@ -120,9 +117,6 @@ def setup_logging() -> None:
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 
-setup_logging()
-
-
 def _new_http_client() -> httpx.AsyncClient:
     settings = get_settings()
     return httpx.AsyncClient(
@@ -135,6 +129,7 @@ def _new_http_client() -> httpx.AsyncClient:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup and shutdown under uvicorn. The Lambda handler runs with lifespan off."""
+    setup_logging()
     init_db()
     init_palmares_db()
     app.state.http_client = _new_http_client()
@@ -213,6 +208,36 @@ def get_http_client(request: Request) -> httpx.AsyncClient:
     return client
 
 
+async def _fetch_each[T, P](
+    targets: Mapping[str, T],
+    fetch: Callable[[str], Awaitable[P]],
+    handle: Callable[[P, T], None],
+    sem: asyncio.Semaphore,
+    what: str,
+    competition_id: int,
+) -> None:
+    """
+    Fetch each URL once, at most sem's limit at a time, and pass the page to handle
+    with that URL's target (usually the event slots that share the page). A fetch or
+    handle error is logged and affects only that URL, whose remaining slots stay
+    unrecorded and are retried on the next view.
+    """
+
+    async def one(url: str, target: T) -> None:
+        async with sem:
+            try:
+                page = await fetch(url)
+            except Exception:
+                logger.warning("Failed to fetch %s %s for event %d", what, url, competition_id, exc_info=True)
+                return
+            try:
+                handle(page, target)
+            except Exception:
+                logger.warning("Failed to parse %s %s for event %d", what, url, competition_id, exc_info=True)
+
+    await asyncio.gather(*[one(url, target) for url, target in targets.items()])
+
+
 async def _fetch_live_heats(
     client: httpx.AsyncClient,
     competition_id: int,
@@ -223,43 +248,36 @@ async def _fetch_live_heats(
     the current heat number. Called on every refresh since the page changes
     as each heat completes.
     """
-    to_fetch = [
-        (competition_id, s.session_id, e.position, e.name, e.live_url) for s in sessions for e in s.events if e.live_url
-    ]
-    if not to_fetch:
-        return
+    to_fetch: dict[str, list[tuple[int, int, str]]] = {}
+    for s in sessions:
+        for e in s.events:
+            if e.live_url:
+                to_fetch.setdefault(e.live_url, []).append((s.session_id, e.position, e.name))
 
-    sem = asyncio.Semaphore(5)
+    def handle(live: dict, slots: list[tuple[int, int, str]]) -> None:
+        html = parse_live_results_html(live)
+        for sess_id, pos, name in slots:
+            if not live_results_show_event(html, name):
+                continue
+            # A best-of-3 round's page shows every ride's column; count only this ride's.
+            ride = split_ride(name)
+            heat = parse_live_sprint_heat(html, ride[1]) if ride else None
+            if heat is None:
+                heat = parse_live_heat(html)
+            # Ride 2's page shows which pairs are already tied (or not) for the decider.
+            if ride and ride[1] == 2 and (decider_range := parse_sprint_decider_range(html)) is not None:
+                record_sprint_decider_range(competition_id, ride[0], *decider_range)
+            if heat is not None:
+                record_live_heat(competition_id, sess_id, pos, heat)
 
-    async def fetch_one(ev_id: int, sess_id: int, pos: int, name: str, url: str) -> None:
-        async with sem:
-            try:
-                live = await fetch_live_results(client, url)
-            except Exception:
-                logger.warning(
-                    "Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
-                )
-                return
-            try:
-                html = parse_live_results_html(live)
-                heat = None
-                if live_results_show_event(html, name):
-                    # A best-of-3 round's page shows every ride's column; count only this ride's.
-                    ride = split_ride(name)
-                    heat = parse_live_sprint_heat(html, ride[1]) if ride else None
-                    if heat is None:
-                        heat = parse_live_heat(html)
-                    # Ride 2's page shows which pairs are already tied (or not) for the decider.
-                    if ride and ride[1] == 2 and (decider_range := parse_sprint_decider_range(html)) is not None:
-                        record_sprint_decider_range(ev_id, ride[0], *decider_range)
-                if heat is not None:
-                    record_live_heat(ev_id, sess_id, pos, heat)
-            except Exception:
-                logger.warning(
-                    "Failed to parse live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
-                )
-
-    await asyncio.gather(*[fetch_one(*args) for args in to_fetch])
+    await _fetch_each(
+        to_fetch,
+        functools.partial(fetch_live_results, client),
+        handle,
+        asyncio.Semaphore(5),
+        "live results",
+        competition_id,
+    )
 
 
 async def _fetch_start_lists(
@@ -288,31 +306,25 @@ async def _fetch_start_lists(
                 )
             ):
                 to_fetch.setdefault(e.start_list_url, []).append((s.session_id, e.position))
-    if not to_fetch:
-        return
 
-    sem = asyncio.Semaphore(10)
+    def handle(html: str, slots: list[tuple[int, int]]) -> None:
+        start_list = parse_start_list(html)
+        for sess_id, pos in slots:
+            if start_list.heat_count:
+                record_heat_count(competition_id, sess_id, pos, start_list.heat_count)
+            record_start_list_riders(competition_id, sess_id, pos, start_list.riders)
+            record_start_list_categories(competition_id, sess_id, pos, start_list.categories)
+            if start_list.race_distance_km is not None:
+                record_race_distance(competition_id, sess_id, pos, start_list.race_distance_km)
 
-    async def fetch_one(url: str, slots: list[tuple[int, int]]) -> None:
-        async with sem:
-            try:
-                html = await fetch_page_html(client, url)
-            except Exception:
-                logger.warning("Failed to fetch start list %s for event %d", url, competition_id, exc_info=True)
-                return
-            try:
-                start_list = parse_start_list(html)
-                for sess_id, pos in slots:
-                    if start_list.heat_count:
-                        record_heat_count(competition_id, sess_id, pos, start_list.heat_count)
-                    record_start_list_riders(competition_id, sess_id, pos, start_list.riders)
-                    record_start_list_categories(competition_id, sess_id, pos, start_list.categories)
-                    if start_list.race_distance_km is not None:
-                        record_race_distance(competition_id, sess_id, pos, start_list.race_distance_km)
-            except Exception:
-                logger.warning("Failed to parse start list %s for event %d", url, competition_id, exc_info=True)
-
-    await asyncio.gather(*[fetch_one(url, slots) for url, slots in to_fetch.items()])
+    await _fetch_each(
+        to_fetch,
+        functools.partial(fetch_page_html, client),
+        handle,
+        asyncio.Semaphore(10),
+        "start list",
+        competition_id,
+    )
 
 
 async def _fetch_result_pages(
@@ -349,54 +361,40 @@ async def _fetch_result_pages(
     if not to_fetch:
         return
 
-    sem = asyncio.Semaphore(10)
     observed: list[LiveDuration] = []
 
-    async def fetch_one(url: str, slots: list[tuple[int, int, str, str]]) -> None:
-        async with sem:
-            try:
-                html = await fetch_page_html(client, url)
-            except Exception:
-                logger.warning("Failed to fetch result page %s for event %d", url, competition_id, exc_info=True)
-                return
-            try:
-                gen_time = parse_generated_time(html)
-                finish_time = parse_finish_time(html)
-                rides = [r for _, _, d, n in slots if d == "sprint_match" and (r := split_ride(n)) is not None]
-                rides_done = parse_sprint_rides_done(html) if rides else None
-                if rides_done is not None:
-                    record_sprint_rides_done(competition_id, rides[0][0], rides_done)
-                for sess_id, pos, discipline, name in slots:
-                    ride = split_ride(name) if discipline == "sprint_match" else None
-                    # The shared page's Generated marks a ride's end only once that ride is done.
-                    ride_not_done = ride is not None and rides_done is not None and ride[1] > rides_done
-                    if gen_time is not None and not ride_not_done:
-                        record_generated_time(competition_id, sess_id, pos, gen_time)
-                    if finish_time is not None:
-                        observed.append(
-                            record_observed_duration(competition_id, sess_id, pos, finish_time, discipline, name)
-                        )
-                if rides:
-                    decider_range = parse_sprint_decider_range(html)
-                    if decider_range is not None:
-                        record_sprint_decider_range(competition_id, rides[0][0], *decider_range)
-            except Exception:
-                logger.warning("Failed to parse result page %s for event %d", url, competition_id, exc_info=True)
+    def handle_result(html: str, slots: list[tuple[int, int, str, str]]) -> None:
+        gen_time = parse_generated_time(html)
+        finish_time = parse_finish_time(html)
+        rides = [r for _, _, d, n in slots if d == "sprint_match" and (r := split_ride(n)) is not None]
+        rides_done = parse_sprint_rides_done(html) if rides else None
+        if rides_done is not None:
+            record_sprint_rides_done(competition_id, rides[0][0], rides_done)
+        for sess_id, pos, discipline, name in slots:
+            ride = split_ride(name) if discipline == "sprint_match" else None
+            # The shared page's Generated marks a ride's end only once that ride is done.
+            ride_not_done = ride is not None and rides_done is not None and ride[1] > rides_done
+            if gen_time is not None and not ride_not_done:
+                record_generated_time(competition_id, sess_id, pos, gen_time)
+            if finish_time is not None:
+                observed.append(record_observed_duration(competition_id, sess_id, pos, finish_time, discipline, name))
+        if rides:
+            decider_range = parse_sprint_decider_range(html)
+            if decider_range is not None:
+                record_sprint_decider_range(competition_id, rides[0][0], *decider_range)
 
-    async def fetch_audit(url: str, slots: list[tuple[int, int]]) -> None:
-        async with sem:
-            try:
-                gen_time = parse_generated_time(await fetch_page_html(client, url))
-            except Exception:
-                logger.warning("Failed to read audit page %s for event %d", url, competition_id, exc_info=True)
-                return
-            if gen_time is not None:
-                for sess_id, pos in slots:
-                    record_generated_time(competition_id, sess_id, pos, gen_time)
+    def handle_audit(html: str, slots: list[tuple[int, int]]) -> None:
+        gen_time = parse_generated_time(html)
+        if gen_time is not None:
+            for sess_id, pos in slots:
+                record_generated_time(competition_id, sess_id, pos, gen_time)
 
+    # Result and audit pages share one limit.
+    sem = asyncio.Semaphore(10)
+    fetch = functools.partial(fetch_page_html, client)
     await asyncio.gather(
-        *[fetch_one(url, slots) for url, slots in to_fetch.items()],
-        *[fetch_audit(url, slots) for url, slots in audits.items()],
+        _fetch_each(to_fetch, fetch, handle_result, sem, "result page", competition_id),
+        _fetch_each(audits, fetch, handle_audit, sem, "audit page", competition_id),
     )
     if observed:
         await asyncio.to_thread(save_live_durations, observed)
@@ -552,100 +550,6 @@ async def index(request: Request) -> Response:
     return templates.TemplateResponse(request, "index.html")
 
 
-# Disciplines that produce per-lap/sector audit data (pursuits + time trials)
-_TIMED_DISCIPLINES = frozenset(
-    {
-        "pursuit_4k",
-        "pursuit_3k",
-        "pursuit_2k",
-        "team_pursuit",
-        "team_sprint",
-        "time_trial_500",
-        "time_trial_750",
-        "time_trial_kilo",
-        "time_trial_generic",
-    }
-)
-
-
-def _collect_palmares_entries(
-    schedule: SchedulePrediction,
-    competition_id: int,
-) -> list[PalmaresEntry]:
-    """Collect palmares entries from schedule predictions.
-
-    Filters for timed events (pursuits and time trials) where the racer
-    was matched on a start list, has an audit URL, and is not a special event.
-    Rider List matches don't prove the racer rode, so they are skipped.
-    """
-    if not schedule.racer_name:
-        return []
-
-    comp_name = f"Competition {competition_id}"
-
-    # Derive competition date from earliest Generated timestamp on result pages.
-    # Every event with an audit URL has a result page with a Generated timestamp,
-    # so comp_date will be set whenever entries are collected.
-    comp_date = None
-    for sp in schedule.sessions:
-        for pred in sp.event_predictions:
-            gen_time = get_generated_time(competition_id, sp.session.session_id, pred.event.position)
-            if gen_time is not None:
-                d = gen_time.date().isoformat()
-                if comp_date is None or d < comp_date:
-                    comp_date = d
-
-    entries = []
-    for sp in schedule.sessions:
-        for pred in sp.event_predictions:
-            if (
-                pred.rider_match
-                and pred.rider_match.source == "start_list"
-                and pred.event.audit_url
-                and not pred.event.is_special
-                and pred.event.discipline in _TIMED_DISCIPLINES
-            ):
-                entries.append(
-                    PalmaresEntry(
-                        racer_name=schedule.racer_name,
-                        competition_id=competition_id,
-                        competition_name=comp_name,
-                        competition_date=comp_date,
-                        session_id=sp.session.session_id,
-                        session_name=sp.session.day,
-                        event_position=pred.event.position,
-                        event_name=pred.event.name,
-                        audit_url=pred.event.audit_url,
-                        team_name=pred.rider_match.team_name,
-                    )
-                )
-    return entries
-
-
-async def _save_and_count_palmares(
-    schedule: SchedulePrediction,
-    competition_id: int,
-) -> int:
-    """Save matched palmares entries and return the count for the competition.
-
-    The database calls run in a worker thread. Returns 0 if no racer name is set or on error.
-    """
-    racer_name = schedule.racer_name
-    if not racer_name:
-        return 0
-
-    def save_and_count(entries: list[PalmaresEntry]) -> int:
-        if entries:
-            save_palmares_entries(entries)
-        return count_competition_palmares(racer_name, competition_id)
-
-    try:
-        return await asyncio.to_thread(save_and_count, _collect_palmares_entries(schedule, competition_id))
-    except Exception:
-        logger.warning("Palmares save failed", exc_info=True)
-        return 0
-
-
 @app.get("/schedule", response_class=RedirectResponse)
 async def schedule_redirect(event_id: int = Query(...)) -> RedirectResponse:
     """No-JS fallback: redirect GET /schedule?event_id=X to /schedule/X."""
@@ -715,7 +619,7 @@ async def get_schedule(
     if racer_name:
         racer_encoded = _encode_racer_name(racer_name)
 
-    palmares_count = await _save_and_count_palmares(schedule, event_id)
+    palmares_count = await save_and_count_palmares(schedule, event_id)
 
     # Use racer's custom competition name if they've set one via /palmares/rename
     competition_name = f"Competition {event_id}"
@@ -802,7 +706,7 @@ async def refresh_schedule(
         rider_list=rider_list,
     )
 
-    palmares_count = await _save_and_count_palmares(schedule, event_id)
+    palmares_count = await save_and_count_palmares(schedule, event_id)
     racer_encoded = _encode_racer_name(racer_name) if racer_name else None
 
     return templates.TemplateResponse(
@@ -889,10 +793,6 @@ async def palmares_page(
     )
 
 
-# Audit pages are ~25 KB; anything far larger isn't one.
-_MAX_AUDIT_CHARS = 2_000_000
-
-
 @app.get("/palmares/export")
 async def palmares_export(
     request: Request,
@@ -906,18 +806,14 @@ async def palmares_export(
     if not racer_name:
         raise HTTPException(status_code=400, detail="Racer identity required")
 
-    # SSRF protection: normalise percent-encoding and ".." before checking the prefix
-    audit_url = posixpath.normpath(unquote(audit_url))
-    if "://" in audit_url or not audit_url.startswith("results/"):
+    path = safe_audit_path(audit_url)
+    if path is None:
         raise HTTPException(status_code=400, detail="Invalid audit URL")
 
     try:
-        resp = await client.get(audit_url)
-        resp.raise_for_status()
-        if len(resp.text) > _MAX_AUDIT_CHARS:
-            raise ValueError(f"audit page too large ({len(resp.text)} chars)")
+        html = await fetch_audit_page(client, path)
     except Exception:
-        logger.warning("Failed to fetch audit page: %s", audit_url, exc_info=True)
+        logger.warning("Failed to fetch audit page: %s", path, exc_info=True)
         return JSONResponse(
             content={"error": "Could not load audit data from tracktiming.live"},
             status_code=502,
@@ -925,13 +821,10 @@ async def palmares_export(
 
     # For team events, filter by team name instead of racer name
     filter_name = team_name.strip() if team_name else racer_name
-    riders = parse_audit_riders(resp.text)
-    filtered = filter_rider_data(riders, filter_name)
-    event_name = audit_url.split("/")[-1].replace("-AUDIT-R.htm", "")
-    csv_str = format_csv(filtered, event_name)
+    filename, csv_str, matched = audit_csv(html, path, filter_name)
 
-    headers = {"Content-Disposition": _content_disposition(f"{event_name}-{filter_name}.csv")}
-    if not filtered:
+    headers = {"Content-Disposition": _content_disposition(filename)}
+    if not matched:
         headers["X-Palmares-Notice"] = "no-matching-data"
 
     return Response(content=csv_str, media_type="text/csv", headers=headers)
@@ -1030,15 +923,16 @@ async def learned_durations(request: Request, settings: Settings = Depends(get_s
 
 # Mangum's lifespan="auto" runs the lifespan on every invocation, which would create and
 # close the HTTP client per request. With it off, the client is created lazily by
-# get_http_client and the database schema is initialised once per container.
+# get_http_client, and logging and the database schema are set up once per container.
 _mangum = Mangum(app, lifespan="off")
-_db_initialised = False
+_initialised = False
 
 
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    global _db_initialised
-    if not _db_initialised:
+    global _initialised
+    if not _initialised:
+        setup_logging()
         init_db()
         init_palmares_db()
-        _db_initialised = True
+        _initialised = True
     return _mangum(event, context)
