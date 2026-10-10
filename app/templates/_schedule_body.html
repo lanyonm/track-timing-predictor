@@ -4,7 +4,7 @@
 {# Reusable alert class sets #}
 {% set alert_info = "alert border border-info/20 bg-info/5 text-sm py-2" %}
 {% set alert_warn = "alert border border-warning/20 bg-warning/5 text-sm py-2" %}
-{% set racer_badge = "badge badge-outline border-info/40 text-info/80 text-xs font-bold ml-1 px-2 py-1" %}
+{% set racer_badge = "badge badge-outline border-info/40 ink-info text-xs font-bold ml-1 px-2 py-1" %}
 
 {# ── Racer status alerts ─────────────────────────────── #}
 {% if schedule.racer_name and schedule.match_count > 0 %}
@@ -73,9 +73,9 @@
   <summary class="collapse-title font-semibold flex items-center gap-2 pr-12">
     <span class="session-label flex-1">{{ sp.session.day }} &mdash; Scheduled {{ sp.session.scheduled_start.strftime('%H:%M') }}</span>
     {% if sp.observed_delay_minutes > 1.0 %}
-      <span class="badge badge-outline border-error/40 text-error/80 font-semibold px-3 py-2.5">+{{ sp.observed_delay_minutes | round(0) | int }}m behind</span>
+      <span class="badge badge-outline border-error/40 ink-error font-semibold px-3 py-2.5">+{{ sp.observed_delay_minutes | round(0) | int }}m behind</span>
     {% elif sp.observed_delay_minutes < -1.0 %}
-      <span class="badge badge-outline border-success/40 text-success/80 font-semibold px-3 py-2.5">{{ (sp.observed_delay_minutes | round(0) | int) }}m early</span>
+      <span class="badge badge-outline border-success/40 ink-success font-semibold px-3 py-2.5">{{ (sp.observed_delay_minutes | round(0) | int) }}m early</span>
     {% endif %}
   </summary>
   <div class="collapse-content p-0">
@@ -97,7 +97,7 @@
           {% if pred.event.is_special %}{% set rc = rc ~ "special " %}{% endif %}
           {% if pred.is_active %}{% set rc = rc ~ "active-row bg-warning/10 " %}
           {% elif status == 'upcoming' %}{% set rc = rc ~ "bg-success/5 " %}
-          {% elif status == 'not_ready' %}{% set rc = rc ~ "opacity-50 " %}{% endif %}
+          {% elif status == 'not_ready' %}{% set rc = rc ~ "status-not-ready " %}{% endif %}
           {% set tentative = pred.rider_match and pred.rider_match.tentative %}
           {% if pred.rider_match and not tentative %}{% set rc = rc ~ "racer-row bg-info/5" %}{% endif %}
           <tr class="{{ rc | trim }}"{% if tentative %} aria-label="Your event, if advancing"{% elif pred.rider_match %} aria-label="Your event"{% endif %}>
@@ -110,7 +110,7 @@
                 {{ pred.event.name }}
               {% endif %}
               {% if tentative %}
-                <span class="{{ racer_badge }} border-dashed opacity-70">If advancing</span>
+                <span class="{{ racer_badge }} border-dashed">If advancing</span>
               {% elif pred.rider_match and pred.rider_match.source == 'rider_list' %}
                 <span class="{{ racer_badge }}">Entered</span>
               {% elif pred.rider_match and pred.rider_match.heat_count > 1 %}
@@ -119,11 +119,11 @@
                 <span class="{{ racer_badge }}">Racing</span>
               {% endif %}
               {% if pred.rider_match and pred.rider_match.heat_count and pred.rider_match.heat_count > 1 and pred.rider_match.heat_predicted_start %}
-                <span class="block text-xs font-semibold text-info/70 mt-0.5">Your heat: {{ pred.rider_match.heat_predicted_start.strftime('%H:%M') }}</span>
+                <span class="block text-xs font-semibold ink-info mt-0.5">Your heat: {{ pred.rider_match.heat_predicted_start.strftime('%H:%M') }}</span>
               {% endif %}
             </td>
             <td class="time-col tabular-nums font-semibold">{{ pred.predicted_start.strftime('%H:%M') }}</td>
-            <td class="dur-col text-sm opacity-70">
+            <td class="dur-col text-sm text-muted">
               {{ pred.estimated_duration_minutes | round(1) }}m
               {%- set hc = pred.heat_count %}
               {%- set heats = hc ~ ' heat' ~ ('s' if hc != 1 else '') %}
@@ -156,16 +156,16 @@
             </td>
             <td class="status-col">
               {% if pred.event.live_url %}
-                <a href="{{ base_url }}/{{ pred.event.live_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-error/30 text-error/80 font-bold">Live</a>
+                <a href="{{ base_url }}/{{ pred.event.live_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-error/30 ink-error font-bold">Live</a>
               {% endif %}
               {% if pred.event.result_url %}
-                <a href="{{ base_url }}/{{ pred.event.result_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-success/30 text-success/70">Results</a>
+                <a href="{{ base_url }}/{{ pred.event.result_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-success/30 ink-success">Results</a>
               {% endif %}
               {% if pred.event.audit_url %}
-                <a href="{{ base_url }}/{{ pred.event.audit_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-warning/30 text-warning/70">Audit</a>
+                <a href="{{ base_url }}/{{ pred.event.audit_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-warning/30 ink-warning">Audit</a>
               {% endif %}
               {% if pred.event.start_list_url %}
-                <a href="{{ base_url }}/{{ pred.event.start_list_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-info/30 text-info/70">Start List</a>
+                <a href="{{ base_url }}/{{ pred.event.start_list_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-outline border-info/30 ink-info">Start List</a>
               {% endif %}
               {% if not pred.event.live_url and not pred.event.result_url and not pred.event.audit_url and not pred.event.start_list_url %}
                 &mdash;
@@ -181,7 +181,7 @@
 {% else %}
 <div class="card bg-base-100 border border-dashed border-base-300">
   <div class="card-body items-center text-center py-10">
-    <p class="text-sm opacity-60">No sessions found for this event. The event may not have started yet or the ID may be incorrect.</p>
+    <p class="text-sm text-muted">No sessions found for this event. The event may not have started yet or the ID may be incorrect.</p>
   </div>
 </div>
 {% endfor %}

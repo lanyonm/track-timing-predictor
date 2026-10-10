@@ -1,7 +1,33 @@
 /* App-specific overrides — DaisyUI handles all component styling */
 
+/* Muted and status text colours as solid colours, not opacity, so they keep WCAG AA contrast
+   (4.5:1) wherever they're nested. Light status hues are too pale on white, so they're darkened. */
+:root {
+  --muted: color-mix(in oklch, oklch(var(--bc)) 82%, oklch(var(--b1)));
+  --ink-info: oklch(var(--in));
+  --ink-success: color-mix(in oklch, oklch(var(--su)) 85%, white);
+  --ink-warning: oklch(var(--wa));
+  --ink-error: color-mix(in oklch, oklch(var(--er)) 85%, white);
+}
+[data-theme="light"] {
+  --muted: color-mix(in oklch, oklch(var(--bc)) 75%, oklch(var(--b1)));
+  --ink-info: color-mix(in oklch, oklch(var(--in)) 55%, black);
+  --ink-success: color-mix(in oklch, oklch(var(--su)) 60%, black);
+  --ink-warning: color-mix(in oklch, oklch(var(--wa)) 45%, black);
+  --ink-error: color-mix(in oklch, oklch(var(--er)) 65%, black);
+}
+.text-muted { color: var(--muted); }
+.nav-link:hover { color: oklch(var(--bc)); }
+.ink-info { color: var(--ink-info); }
+.ink-success { color: var(--ink-success); }
+.ink-warning { color: var(--ink-warning); }
+.ink-error { color: var(--ink-error); }
+.table :where(thead, tfoot) { color: var(--muted); }
+
 /* Schedule row states */
-tr.status-completed td { opacity: 0.45; }
+tr.status-completed td:not(.status-col),
+tr.status-not-ready td:not(.status-col) { color: var(--muted); }
+tr.active-row td.dur-col { color: oklch(var(--bc)); }
 tr.status-completed:not(.special) td:first-child { text-decoration: line-through; }
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
@@ -30,7 +56,7 @@ tr.status-completed:not(.special) td:first-child { text-decoration: line-through
   .schedule-table td { display: block; border: none; padding: 0; }
   .schedule-table td:nth-child(1) { order: 1; flex: 0 0 100%; font-weight: 700; padding: 0.5rem 0.7rem 0.15rem; }
   .schedule-table td.time-col { order: 2; font-size: 0.82rem; font-weight: 700; padding: 0 0 0.3rem 0.7rem; }
-  .schedule-table td.dur-col { order: 2; font-size: 0.78rem; opacity: 0.6; padding: 0 0.7rem 0.3rem 0.3rem; }
+  .schedule-table td.dur-col { order: 2; font-size: 0.78rem; padding: 0 0.7rem 0.3rem 0.3rem; }
   .schedule-table td.dur-col::before { content: "\00b7"; margin-right: 4px; }
   .schedule-table td.status-col { order: 3; flex: 0 0 100%; padding: 0.15rem 0.6rem 0.4rem; display: flex; gap: 4px; flex-wrap: wrap; }
   .schedule-table tr.active-row { border-left: 4px solid oklch(var(--wa)); }
