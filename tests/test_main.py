@@ -33,11 +33,13 @@ from app.predictor import (
     _start_list_riders,
     _status_cache,
     apply_sprint_ride_status,
+    pending_sprint_rides,
     predict_schedule,
     record_heat_count,
     record_live_heat,
     record_race_distance,
     record_sprint_decider_range,
+    record_sprint_rides_done,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -738,13 +740,69 @@ class TestFetchResultPagesDeciders:
             asyncio.run(_fetch_result_pages(None, 1, [session]))
             assert page.call_count == 3  # every ride done: no more fetches
 
-    def test_schedule_view_keeps_later_rides_upcoming(self, client, mock_26037):
-        """Every 26037 quarter-final page answers as if only Ride 1 is done."""
+    def _live_rides_session(self, pursuit_status: EventStatus) -> Session:
+        """26037 Saturday morning: Ride 1 posted, a pursuit qualifying round, then Rides 2 and 3."""
+        url, start = "results/E26037/M7579-S-4-R1-R.htm", "results/E26037/M7579-S-4-R1-S.htm"
+
+        def ride(pos: int, n: int) -> Event:
+            return Event(
+                position=pos,
+                name=f"75-79 Men Sprint 1/4 Final Ride {n}",
+                discipline="sprint_match",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+                result_url=url,
+                start_list_url=start,
+            )
+
+        pursuit = Event(
+            position=1,
+            name="70-74 Men Pursuit Qualifying",
+            discipline="pursuit_2k",
+            status=pursuit_status,
+            is_special=False,
+        )
+        return Session(
+            session_id=11,
+            day="Saturday",
+            scheduled_start=time(10, 0),
+            events=[ride(0, 1), pursuit, ride(2, 2), ride(3, 3)],
+        )
+
+    def _view(self, client, session: Session) -> str:
         ride1 = (FIXTURE_DIR / "result-sprint-quarter-final-ride1-26037.html").read_text()
-        mock_26037.side_effect = lambda c, path: ride1 if "-S-4-R1-R" in path else _rider_list_pages(c, path)
-        html = client.get("/schedule/26037").text
-        assert "status-completed" in _event_row(html, "35-39 Men Sprint 1/4 Final Ride 1")["class"]
-        assert "status-completed" not in _event_row(html, "35-39 Men Sprint 1/4 Final Ride 2")["class"]
+        with (
+            patch("app.main.parse_schedule", return_value=[session]),
+            patch(
+                "app.main.fetch_page_html", AsyncMock(side_effect=lambda _c, path: ride1 if "-R.htm" in path else "")
+            ),
+        ):
+            return client.get("/schedule/26037").text
+
+    def test_schedule_view_keeps_later_rides_upcoming(self, client):
+        html = self._view(client, self._live_rides_session(EventStatus.UPCOMING))
+        assert "status-completed" in _event_row(html, "75-79 Men Sprint 1/4 Final Ride 1")["class"]
+        assert "status-completed" not in _event_row(html, "75-79 Men Sprint 1/4 Final Ride 2")["class"]
+        assert "status-completed" not in _event_row(html, "75-79 Men Sprint 1/4 Final Ride 3")["class"]
+
+    def test_ride_done_once_session_moves_past(self):
+        """Safety net: a page that never shows Ride 2 done can't hold the session back once a later event is done."""
+        late = Event(
+            position=4,
+            name="45-54 Men Team Sprint Qualifying",
+            discipline="team_sprint",
+            status=EventStatus.COMPLETED,
+            is_special=False,
+        )
+        session = self._live_rides_session(EventStatus.COMPLETED)
+        session = session.model_copy(update={"events": [*session.events, late]})
+        record_sprint_rides_done(26037, "75-79 Men Sprint 1/4 Final", 1)
+        assert pending_sprint_rides(26037, session) == set()
+        assert all(e.status == EventStatus.COMPLETED for e in apply_sprint_ride_status(26037, [session])[0].events)
+
+    def test_pending_until_session_moves_past(self):
+        record_sprint_rides_done(26037, "75-79 Men Sprint 1/4 Final", 1)
+        assert pending_sprint_rides(26037, self._live_rides_session(EventStatus.UPCOMING)) == {2, 3}
 
     def test_shared_result_page_fetched_once_for_every_event(self):
         sessions = parse_schedule(_load_fixture("schedule-26037.json"))

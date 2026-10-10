@@ -80,6 +80,7 @@ from app.predictor import (
     is_start_list_cached,
     latest_live_generated_time,
     load_learned_durations,
+    pending_sprint_rides,
     predict_schedule,
     reconcile_positions,
     record_generated_time,
@@ -95,7 +96,6 @@ from app.predictor import (
     record_start_list_riders,
     rider_list_retry_pending,
     save_live_durations,
-    sprint_ride_done,
     update_status_cache,
 )
 from app.rider_list import needs_heat_estimate
@@ -337,14 +337,11 @@ async def _fetch_result_pages(
     to_fetch: dict[str, list[tuple[int, int, str, str]]] = {}
     audits: dict[str, list[tuple[int, int]]] = {}
     for s in sessions:
+        # A best-of-3 round's shared page is refetched until each ride is known to be done.
+        pending_rides = pending_sprint_rides(competition_id, s)
         for e in s.events:
-            # A best-of-3 round's shared page is refetched until this ride is known to be done.
-            ride_pending = (
-                e.discipline == "sprint_match"
-                and split_ride(e.name) is not None
-                and sprint_ride_done(competition_id, e.name) is not True
-            )
-            if e.result_url and (get_generated_time(competition_id, s.session_id, e.position) is None or ride_pending):
+            cached = get_generated_time(competition_id, s.session_id, e.position) is not None
+            if e.result_url and (not cached or e.position in pending_rides):
                 to_fetch.setdefault(e.result_url, []).append((s.session_id, e.position, e.discipline, e.name))
                 if e.audit_url:
                     audits.setdefault(e.audit_url, []).append((s.session_id, e.position))

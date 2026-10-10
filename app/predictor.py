@@ -377,20 +377,50 @@ def sprint_ride_done(competition_id: int, event_name: str) -> bool | None:
     return None if done is None else ride[1] <= done
 
 
+def pending_sprint_rides(competition_id: int, session: Session) -> set[int]:
+    """Positions of best-of-3 rides with a result page whose completion isn't confirmed.
+
+    A ride is confirmed done by its round's shared page (sprint_ride_done) or, as a safety
+    net for a page the parser can't read, once a later event in the session is done: a
+    completed non-special event that isn't a ride, or a ride its page confirms.
+    """
+
+    def confirmed_done(e: Event) -> bool:
+        if e.status != EventStatus.COMPLETED or e.is_special:
+            return False
+        return split_ride(e.name) is None or sprint_ride_done(competition_id, e.name) is True
+
+    pending: set[int] = set()
+    moved_past = False
+    for e in reversed(session.events):
+        if (
+            not moved_past
+            and e.result_url
+            and e.discipline == "sprint_match"
+            and split_ride(e.name) is not None
+            and sprint_ride_done(competition_id, e.name) is not True
+        ):
+            pending.add(e.position)
+        moved_past = moved_past or confirmed_done(e)
+    return pending
+
+
 def apply_sprint_ride_status(competition_id: int, sessions: list[Session]) -> list[Session]:
     """Mark sprint rides not yet ridden as UPCOMING (or NOT_READY without a start list).
 
     The rides of a best-of-3 round share one result page, so upstream gives Ride 2 and
     Ride 3 an enabled Results button, and parse_schedule marks them COMPLETED, as soon as
-    Ride 1 is posted. A ride whose completion isn't known yet keeps its parsed status.
+    Ride 1 is posted. A ride whose completion isn't known yet keeps its parsed status, and
+    so does one the session has moved past (pending_sprint_rides).
     """
     result = []
     for session in sessions:
+        pending = pending_sprint_rides(competition_id, session)
         events = []
         for e in session.events:
             if (
                 e.status == EventStatus.COMPLETED
-                and e.discipline == "sprint_match"
+                and e.position in pending
                 and sprint_ride_done(competition_id, e.name) is False
             ):
                 status = EventStatus.UPCOMING if e.start_list_url else EventStatus.NOT_READY
