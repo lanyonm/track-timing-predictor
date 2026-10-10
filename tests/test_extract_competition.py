@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from app.disciplines import PER_HEAT_DURATIONS
 from tools.extract_competition import (
     _fetch_with_retry,
     extract_competition,
@@ -97,14 +98,23 @@ class TestExtractGeneratedDiffDuration:
 class TestExtractHeatCountDuration:
     def test_start_list_with_heats(self):
         html = _load_fixture("start-list-sprint-qualifying-26009.html")
-        dur, count = extract_heat_count_duration(html, "sprint_qualifying", "Elite Men Sprint Qualifying")
+        dur, count = extract_heat_count_duration(html, "sprint_qualifying")
         assert dur is not None
         assert count is not None
         assert count > 0
         assert dur > 0
 
+    def test_masters_band_uses_unbanded_per_heat(self):
+        # A 26037 masters pursuit final: heat_count records feed the learning DB, so they use
+        # PER_HEAT_DURATIONS, not the masters under-70 override (4.5).
+        html = _load_fixture("start-list-pursuit-final-26037.html")
+        dur, count = extract_heat_count_duration(html, "pursuit_2k")
+        assert count
+        assert dur == pytest.approx(count * PER_HEAT_DURATIONS["pursuit_2k"])
+        assert PER_HEAT_DURATIONS["pursuit_2k"] != 4.5
+
     def test_no_heats_returns_none(self):
-        dur, count = extract_heat_count_duration("<html></html>", "sprint_qualifying", "Elite Men Sprint Qualifying")
+        dur, count = extract_heat_count_duration("<html></html>", "sprint_qualifying")
         assert dur is None
         assert count is None
 

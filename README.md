@@ -170,7 +170,7 @@ Rationale and data for each constant: [sprint](docs/sprint-durations.md), [mass 
 
 Learned averages are stored in SQLite locally and DynamoDB in production.
 
-Per-heat constants (`PER_HEAT_DURATIONS`, with masters overrides in `MASTERS_PER_HEAT_DURATIONS`), bunch-race paces (`BUNCH_RACE_KMH`, `MASTERS_BUNCH_RACE_KMH`) and overall fallback defaults (`DEFAULT_DURATIONS`) can both be adjusted in [app/disciplines.py](app/disciplines.py).
+Per-heat constants (`PER_HEAT_DURATIONS`, with masters overrides in `MASTERS_PER_HEAT_DURATIONS`), bunch-race paces (`BUNCH_RACE_KMH`, `MASTERS_BUNCH_RACE_KMH`) and overall fallback defaults (`DEFAULT_DURATIONS`) are all set in [app/disciplines.py](app/disciplines.py).
 
 ## Importing historical duration data
 

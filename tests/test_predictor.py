@@ -1486,6 +1486,13 @@ class TestBunchRaceKmh:
     def test_pace_by_band(self, band, kmh):
         assert bunch_race_kmh(band) == kmh
 
+    @pytest.mark.parametrize(
+        ("gender", "age", "kmh"),
+        [("M", 69, 48.0), ("M", 70, 41.5), ("M", 74, 41.5), ("M", 75, 36.0), ("W", 49, 43.5), ("W", 50, 41.0)],
+    )
+    def test_cut_points(self, gender, age, kmh):
+        assert bunch_race_kmh(AgeBand(gender, age, None)) == kmh
+
     def test_unbanded_default_is_46(self):
         assert BUNCH_RACE_KMH == 46.0
 
@@ -1510,6 +1517,18 @@ class TestPerHeatByBand:
     )
     def test_override_or_fallback(self, discipline, name, minutes):
         assert get_per_heat_duration(discipline, event_band(name)) == minutes
+
+    @pytest.mark.parametrize(
+        ("discipline", "age", "minutes"),
+        [
+            ("pursuit_2k", 69, 4.5),
+            ("pursuit_2k", 70, PER_HEAT_DURATIONS["pursuit_2k"]),
+            ("time_trial_500", 69, PER_HEAT_DURATIONS["time_trial_500"]),
+            ("time_trial_500", 70, 2.75),
+        ],
+    )
+    def test_cut_points(self, discipline, age, minutes):
+        assert get_per_heat_duration(discipline, AgeBand("M", age, age + 4)) == minutes
 
     def test_unknown_discipline_falls_back_to_default_duration(self):
         assert get_per_heat_duration("unknown", AgeBand("M", 70, 74)) == DEFAULT_DURATIONS["unknown"]
@@ -1571,3 +1590,25 @@ class TestBandedPredictions:
         pred = predict_session(26157, session).event_predictions[1]
         assert pred.is_observed
         assert pred.estimated_duration_minutes == pytest.approx(65.0)
+
+    def test_active_heat_counter_uses_band_per_heat(self):
+        # Keirin (1 heat: 4.5 + 2.0) ends at 10:06:30; 3.2 min into the team sprint is still
+        # heat 1 at the masters 3.5 min per heat (heat 2 at the unbanded 3.0).
+        events = [
+            Event(
+                position=0, name="Elite Men Keirin", discipline="keirin", status=EventStatus.COMPLETED, is_special=False
+            ),
+            Event(
+                position=1,
+                name="35-44 Men Team Sprint Qualifying",
+                discipline="team_sprint",
+                status=EventStatus.UPCOMING,
+                is_special=False,
+            ),
+        ]
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        record_heat_count(26158, 1, 0, 1)
+        record_heat_count(26158, 1, 1, 4)
+        pred = predict_session(26158, session, now=datetime(2026, 1, 1, 10, 9, 42)).event_predictions[1]
+        assert pred.is_active
+        assert pred.active_heat == 1

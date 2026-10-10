@@ -279,6 +279,8 @@ def _base_estimate(
     learned: Mapping[str, float] | None,
     bunch: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
     inferred: tuple[int, HeatBasis] | None = None,
+    *,
+    band: AgeBand | None,
 ) -> _Estimate:
     """Pre-result duration: heat count × per-heat + changeover, else the default.
 
@@ -286,14 +288,14 @@ def _base_estimate(
     learned averages for Finish-Time races include the static changeover, so it's
     swapped for bunch.
 
-    A points or scratch race with a start-list distance runs at bunch_race_kmh for the
-    event's age band. Per-heat minutes come from get_per_heat_duration with the same band.
+    band is the event's age band (rider_list.event_band). A points or scratch race with a
+    start-list distance runs at bunch_race_kmh(band); per-heat minutes come from
+    get_per_heat_duration with the same band.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs),
     and other events' heats from inferred (infer_heats: Rider List entrants or the round name).
     A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
     decider once Ride 2 is posted, else per expected decider (pairs × SPRINT_DECIDER_RATE).
     """
-    band = event_band(event.name)
     if event.discipline in DISTANCE_DISCIPLINES and (
         km := _race_distances.get((competition_id, session_id, event.position))
     ):
@@ -604,6 +606,7 @@ def predict_session(
     # small.  Accepting those blindly would corrupt downstream predictions.  A gap
     # within [0.5×, 2.0×] the discipline's expected duration is considered reliable.
     events = session.events
+    bands = [event_band(e.name) for e in events]
     gen_durations: dict[int, float] = {}
     for i in range(1, len(events)):
         # A ceremony's Generated timestamp marks its start, so neither the gap ending at a
@@ -623,6 +626,7 @@ def predict_session(
             None,
             changeover,
             inferred_heats.get((session.session_id, events[i].position)),
+            band=bands[i],
         ).minutes
         mins = generated_gap_duration(t0, t1, expected)
         if mins is not None:
@@ -653,6 +657,7 @@ def predict_session(
                 learned,
                 changeover,
                 inferred_heats.get((session.session_id, e.position)),
+                band=bands[i],
             )
             durations.append(base.minutes)
             is_observed_list.append(False)
@@ -702,7 +707,7 @@ def predict_session(
         is_active = i == active_index
         est = estimates[i]
         hc = est.heats if est else None
-        band = event_band(event.name)
+        band = bands[i]
 
         # For an active multi-heat event, determine which heat is currently running.
         # Priority: (1) live results page heat, (2) time-based fallback estimate.
@@ -718,7 +723,7 @@ def predict_session(
                 # Time-based fallback: elapsed since scheduled event start ÷ per-heat duration.
                 # Uses scheduled (not delay-adjusted) start so prior-event overrun doesn't
                 # incorrectly advance the heat counter.
-                phd = (est.per_heat if est else None) or get_per_heat_duration(event.discipline, band)
+                phd = get_per_heat_duration(event.discipline, band)
                 sched_start_minutes = _time_to_minutes(session.scheduled_start)
                 now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
                 actual_elapsed = now_minutes - sched_start_minutes

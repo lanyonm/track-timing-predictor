@@ -21,7 +21,6 @@ from app.config import settings
 from app.database import DuplicateRowsError, deduplicate_event_durations, init_db, record_duration_structured
 from app.disciplines import DEFAULT_DURATIONS, get_changeover, get_default_duration, get_per_heat_duration
 from app.models import CompetitionReport, DurationRecord
-from app.rider_list import event_band
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +32,13 @@ def _validate_duration_bounds(record: DurationRecord) -> bool:
     heat_count * per_heat_duration + changeover (matching how the extraction
     script derived it). Otherwise, falls back to the static default.
 
+    Per-heat is the unbanded constant even for masters age bands, so learned averages stay
+    independent of a competition's age mix and the bounds stay as tight as the extractor's.
+
     Returns True if valid, False if out of bounds.
     """
     if record.heat_count is not None and record.heat_count > 0:
-        band = event_band(record.event_name)
-        expected = record.heat_count * get_per_heat_duration(record.category.discipline, band) + get_changeover(
+        expected = record.heat_count * get_per_heat_duration(record.category.discipline, None) + get_changeover(
             record.category.discipline
         )
     else:
