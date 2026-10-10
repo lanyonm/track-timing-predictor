@@ -845,6 +845,7 @@ def predict_session(
         # For an active multi-heat event, determine which heat is currently running.
         # Priority: (1) live results page heat, (2) time-based fallback estimate.
         active_heat: int | None = None
+        active_heat_live = False
         # Expected deciders aren't heats that will all be ridden, so they don't drive the heat counter.
         if is_active and now is not None and not (est and est.basis == "decider_pairs"):
             live_heat = get_live_heat(competition_id, session.session_id, event.position)
@@ -852,6 +853,7 @@ def predict_session(
                 # live_heat = count of finished heats; the running heat is the next one.
                 next_heat = live_heat + 1
                 active_heat = min(next_heat, hc) if hc else next_heat
+                active_heat_live = True
             elif hc:
                 # Time-based fallback: elapsed since the event started ÷ per-heat duration.
                 # Without a known start, uses the scheduled (not delay-adjusted) start so
@@ -904,6 +906,7 @@ def predict_session(
                 podium_count=podium_list[i],
                 is_active=is_active,
                 active_heat=active_heat,
+                active_heat_live=active_heat_live,
                 rider_match=rider_match,
             )
         )

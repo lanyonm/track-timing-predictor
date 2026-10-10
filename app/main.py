@@ -56,6 +56,7 @@ from app.palmares import (
     update_competition_palmares,
 )
 from app.parser import (
+    live_results_show_event,
     parse_finish_time,
     parse_generated_time,
     parse_live_heat,
@@ -216,14 +217,14 @@ async def _fetch_live_heats(
     as each heat completes.
     """
     to_fetch = [
-        (competition_id, s.session_id, e.position, e.live_url) for s in sessions for e in s.events if e.live_url
+        (competition_id, s.session_id, e.position, e.name, e.live_url) for s in sessions for e in s.events if e.live_url
     ]
     if not to_fetch:
         return
 
     sem = asyncio.Semaphore(5)
 
-    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str) -> None:
+    async def fetch_one(ev_id: int, sess_id: int, pos: int, name: str, url: str) -> None:
         async with sem:
             try:
                 live = await fetch_live_results(client, url)
@@ -233,7 +234,8 @@ async def _fetch_live_heats(
                 )
                 return
             try:
-                heat = parse_live_heat(parse_live_results_html(live))
+                html = parse_live_results_html(live)
+                heat = parse_live_heat(html) if live_results_show_event(html, name) else None
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:

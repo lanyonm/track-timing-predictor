@@ -31,6 +31,7 @@ from app.predictor import (
     _status_cache,
     predict_schedule,
     record_heat_count,
+    record_live_heat,
     record_race_distance,
 )
 
@@ -866,6 +867,48 @@ class TestSecurityHeaders:
         soup = BeautifulSoup(client.get("/").text, "html.parser")
         meta = soup.find("meta", attrs={"name": "htmx-config"})
         assert json.loads(meta["content"]) == {"includeIndicatorStyles": False}
+
+
+class TestActiveHeatLabel:
+    def _render(self, competition_id: int) -> str:
+        events = [
+            Event(
+                position=1,
+                name="Sprint Q",
+                discipline="sprint_qualifying",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+            ),
+            Event(
+                position=2,
+                name="65-69 Men Pursuit Qualifying",
+                discipline="pursuit_2k",
+                status=EventStatus.UPCOMING,
+                is_special=False,
+                live_url="liveresults.php?EventId=1",
+            ),
+        ]
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        schedule = predict_schedule(competition_id, [session], now=datetime(2026, 1, 1, 10, 30))
+        html = main_module.templates.get_template("_schedule_body.html").render(
+            schedule=schedule,
+            competition_id=competition_id,
+            now=datetime(2026, 1, 1, 10, 30),
+            palmares_count=0,
+            racer_encoded="",
+        )
+        return " ".join(BeautifulSoup(html, "html.parser").get_text().split())
+
+    def test_live_heat_says_on_track(self):
+        record_heat_count(26171, 1, 2, 11)
+        record_live_heat(26171, 1, 2, 4)
+        assert "heat 5/11 on track" in self._render(26171)
+
+    def test_time_based_heat_has_no_on_track(self):
+        record_heat_count(26172, 1, 2, 11)
+        text = self._render(26172)
+        assert re.search(r"heat \d+/11", text)
+        assert "on track" not in text
 
 
 class TestDurationTooltips:
