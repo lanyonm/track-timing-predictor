@@ -477,7 +477,12 @@ class TestParseLiveHeat:
 
     @pytest.mark.parametrize(
         ("fixture", "finished"),
-        [("live-results-26037-sprint-no-heats-done.json", 0), ("live-results-26037-sprint-2-of-4-heats-done.json", 2)],
+        [
+            ("live-results-26037-sprint-no-heats-done.json", 0),
+            ("live-results-26037-sprint-2-of-4-heats-done.json", 2),
+            # 80+ Men Ride 1: heat 1 a bye (Winner, 0.000), heats 2-3 timed, heat 4 on track.
+            ("live-results-26037-sprint-bye-3-of-4-heats-done.json", 3),
+        ],
     )
     def test_sprint_jaxon_response(self, fixture, finished):
         """Live POST responses for 26037 75-79 Men Sprint 1/4 Final Ride 1: timed Heat N sections are finished."""

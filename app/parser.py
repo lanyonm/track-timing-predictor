@@ -441,7 +441,8 @@ def parse_live_heat(html: str) -> int | None:
       → returns N - 1 (heats before the current one are done).
 
     Sprint / keirin / per-heat format — separate "Heat N" sections:
-      → counts sections that contain a non-zero timing value (e.g. 12.345).
+      → counts sections that contain a non-zero timing value (e.g. 12.345)
+        or a "Winner" (a sprint bye has one, timed 0.000).
       → the "0.000 km/h" placeholder on upcoming/active heats is excluded
         because it starts with 0.
     """
@@ -454,7 +455,7 @@ def parse_live_heat(html: str) -> int | None:
     sections = re.split(r"\bHeat\s+\d+\b", html)
     if len(sections) < 2:
         return None
-    return sum(1 for section in sections[1:] if re.search(r"\b[1-9]\d*\.\d{2,}", section))
+    return sum(1 for section in sections[1:] if re.search(r"\b[1-9]\d*\.\d{2,}|\bWinner\b", section))
 
 
 def parse_finish_time(html: str) -> float | None:
