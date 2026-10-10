@@ -29,10 +29,12 @@ from app.predictor import (
     _compute_delay,
     bunch_changeover,
     get_generated_time,
+    get_heat_count,
     latest_live_generated_time,
     load_learned_durations,
     predict_schedule,
     predict_session,
+    reconcile_positions,
     record_generated_time,
     record_heat_count,
     record_live_heat,
@@ -199,6 +201,54 @@ def test_record_generated_time_keeps_earliest():
     record_generated_time(26920, 1, 1, datetime(2026, 10, 10, 11, 12, 55))
     record_generated_time(26920, 1, 1, datetime(2026, 10, 10, 11, 40))
     assert get_generated_time(26920, 1, 1) == datetime(2026, 10, 10, 11, 12, 55)
+
+
+class TestReconcilePositions:
+    """Upstream deletes rows mid-session (a Ride 3 nobody needs), shifting later events up."""
+
+    ROUND = "Men Sprint 1/4 Final Ride 3"
+
+    def _session(self, names: list[str], session_id: int = 1) -> Session:
+        events = [
+            Event(position=i, name=n, discipline="sprint_match", status=EventStatus.UPCOMING, is_special=False)
+            for i, n in enumerate(names)
+        ]
+        return Session(session_id=session_id, day="Day", scheduled_start=time(10, 0), events=events)
+
+    def test_removed_row_shifts_later_events(self):
+        before = ["TP Qualifying", f"75-79 {self.ROUND}", f"80+ {self.ROUND}", "TS Qualifying"]
+        reconcile_positions(26930, [self._session(before)])
+        record_generated_time(26930, 1, 1, datetime(2026, 10, 10, 12, 30))  # 75-79 Ride 3
+        record_heat_count(26930, 1, 2, 3)  # 80+ Ride 3
+        record_heat_count(26930, 1, 3, 8)  # TS Qualifying
+
+        reconcile_positions(26930, [self._session(["TP Qualifying", f"80+ {self.ROUND}", "TS Qualifying"])])
+
+        assert get_heat_count(26930, 1, 1) == 3
+        assert get_heat_count(26930, 1, 2) == 8
+        assert get_heat_count(26930, 1, 3) is None
+        assert get_generated_time(26930, 1, 1) is None  # the deleted row's timestamp is gone
+
+    def test_unchanged_layout_keeps_entries(self):
+        names = ["A", "B"]
+        reconcile_positions(26931, [self._session(names)])
+        record_heat_count(26931, 1, 1, 4)
+        reconcile_positions(26931, [self._session(names)])
+        assert get_heat_count(26931, 1, 1) == 4
+
+    def test_repeated_names_matched_by_occurrence(self):
+        reconcile_positions(26932, [self._session(["Break", "A", "Break", "B"])])
+        record_heat_count(26932, 1, 3, 5)  # B
+        record_heat_count(26932, 1, 2, 9)  # second Break
+        reconcile_positions(26932, [self._session(["New", "Break", "A", "Break", "B"])])
+        assert get_heat_count(26932, 1, 4) == 5
+        assert get_heat_count(26932, 1, 3) == 9
+
+    def test_other_sessions_untouched(self):
+        reconcile_positions(26933, [self._session(["A", "B"]), self._session(["C", "D"], session_id=2)])
+        record_heat_count(26933, 2, 1, 6)
+        reconcile_positions(26933, [self._session(["B"]), self._session(["C", "D"], session_id=2)])
+        assert get_heat_count(26933, 2, 1) == 6
 
 
 class TestActiveEventStart:

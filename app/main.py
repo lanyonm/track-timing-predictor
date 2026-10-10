@@ -81,6 +81,7 @@ from app.predictor import (
     latest_live_generated_time,
     load_learned_durations,
     predict_schedule,
+    reconcile_positions,
     record_generated_time,
     record_heat_count,
     record_live_heat,
@@ -671,6 +672,7 @@ async def get_schedule(
         ) from None
 
     sessions = parse_schedule(jxn_data)
+    reconcile_positions(event_id, sessions)
     if not sessions:
         raise HTTPException(
             status_code=404,
@@ -768,6 +770,7 @@ async def refresh_schedule(
         ) from None
 
     sessions = parse_schedule(jxn_data)
+    reconcile_positions(event_id, sessions)
     racer_name = _resolve_racer_name(request, r)
 
     _, _, _, rider_list = await asyncio.gather(

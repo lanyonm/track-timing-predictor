@@ -109,6 +109,24 @@ _sprint_decider_ranges: dict[tuple[int, str], tuple[int, int]] = {}
 # Key: (competition_id, round name without "Ride N"), Value: rides done
 _sprint_rides_done: dict[tuple[int, str], int] = {}
 
+# The caches above keyed by (competition_id, session_id, position). Upstream can add or remove
+# rows mid-session (a Ride 3 nobody needs is deleted once Ride 2 ends), which shifts every later
+# event's position, so reconcile_positions moves their entries along with the events.
+_POSITION_CACHES: tuple[dict, ...] = (
+    _status_cache,
+    _finish_times,
+    _heat_counts,
+    _live_heats,
+    _generated_times,
+    _start_list_riders,
+    _start_list_categories,
+    _race_distances,
+)
+
+# Each session's events as last seen, as (position, name) pairs.
+# Key: (competition_id, session_id)
+_session_layouts: dict[tuple[int, int], tuple[tuple[int, str], ...]] = {}
+
 # Parsed Rider Lists. The file is immutable for a competition, so entries never expire.
 # Key: Rider List relative URL, Value: non-empty list of RiderListEntry
 _rider_lists: dict[str, list[RiderListEntry]] = {}
@@ -289,6 +307,45 @@ def record_race_distance(competition_id: int, session_id: int, position: int, km
 def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) -> None:
     """Store how many pairs in a sprint round need (or rode) a decider."""
     _sprint_deciders[(competition_id, round_name)] = deciders
+
+
+def _name_occurrences(layout: tuple[tuple[int, str], ...]) -> dict[tuple[str, int], int]:
+    """Position of each (name, nth time the name appears) in a session layout."""
+    seen: dict[str, int] = {}
+    keys: dict[tuple[str, int], int] = {}
+    for position, name in layout:
+        keys[(name, seen.get(name, 0))] = position
+        seen[name] = seen.get(name, 0) + 1
+    return keys
+
+
+def reconcile_positions(competition_id: int, sessions: list[Session]) -> None:
+    """Move position-keyed cache entries when a session's rows change.
+
+    Events are matched by name (and which occurrence of it, for repeated names such as
+    Break). An event that's gone loses its entries. Call it right after parsing a schedule,
+    before anything reads or writes the caches.
+    """
+    for session in sessions:
+        layout = tuple((e.position, e.name) for e in session.events)
+        key = (competition_id, session.session_id)
+        old = _session_layouts.get(key)
+        _session_layouts[key] = layout
+        if old is None or old == layout:
+            continue
+        new_positions = _name_occurrences(layout)
+        moves = {pos: new_positions.get(name_key) for name_key, pos in _name_occurrences(old).items()}
+        if all(old_pos == new_pos for old_pos, new_pos in moves.items()):
+            continue
+        for cache in _POSITION_CACHES:
+            entries = [k for k in cache if k[0] == competition_id and k[1] == session.session_id]
+            moved = {}
+            for k in entries:
+                value = cache.pop(k)
+                new_pos = moves.get(k[2])
+                if new_pos is not None:
+                    moved[(competition_id, session.session_id, new_pos)] = value
+            cache.update(moved)
 
 
 def record_sprint_decider_range(competition_id: int, round_name: str, known: int, open_pairs: int) -> None:

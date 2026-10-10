@@ -25,6 +25,7 @@ from app.predictor import (
     _race_distances,
     _rider_list_retry_at,
     _rider_lists,
+    _session_layouts,
     _sprint_decider_ranges,
     _sprint_deciders,
     _sprint_rides_done,
@@ -81,6 +82,7 @@ def clear_predictor_caches():
     _sprint_deciders.clear()
     _sprint_decider_ranges.clear()
     _sprint_rides_done.clear()
+    _session_layouts.clear()
     _race_distances.clear()
     _rider_lists.clear()
     _rider_list_retry_at.clear()
