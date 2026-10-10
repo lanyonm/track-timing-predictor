@@ -43,7 +43,7 @@ from app.disciplines import (
     get_changeover,
     split_ride,
 )
-from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
+from app.fetcher import fetch_initial_layout, fetch_live_results, fetch_page_html, fetch_refresh
 from app.models import EventStatus, PalmaresEntry, RiderListEntry, SchedulePrediction, Session
 from app.palmares import (
     check_palmares_health,
@@ -56,9 +56,11 @@ from app.palmares import (
     update_competition_palmares,
 )
 from app.parser import (
+    live_results_show_event,
     parse_finish_time,
     parse_generated_time,
     parse_live_heat,
+    parse_live_results_html,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
@@ -215,24 +217,25 @@ async def _fetch_live_heats(
     as each heat completes.
     """
     to_fetch = [
-        (competition_id, s.session_id, e.position, e.live_url) for s in sessions for e in s.events if e.live_url
+        (competition_id, s.session_id, e.position, e.name, e.live_url) for s in sessions for e in s.events if e.live_url
     ]
     if not to_fetch:
         return
 
     sem = asyncio.Semaphore(5)
 
-    async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str) -> None:
+    async def fetch_one(ev_id: int, sess_id: int, pos: int, name: str, url: str) -> None:
         async with sem:
             try:
-                html = await fetch_page_html(client, url)
+                live = await fetch_live_results(client, url)
             except Exception:
                 logger.warning(
                     "Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
                 )
                 return
             try:
-                heat = parse_live_heat(html)
+                html = parse_live_results_html(live)
+                heat = parse_live_heat(html) if live_results_show_event(html, name) else None
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:
@@ -311,12 +314,19 @@ async def _fetch_result_pages(
     the day, even when the app is loaded mid-event. Observed durations go to the
     learning database in one worker-thread call once every page is parsed. Events
     that share a result page (the rides of a sprint round) share one fetch.
+
+    An event with an audit page also gets that page's Generated timestamp, and the
+    earlier of the two is kept (record_generated_time): upstream regenerates either
+    page after corrections, moving its timestamp past the event's end.
     """
     to_fetch: dict[str, list[tuple[int, int, str, str]]] = {}
+    audits: dict[str, list[tuple[int, int]]] = {}
     for s in sessions:
         for e in s.events:
             if e.result_url and get_generated_time(competition_id, s.session_id, e.position) is None:
                 to_fetch.setdefault(e.result_url, []).append((s.session_id, e.position, e.discipline, e.name))
+                if e.audit_url:
+                    audits.setdefault(e.audit_url, []).append((s.session_id, e.position))
     if not to_fetch:
         return
 
@@ -350,7 +360,21 @@ async def _fetch_result_pages(
             except Exception:
                 logger.warning("Failed to parse result page %s for event %d", url, competition_id, exc_info=True)
 
-    await asyncio.gather(*[fetch_one(url, slots) for url, slots in to_fetch.items()])
+    async def fetch_audit(url: str, slots: list[tuple[int, int]]) -> None:
+        async with sem:
+            try:
+                gen_time = parse_generated_time(await fetch_page_html(client, url))
+            except Exception:
+                logger.warning("Failed to read audit page %s for event %d", url, competition_id, exc_info=True)
+                return
+            if gen_time is not None:
+                for sess_id, pos in slots:
+                    record_generated_time(competition_id, sess_id, pos, gen_time)
+
+    await asyncio.gather(
+        *[fetch_one(url, slots) for url, slots in to_fetch.items()],
+        *[fetch_audit(url, slots) for url, slots in audits.items()],
+    )
     if observed:
         await asyncio.to_thread(save_live_durations, observed)
 

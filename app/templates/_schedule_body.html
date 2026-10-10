@@ -143,7 +143,7 @@
               {%- endif %}
               <span class="text-xs" title="{{ tip }}">
                 {%- if pred.is_observed -%}obs.
-                {%- elif pred.is_active and pred.active_heat is not none -%}heat {{ pred.active_heat }}{% if hc is not none %}/{{ hc }}{% endif %}
+                {%- elif pred.is_active and pred.active_heat is not none -%}heat {{ pred.active_heat }}{% if hc is not none %}/{{ hc }}{% endif %}{{ ' on track' if pred.active_heat_live }}
                 {%- elif pred.race_distance_km -%}{{ '~' if pred.distance_basis == 'schedule' }}{{ '%g' % pred.race_distance_km }} km{{ ' est.' if pred.distance_basis == 'schedule' }}
                 {%- elif pred.heat_basis == 'decider' -%}{{ hc }} decider{{ 's' if hc != 1 else '' }}
                 {%- elif pred.heat_basis == 'decider_pairs' -%}0–{{ hc }} deciders est.

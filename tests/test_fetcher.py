@@ -7,7 +7,7 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
+from app.fetcher import fetch_initial_layout, fetch_live_results, fetch_page_html, fetch_refresh
 
 BASE = "https://tracktiming.live"
 
@@ -82,3 +82,26 @@ class TestFetchPageHtml:
     def test_raises_on_error_status(self, status):
         with pytest.raises(httpx.HTTPStatusError):
             _run(lambda c: fetch_page_html(c, "results/x.htm"), lambda _req: httpx.Response(status))
+
+
+class TestFetchLiveResults:
+    def test_posts_update_dyn_area_to_live_page(self):
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json={"jxnobj": []})
+
+        assert _run(lambda c: fetch_live_results(c, "liveresults.php?EventId=26037"), handler) == {"jxnobj": []}
+        (req,) = seen
+        assert req.method == "POST"
+        assert str(req.url) == f"{BASE}/liveresults.php?EventId=26037"
+        assert req.headers["Referer"] == f"{BASE}/liveresults.php?EventId=26037"
+        form = parse_qs(req.content.decode())
+        assert form["jxnfun"] == ["updateDynArea"]
+        assert form["jxnargs[]"] == ["N1"]
+
+    @pytest.mark.parametrize("status", [404, 500])
+    def test_raises_on_error_status(self, status):
+        with pytest.raises(httpx.HTTPStatusError):
+            _run(lambda c: fetch_live_results(c, "liveresults.php?EventId=1"), lambda _req: httpx.Response(status))

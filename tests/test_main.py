@@ -31,6 +31,7 @@ from app.predictor import (
     _status_cache,
     predict_schedule,
     record_heat_count,
+    record_live_heat,
     record_race_distance,
 )
 
@@ -94,6 +95,7 @@ def mock_fetchers(sample_event_data, start_list_html):
     with (
         patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_event_data),
         patch("app.main.fetch_refresh", new_callable=AsyncMock, return_value=sample_event_data),
+        patch("app.main.fetch_live_results", new_callable=AsyncMock, return_value={"jxnobj": []}),
         # The 26008 fixture links a Rider List; don't feed it start-list HTML.
         patch(
             "app.main.fetch_page_html",
@@ -657,6 +659,38 @@ class TestFetchResultPagesDeciders:
         assert {k[1] for k in _sprint_deciders} == completed_rounds
         assert set(_sprint_deciders.values()) == {1}
 
+    def _timed_session(self) -> Session:
+        event = Event(
+            position=1,
+            name="65-69 Men Pursuit Qualifying",
+            discipline="pursuit_2k",
+            status=EventStatus.COMPLETED,
+            is_special=False,
+            result_url="results/E1/M6569-IP-2000-Q-0-R.htm",
+            audit_url="results/E1/M6569-IP-2000-Q-0-AUDIT-R.htm",
+        )
+        return Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=[event])
+
+    @pytest.mark.parametrize(
+        ("result_gen", "audit_gen", "expected"),
+        [
+            # 26037: result page regenerated at 11:16:22, audit page still 11:12:55.
+            ("11:16:22", "11:12:55", datetime(2026, 10, 10, 11, 12, 55)),
+            ("11:12:44", "11:40:00", datetime(2026, 10, 10, 11, 12, 44)),
+            ("11:12:44", None, datetime(2026, 10, 10, 11, 12, 44)),
+        ],
+    )
+    def test_keeps_earlier_of_result_and_audit_generated(self, result_gen, audit_gen, expected):
+        def page(_client, path):
+            gen = audit_gen if "AUDIT" in path else result_gen
+            if gen is None:
+                raise httpx.ConnectError("down")
+            return f"<p>Generated: 2026-10-10 {gen}</p>"
+
+        with patch("app.main.fetch_page_html", AsyncMock(side_effect=page)):
+            asyncio.run(_fetch_result_pages(None, 1, [self._timed_session()]))
+        assert _generated_times[(1, 1, 1)] == expected
+
     def test_shared_result_page_fetched_once_for_every_event(self):
         sessions = parse_schedule(_load_fixture("schedule-26037.json"))
         html = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
@@ -665,8 +699,9 @@ class TestFetchResultPagesDeciders:
             asyncio.run(_fetch_result_pages(None, 26037, sessions))
         with_results = [(s.session_id, e) for s in sessions for e in s.events if e.result_url]
         urls = [e.result_url for _, e in with_results]
+        audits = {e.audit_url for _, e in with_results if e.audit_url}
         assert len(set(urls)) < len(urls)  # sprint rides share a result page
-        assert page.call_count == len(set(urls))
+        assert page.call_count == len(set(urls)) + len(audits)
         for sess_id, e in with_results:
             assert (26037, sess_id, e.position) in _generated_times
 
@@ -865,6 +900,48 @@ class TestSecurityHeaders:
         soup = BeautifulSoup(client.get("/").text, "html.parser")
         meta = soup.find("meta", attrs={"name": "htmx-config"})
         assert json.loads(meta["content"]) == {"includeIndicatorStyles": False}
+
+
+class TestActiveHeatLabel:
+    def _render(self, competition_id: int) -> str:
+        events = [
+            Event(
+                position=1,
+                name="Sprint Q",
+                discipline="sprint_qualifying",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+            ),
+            Event(
+                position=2,
+                name="65-69 Men Pursuit Qualifying",
+                discipline="pursuit_2k",
+                status=EventStatus.UPCOMING,
+                is_special=False,
+                live_url="liveresults.php?EventId=1",
+            ),
+        ]
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        schedule = predict_schedule(competition_id, [session], now=datetime(2026, 1, 1, 10, 30))
+        html = main_module.templates.get_template("_schedule_body.html").render(
+            schedule=schedule,
+            competition_id=competition_id,
+            now=datetime(2026, 1, 1, 10, 30),
+            palmares_count=0,
+            racer_encoded="",
+        )
+        return " ".join(BeautifulSoup(html, "html.parser").get_text().split())
+
+    def test_live_heat_says_on_track(self):
+        record_heat_count(26171, 1, 2, 11)
+        record_live_heat(26171, 1, 2, 4)
+        assert "heat 5/11 on track" in self._render(26171)
+
+    def test_time_based_heat_has_no_on_track(self):
+        record_heat_count(26172, 1, 2, 11)
+        text = self._render(26172)
+        assert re.search(r"heat \d+/11", text)
+        assert "on track" not in text
 
 
 class TestDurationTooltips:

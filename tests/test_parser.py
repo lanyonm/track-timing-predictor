@@ -11,10 +11,12 @@ from app.disciplines import detect_discipline
 from app.models import EventStatus
 from app.parser import (
     _parse_summary,
+    live_results_show_event,
     parse_finish_time,
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_live_results_html,
     parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
@@ -420,28 +422,28 @@ class TestParseLiveHeat:
         html = "Heated debate\nHeat 1\nRider A  12.345\n"
         assert parse_live_heat(html) == 1
 
-    def test_returns_none_when_all_heats_upcoming(self):
-        """All heats listed but none with timing returns None."""
+    def test_returns_zero_when_all_heats_upcoming(self):
+        """All heats listed but none with timing: 0 finished, so heat 1 is on track."""
         html = "Heat 1\nRider A\nHeat 2\nRider B\n"
-        assert parse_live_heat(html) is None
+        assert parse_live_heat(html) == 0
 
     def test_zero_speed_placeholder_not_counted_as_completed(self):
         """The 'Speed: 0.000 km/h' placeholder on active heats is not treated as timing."""
         html = "Heat 1\nRider A\nSpeed: 0.000 km/h\nHeat 2\nRider B\nSpeed: 0.000 km/h\n"
-        assert parse_live_heat(html) is None
+        assert parse_live_heat(html) == 0
 
-    def test_real_page_heat1_active_returns_none(self):
-        """Real live page: Heat 1 active, both heats show 0.000 placeholders → None."""
-        assert parse_live_heat(self.KEIRIN_HEAT1_ACTIVE_HTML) is None
+    def test_real_page_heat1_active_returns_zero(self):
+        """Real live page: Heat 1 active, both heats show 0.000 placeholders → 0 finished."""
+        assert parse_live_heat(self.KEIRIN_HEAT1_ACTIVE_HTML) == 0
 
     def test_real_page_heat2_active_returns_one(self):
         """Real live page: Heat 1 done (has 12.571s timing), Heat 2 active → 1 completed."""
         assert parse_live_heat(self.KEIRIN_HEAT2_ACTIVE_HTML) == 1
 
     def test_team_event_explicit_header_heat1_active(self):
-        """'Riders On Track for Heat 1 of N' → 0 completed → None."""
+        """'Riders On Track for Heat 1 of N' → 0 completed."""
         html = "<h4>Riders On Track for Heat 1 of 4</h4>"
-        assert parse_live_heat(html) is None
+        assert parse_live_heat(html) == 0
 
     def test_team_event_explicit_header_heat3_active(self):
         """'Riders On Track for Heat 3 of 4' → 2 completed."""
@@ -464,14 +466,53 @@ class TestParseLiveHeat:
         """Real team pursuit page: 'Riders On Track for Heat 2 of 3' → 1 completed."""
         assert parse_live_heat(self.TP_HEAT2_ACTIVE_HTML) == 1
 
+    def test_pursuit_jaxon_response_heat10_of_11_returns_nine(self):
+        """Live POST response captured at 26037: 'Riders On Track for Heat 10 of 11' → 9 completed."""
+        jxn = json.loads((_FIXTURES / "live-results-26037-pursuit-heat-10-of-11.json").read_text())
+        assert parse_live_heat(parse_live_results_html(jxn)) == 9
+
+    def test_get_shell_has_no_heats(self):
+        """A plain GET returns an empty dynarea shell, which is why the app POSTs instead."""
+        assert parse_live_heat((_FIXTURES / "live-results-26037-shell.html").read_text()) is None
+
+    @pytest.mark.parametrize(
+        ("fixture", "finished"),
+        [
+            ("live-results-26037-sprint-no-heats-done.json", 0),
+            ("live-results-26037-sprint-2-of-4-heats-done.json", 2),
+            # 80+ Men Ride 1: heat 1 a bye (Winner, 0.000), heats 2-3 timed, heat 4 on track.
+            ("live-results-26037-sprint-bye-3-of-4-heats-done.json", 3),
+        ],
+    )
+    def test_sprint_jaxon_response(self, fixture, finished):
+        """Live POST responses for 26037 75-79 Men Sprint 1/4 Final Ride 1: timed Heat N sections are finished."""
+        jxn = json.loads((_FIXTURES / fixture).read_text())
+        assert parse_live_heat(parse_live_results_html(jxn)) == finished
+
+    @pytest.mark.parametrize(
+        ("name", "shown"),
+        [
+            ("65-69 Men Pursuit Qualifying", True),
+            ("65-69  men pursuit qualifying", True),
+            ("70-74 Men Pursuit Qualifying", False),
+            ("65-69 Men Pursuit Final", False),
+        ],
+    )
+    def test_live_results_show_event(self, name, shown):
+        jxn = json.loads((_FIXTURES / "live-results-26037-pursuit-heat-10-of-11.json").read_text())
+        assert live_results_show_event(parse_live_results_html(jxn), name) is shown
+
+    def test_live_results_html_missing_dynarea(self):
+        assert parse_live_results_html({"jxnobj": []}) == ""
+
     def test_team_pursuit_real_page_heat3_active_returns_two(self):
         """Real team pursuit page: 'Riders On Track for Heat 3 of 3' → 2 completed."""
         assert parse_live_heat(self.TP_HEAT3_ACTIVE_HTML) == 2
 
-    def test_team_pursuit_header_heat1_active_returns_none(self):
-        """Team pursuit 'Riders On Track for Heat 1 of 3' → 0 completed → None."""
+    def test_team_pursuit_header_heat1_active_returns_zero(self):
+        """Team pursuit 'Riders On Track for Heat 1 of 3' → 0 completed."""
         html = "<h4>Riders On Track for Heat 1 of 3</h4>"
-        assert parse_live_heat(html) is None
+        assert parse_live_heat(html) == 0
 
     def test_team_pursuit_header_heat2_active_returns_one(self):
         """Team pursuit 'Riders On Track for Heat 2 of 3' → 1 completed."""

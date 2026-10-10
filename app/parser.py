@@ -409,39 +409,53 @@ def parse_start_list(html: str) -> StartList:
     )
 
 
+def parse_live_results_html(jxn_data: dict) -> str:
+    """Return the live results HTML (the ``dynarea`` jxnobj) from fetch_live_results, or "" if absent."""
+    for obj in jxn_data.get("jxnobj", []):
+        if obj.get("cmd") == "as" and obj.get("id") == "dynarea":
+            return str(obj.get("data", ""))
+    return ""
+
+
+def live_results_show_event(html: str, event_name: str) -> bool:
+    """True when a live results page's text names the event (its title reads e.g.
+    "65-69 Men Pursuit Qualifying - 2km - 8 Laps"), so a page still showing the
+    previous event isn't read as this one's heats."""
+    text = re.sub(r"(?:&nbsp;|\s)+", " ", re.sub(r"<[^>]+>", " ", html)).lower()
+    return " ".join(event_name.split()).lower() in text
+
+
 def parse_live_heat(html: str) -> int | None:
     """
     Count the number of completed heats on a live results page.
 
     The caller uses this count as the number of *finished* heats; the active
-    heat is then count + 1. Returns None if no completed heats are found
-    (caller falls back to time-based estimation).
+    heat is then count + 1. Returns None when the page shows no heats at all
+    (caller falls back to time-based estimation), and 0 when it shows heats
+    but none has finished.
 
     Two page formats are handled:
 
-    Team event format (team sprint, team pursuit) — an explicit header names
-    the running heat:
+    Pursuit and team event format — an explicit header names the running heat:
         "Riders On Track for Heat N of M"
       → returns N - 1 (heats before the current one are done).
-      → returns None when N == 1 (nothing completed yet).
 
-    Keirin / per-heat format — separate "Heat N" sections:
-      → counts sections that contain a non-zero timing value (e.g. 12.345).
+    Sprint / keirin / per-heat format — separate "Heat N" sections:
+      → counts sections that contain a non-zero timing value (e.g. 12.345)
+        or a "Winner" (a sprint bye has one, timed 0.000).
       → the "0.000 km/h" placeholder on upcoming/active heats is excluded
         because it starts with 0.
     """
-    # Team event format (team sprint, team pursuit): the page explicitly says
-    # which heat is on track.
     match = re.search(r"Riders\s+On\s+Track\s+for\s+Heat\s+(\d+)", html, re.IGNORECASE)
     if match:
-        active = int(match.group(1))
-        return active - 1 if active > 1 else None
+        return max(0, int(match.group(1)) - 1)
 
-    # Keirin / per-heat format: split on "Heat N" labels and count sections
+    # Per-heat format: split on "Heat N" labels and count sections
     # that contain actual timing values (non-zero integer part).
     sections = re.split(r"\bHeat\s+\d+\b", html)
-    count = sum(1 for section in sections[1:] if re.search(r"\b[1-9]\d*\.\d{2,}", section))
-    return count if count > 0 else None
+    if len(sections) < 2:
+        return None
+    return sum(1 for section in sections[1:] if re.search(r"\b[1-9]\d*\.\d{2,}|\bWinner\b", section))
 
 
 def parse_finish_time(html: str) -> float | None:

@@ -10,7 +10,8 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from app.disciplines import PER_HEAT_DURATIONS
+from app.disciplines import DEFAULT_DURATIONS, PER_HEAT_DURATIONS
+from app.models import Event, EventStatus, Session
 from tools.extract_competition import (
     _fetch_with_retry,
     extract_competition,
@@ -322,3 +323,44 @@ class TestFetchWithRetry:
 
         result = await _fetch_with_retry(json_fail, "test fetch")
         assert result is None
+
+
+@pytest.mark.asyncio
+async def test_generated_gap_uses_earlier_audit_timestamp():
+    """A result page regenerated after the event moves its Generated later; the audit page's earlier one wins."""
+
+    def event(pos: int, code: str) -> Event:
+        return Event(
+            position=pos,
+            name=f"Men Team Pursuit Qualifying {pos}",
+            discipline="team_pursuit",
+            status=EventStatus.COMPLETED,
+            is_special=False,
+            result_url=f"results/E1/{code}-R.htm",
+            audit_url=f"results/E1/{code}-AUDIT-R.htm",
+        )
+
+    session = Session(
+        session_id=1, day="Day", scheduled_start=datetime(2026, 1, 1, 10).time(), events=[event(1, "A"), event(2, "B")]
+    )
+    expected = DEFAULT_DURATIONS["team_pursuit"]
+    pages = {
+        "results/E1/A-R.htm": "10:00:00",
+        "results/E1/A-AUDIT-R.htm": "10:00:30",
+        "results/E1/B-R.htm": f"10:{int(expected) + 4:02d}:00",  # regenerated 4 min after the event
+        "results/E1/B-AUDIT-R.htm": f"10:{int(expected):02d}:00",
+    }
+
+    async def page(_client, path):
+        return f"<p>Generated: 2026-01-01 {pages[path]}</p>" if path in pages else ""
+
+    with (
+        patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock, return_value={}),
+        patch("tools.extract_competition.parse_schedule", return_value=[session]),
+        patch("tools.extract_competition.fetch_page_html", new=page),
+    ):
+        report, _ = await extract_competition(1)
+
+    second = report.sessions[0].events[1]
+    assert second.duration_source == "generated_diff"
+    assert second.duration_minutes == pytest.approx(int(expected))

@@ -175,6 +175,7 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
 
             # First pass: fetch result pages and start lists for completed events
             result_htmls: dict[int, str | None] = {}
+            audit_htmls: dict[int, str | None] = {}
             start_list_htmls: dict[int, str | None] = {}
 
             for event in session.events:
@@ -184,18 +185,30 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
                             lambda url=event.result_url: fetch_page_html(client, url),
                             f"result for {event.name}",
                         )
+                    if event.result_url and event.audit_url:
+                        audit_htmls[event.position] = await _fetch(
+                            lambda url=event.audit_url: fetch_page_html(client, url),
+                            f"audit for {event.name}",
+                        )
                     if event.start_list_url:
                         start_list_htmls[event.position] = await _fetch(
                             lambda url=event.start_list_url: fetch_page_html(client, url),
                             f"start list for {event.name}",
                         )
 
-            # Parse generated timestamps from result pages
+            # Parse generated timestamps from result pages, keeping the audit page's when
+            # earlier: upstream regenerates either page after corrections, moving its
+            # timestamp past the event's end.
             for pos, html in result_htmls.items():
                 if html:
                     gen_time = parse_generated_time(html)
                     if gen_time:
                         generated_times[pos] = gen_time
+            for pos, html in audit_htmls.items():
+                if html and pos in generated_times:
+                    audit_time = parse_generated_time(html)
+                    if audit_time:
+                        generated_times[pos] = min(generated_times[pos], audit_time)
 
             # Second pass: extract durations and build event reports
             for event in session.events:

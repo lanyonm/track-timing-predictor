@@ -159,6 +159,7 @@ class Prediction(BaseModel):
     podium_count: int | None = None  # Set when a medal ceremony's duration comes from forecast podiums
     is_active: bool = False  # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event
+    active_heat_live: bool = False  # True when active_heat comes from the live timing page
     rider_match: RiderMatch | None = None
 
 
