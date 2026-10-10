@@ -78,13 +78,29 @@ class TestEventBand:
             ("55-64 Men Team Sprint Qualifying", AgeBand("M", 55, 64)),
             ("65+ Women Sprint Final Ride 1", AgeBand("W", 65, None)),
             ("90+ Men 500m Time Trial Final", AgeBand("M", 90, None)),
+            ("35-49 Women Points Race Final", AgeBand("W", 35, 49)),  # combined-age
+            ("50+ Women Points Race Final", AgeBand("W", 50, None)),
+            ("70-74 Men Scratch Race Qualifier 2", AgeBand("M", 70, 74)),
         ],
     )
     def test_banded_names(self, name, expected):
         assert event_band(name) == expected
 
-    def test_unbanded_name(self):
-        assert event_band("Elite Men Keirin") is None
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Elite Men Keirin",
+            "ME Points Race",
+            "MU17 Scratch Race",
+            "WJ Points Race",
+            "Junior Women Scratch Race",
+            "U17 Men Points Race",
+            "Master A Men Points Race",
+            "Para C1-5 Scratch Race Final",
+        ],
+    )
+    def test_unbanded_name(self, name):
+        assert event_band(name) is None
 
 
 class TestContains:

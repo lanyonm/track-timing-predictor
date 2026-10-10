@@ -127,10 +127,10 @@
               {{ pred.estimated_duration_minutes | round(1) }}m
               {%- set hc = pred.heat_count %}
               {%- set heats = hc ~ ' heat' ~ ('s' if hc != 1 else '') %}
-              {%- set phd = per_heat_minutes(pred.event.discipline) | round(2) %}
+              {%- set phd = (pred.per_heat_minutes or 0) | round(2) %}
               {%- set plus_co = ", plus changeover" if changeover_minutes(pred.event.discipline) > 0 else "" %}
               {%- if pred.is_observed %}{% set tip = "From result-page timing" %}
-              {%- elif pred.race_distance_km %}{% set tip = '%g' % pred.race_distance_km ~ " km from the start list at " ~ bunch_race_kmh | int ~ " km/h, plus changeover" %}
+              {%- elif pred.race_distance_km %}{% set tip = '%g' % pred.race_distance_km ~ " km from the start list at " ~ '%g' % pred.race_kmh ~ " km/h, plus changeover" %}
               {%- elif pred.heat_basis == 'start_list' %}{% set tip = heats ~ " from the start list × " ~ phd ~ " min" ~ plus_co %}
               {%- elif pred.heat_basis == 'rider_list' %}{% set tip = heats ~ " estimated from Rider List entrants × " ~ phd ~ " min" ~ plus_co %}
               {%- elif pred.heat_basis == 'round' %}{% set tip = heats ~ " from the round name × " ~ phd ~ " min" ~ plus_co %}

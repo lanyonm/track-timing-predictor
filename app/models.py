@@ -112,6 +112,8 @@ class Prediction(BaseModel):
     heat_count: int | None = None  # Set when duration is derived from a heat count (see heat_basis)
     heat_basis: HeatBasis | None = None  # Where heat_count came from
     race_distance_km: float | None = None  # Set when duration is derived from a start-list distance
+    race_kmh: float | None = None  # Pace used with race_distance_km (disciplines.bunch_race_kmh)
+    per_heat_minutes: float | None = None  # Minutes per heat used with heat_count, when heat-based
     podium_count: int | None = None  # Set when a medal ceremony's duration comes from forecast podiums
     is_active: bool = False  # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event

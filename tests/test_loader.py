@@ -330,6 +330,20 @@ class TestLoaderIntegration:
         record = _make_duration_record(duration_minutes=12.0)  # sprint_match default=12.0
         assert _validate_duration_bounds(record) is True
 
+    def test_validate_bounds_ignore_masters_band(self):
+        """A banded team sprint is bounded by the unbanded per-heat (3.0), not the masters 3.5."""
+        # 25022 35+ Men Team Sprint Final: 13.13 min over 2 heats, break-inflated. Unbanded
+        # bound 2 × 3.0 × 2.0 = 12.0 rejects it; the masters value would allow up to 14.0.
+        record = _make_duration_record(
+            event_name="35+ Men Team Sprint Final",
+            discipline="team_sprint",
+            classification="age_35_plus",
+            heat_count=2,
+            duration_minutes=13.13,
+            duration_source="generated_diff",
+        )
+        assert _validate_duration_bounds(record) is False
+
     def test_validate_bounds_rejects_too_high(self):
         """Duration > 2.0x default is rejected."""
         record = _make_duration_record(duration_minutes=25.0)  # 2x of 12.0 = 24.0

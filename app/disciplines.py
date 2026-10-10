@@ -1,7 +1,8 @@
 import logging
 import re
+from typing import NamedTuple
 
-from app.rider_list import event_band
+from app.rider_list import AgeBand, event_band
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,7 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     "sprint_match": 3.0,
     # Timed events below are rounded medians of Generated-timestamp gap / heat count across
     # 25022-26037 (docs/timed-event-durations.md); each includes ~1.5-2.5 min between heats.
+    # Masters events with an age band in the name may use MASTERS_PER_HEAT_DURATIONS instead.
     # Individual pursuit: 2 riders race simultaneously per heat. 2 km and 3 km are set from
     # masters data at 26037 (2 km median 5.3, 3 km 6.3) rather than the all-competition median.
     "pursuit_4k": 7.5,
@@ -169,17 +171,50 @@ PER_HEAT_DURATIONS: dict[str, float] = {
     # Keirin: one heat of ~6 riders (~4:30 race + recovery between heats)
     "keirin": 4.5,
     # Time trials: two riders per heat (every measured competition); both rides + changeover
-    "time_trial_500": 2.33,  # 500m: measured median 2.55 (n=12), 26037 ~3.3
+    "time_trial_500": 2.33,  # 500m: measured median 2.31 outside masters worlds; masters 70+ 2.75
     "time_trial_750": 2.67,  # 750m: too few clean measurements to refit
     "time_trial_kilo": 3.0,  # 1000m: measured median 3.10 (n=7)
     "time_trial_generic": 3.0,
 }
 
-# Points and scratch race speed for a duration from the start list's distance: the median
-# Finish Time speed of both, 32 points races (35-52.5 km/h) and 38 scratch races (36-54.5)
-# across 26002-26037; elite men fastest, youth and some masters women slowest.
-# docs/mass-start-race-durations.md.
+
+class AgeBracket(NamedTuple):
+    """Ages lo (inclusive) to hi (exclusive, None = no upper bound) and the value that applies."""
+
+    lo: int
+    hi: int | None
+    value: float
+
+
+def _bracket_value(brackets: tuple[AgeBracket, ...], age: int) -> float | None:
+    return next((b.value for b in brackets if b.lo <= age and (b.hi is None or age < b.hi)), None)
+
+
+# Per-heat overrides for masters events with an age band in the name (rider_list.event_band),
+# looked up by the band's youngest age. Rounded medians of Generated gap ÷ start-list heats at
+# 22023, 25032 and 26037 (masters worlds) and 25022 (masters nationals), kept only where n ≥ 5,
+# the value moves by ≥ 0.25 min and leave-one-competition-out error doesn't get worse
+# (docs/timed-event-durations.md, Masters Per-Heat Durations). Other disciplines and unbanded
+# events use PER_HEAT_DURATIONS.
+MASTERS_PER_HEAT_DURATIONS: dict[str, tuple[AgeBracket, ...]] = {
+    "pursuit_2k": (AgeBracket(0, 70, 4.5),),  # under 70: median 4.48 (n=22); 70+ 5.00 = default
+    "time_trial_500": (AgeBracket(70, None, 2.75),),  # 70+: median 2.75 (n=7); under 70 2.51
+    "team_sprint": (AgeBracket(0, None, 3.5),),  # all bands: median 3.39 (n=15)
+}
+
+# Points and scratch race speed for a duration from the start list's distance, for an
+# unbanded event: the median Finish Time speed of both, 32 points races (35-52.5 km/h) and
+# 38 scratch races (36-54.5) across 26002-26037; elite men fastest, youth and some masters
+# women slowest. docs/mass-start-race-durations.md.
 BUNCH_RACE_KMH = 46.0
+# Masters events with an age band in the name, by gender and the band's youngest age (a
+# combined 35-49 race is paced by its youngest riders): rounded median Finish Time speeds of
+# 82 points and scratch races at 22023, 25032 and 26037 (masters worlds).
+# docs/mass-start-race-durations.md, Masters Pace by Age and Gender.
+MASTERS_BUNCH_RACE_KMH: dict[str, tuple[AgeBracket, ...]] = {
+    "M": (AgeBracket(0, 70, 48.0), AgeBracket(70, 75, 41.5), AgeBracket(75, None, 36.0)),
+    "W": (AgeBracket(0, 50, 43.5), AgeBracket(50, None, 41.0)),
+}
 DISTANCE_DISCIPLINES = frozenset({"points_race", "scratch_race"})
 
 # Share of best-of-3 sprint pairs tied 1-1 after Ride 2, so riding a decider (Ride 3).
@@ -332,5 +367,15 @@ def get_default_duration(discipline: str) -> float:
     return DEFAULT_DURATIONS.get(discipline, DEFAULT_DURATIONS["unknown"])
 
 
-def get_per_heat_duration(discipline: str) -> float:
+def get_per_heat_duration(discipline: str, band: AgeBand | None) -> float:
+    """Minutes per heat; band (rider_list.event_band) selects a masters override, if any."""
+    if band is not None and (v := _bracket_value(MASTERS_PER_HEAT_DURATIONS.get(discipline, ()), band.lo)):
+        return v
     return PER_HEAT_DURATIONS.get(discipline, DEFAULT_DURATIONS.get(discipline, DEFAULT_DURATIONS["unknown"]))
+
+
+def bunch_race_kmh(band: AgeBand | None) -> float:
+    """Points and scratch race speed for an event's age band (rider_list.event_band), else BUNCH_RACE_KMH."""
+    if band is not None and (v := _bracket_value(MASTERS_BUNCH_RACE_KMH[band.gender], band.lo)):
+        return v
+    return BUNCH_RACE_KMH

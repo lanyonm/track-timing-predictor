@@ -32,10 +32,13 @@ def _validate_duration_bounds(record: DurationRecord) -> bool:
     heat_count * per_heat_duration + changeover (matching how the extraction
     script derived it). Otherwise, falls back to the static default.
 
+    Per-heat is the unbanded constant even for masters age bands, so learned averages stay
+    independent of a competition's age mix and the bounds stay as tight as the extractor's.
+
     Returns True if valid, False if out of bounds.
     """
     if record.heat_count is not None and record.heat_count > 0:
-        expected = record.heat_count * get_per_heat_duration(record.category.discipline) + get_changeover(
+        expected = record.heat_count * get_per_heat_duration(record.category.discipline, None) + get_changeover(
             record.category.discipline
         )
     else:

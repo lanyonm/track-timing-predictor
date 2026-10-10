@@ -77,12 +77,15 @@ def extract_generated_diff_duration(
 def extract_heat_count_duration(start_list_html: str, discipline: str) -> tuple[float | None, int | None]:
     """Extract duration from start-list heat count.
 
+    Uses the unbanded per-heat constant even for masters age bands: heat_count records echo
+    this value into the learning database, whose averages are per discipline.
+
     Returns (total_duration_minutes, heat_count) or (None, None).
     """
     count = parse_heat_count(start_list_html)
     if count is None or count == 0:
         return None, None
-    per_heat = get_per_heat_duration(discipline)
+    per_heat = get_per_heat_duration(discipline, None)
     changeover = get_changeover(discipline)
     return count * per_heat + changeover, count
 

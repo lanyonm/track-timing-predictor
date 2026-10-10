@@ -17,7 +17,9 @@ from app.disciplines import (
     PER_HEAT_DURATIONS,
     SPRINT_DECIDER_MINUTES,
     SPRINT_DECIDER_RATE,
+    bunch_race_kmh,
     get_changeover,
+    get_per_heat_duration,
 )
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
@@ -38,6 +40,7 @@ from app.predictor import (
     save_live_durations,
     update_status_cache,
 )
+from app.rider_list import AgeBand, event_band
 
 SAMPLE_PATH = Path(__file__).parent / "fixtures" / "sample-event-output.json"
 
@@ -1304,7 +1307,7 @@ class TestRoundNameHeats:
         final = preds[1]
         assert (final.heat_count, final.heat_basis) == (2, "round")
         assert final.estimated_duration_minutes == pytest.approx(
-            2 * PER_HEAT_DURATIONS[discipline] + get_changeover(discipline)
+            2 * get_per_heat_duration(discipline, event_band(name)) + get_changeover(discipline)
         )
         assert preds[0].heat_count is None
 
@@ -1460,3 +1463,152 @@ class TestBunchChangeover:
         assert keirin.estimated_duration_minutes == pytest.approx(
             2 * PER_HEAT_DURATIONS["keirin"] + CHANGEOVER_MINUTES["keirin"]
         )
+
+
+# ── Masters pace and per-heat durations by age band ───────────────────────────────────────
+
+
+class TestBunchRaceKmh:
+    @pytest.mark.parametrize(
+        ("band", "kmh"),
+        [
+            (None, BUNCH_RACE_KMH),
+            (AgeBand("M", 35, 39), 48.0),
+            (AgeBand("M", 65, None), 48.0),  # combined 65+ is paced by its youngest riders
+            (AgeBand("M", 70, 74), 41.5),
+            (AgeBand("M", 75, 79), 36.0),
+            (AgeBand("M", 80, None), 36.0),
+            (AgeBand("W", 35, 49), 43.5),
+            (AgeBand("W", 50, None), 41.0),
+            (AgeBand("W", 60, 64), 41.0),
+        ],
+    )
+    def test_pace_by_band(self, band, kmh):
+        assert bunch_race_kmh(band) == kmh
+
+    @pytest.mark.parametrize(
+        ("gender", "age", "kmh"),
+        [("M", 69, 48.0), ("M", 70, 41.5), ("M", 74, 41.5), ("M", 75, 36.0), ("W", 49, 43.5), ("W", 50, 41.0)],
+    )
+    def test_cut_points(self, gender, age, kmh):
+        assert bunch_race_kmh(AgeBand(gender, age, None)) == kmh
+
+    def test_unbanded_default_is_46(self):
+        assert BUNCH_RACE_KMH == 46.0
+
+
+class TestPerHeatByBand:
+    @pytest.mark.parametrize(
+        ("discipline", "name", "minutes"),
+        [
+            ("pursuit_2k", "60-64 Women Pursuit Qualifying", 4.5),
+            ("pursuit_2k", "70-74 Men Pursuit Final", PER_HEAT_DURATIONS["pursuit_2k"]),
+            ("pursuit_2k", "Master C Men Pursuit Final", PER_HEAT_DURATIONS["pursuit_2k"]),
+            ("time_trial_500", "75-79 Men 500m Time Trial Final", 2.75),
+            ("time_trial_500", "50-54 Women 500m Time Trial Final", PER_HEAT_DURATIONS["time_trial_500"]),
+            ("time_trial_500", "U17 Women 500m Time Trial", PER_HEAT_DURATIONS["time_trial_500"]),
+            ("team_sprint", "35-44 Women Team Sprint Qualifying", 3.5),
+            ("team_sprint", "75+ Men Team Sprint Qualifying", 3.5),
+            ("team_sprint", "Elite Men Team Sprint", PER_HEAT_DURATIONS["team_sprint"]),
+            ("team_pursuit", "55-64 Men Team Pursuit Final", PER_HEAT_DURATIONS["team_pursuit"]),
+            ("pursuit_3k", "40-44 Men Pursuit Final", PER_HEAT_DURATIONS["pursuit_3k"]),
+            ("keirin", "60-64 Men Keirin 1-6 Final", PER_HEAT_DURATIONS["keirin"]),
+        ],
+    )
+    def test_override_or_fallback(self, discipline, name, minutes):
+        assert get_per_heat_duration(discipline, event_band(name)) == minutes
+
+    @pytest.mark.parametrize(
+        ("discipline", "age", "minutes"),
+        [
+            ("pursuit_2k", 69, 4.5),
+            ("pursuit_2k", 70, PER_HEAT_DURATIONS["pursuit_2k"]),
+            ("time_trial_500", 69, PER_HEAT_DURATIONS["time_trial_500"]),
+            ("time_trial_500", 70, 2.75),
+        ],
+    )
+    def test_cut_points(self, discipline, age, minutes):
+        assert get_per_heat_duration(discipline, AgeBand("M", age, age + 4)) == minutes
+
+    def test_unknown_discipline_falls_back_to_default_duration(self):
+        assert get_per_heat_duration("unknown", AgeBand("M", 70, 74)) == DEFAULT_DURATIONS["unknown"]
+
+
+class TestBandedPredictions:
+    def _pred(self, competition_id: int, name: str, discipline: str):
+        event = Event(position=0, name=name, discipline=discipline, status=EventStatus.NOT_READY, is_special=False)
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=[event])
+        return predict_schedule(competition_id, [session]).sessions[0].event_predictions[0]
+
+    @pytest.mark.parametrize(
+        ("competition_id", "name", "kmh"),
+        [
+            (26151, "70-74 Men Points Race Final", 41.5),
+            (26152, "35-49 Women Points Race Final", 43.5),
+            (26153, "ME Points Race", 46.0),
+        ],
+    )
+    def test_distance_uses_band_pace(self, competition_id, name, kmh):
+        record_race_distance(competition_id, 1, 0, 10.0)
+        pred = self._pred(competition_id, name, "points_race")
+        assert pred.race_kmh == kmh
+        assert pred.estimated_duration_minutes == pytest.approx(10.0 / kmh * 60 + LIVE_BUNCH_CHANGEOVER_MINUTES)
+
+    @pytest.mark.parametrize(
+        ("competition_id", "name", "per_heat"),
+        [
+            (26154, "80-84 Men 500m Time Trial Final", 2.75),
+            (26155, "50-54 Men 500m Time Trial Final", 2.33),
+            (26156, "U17 Men 500m Time Trial", 2.33),
+        ],
+    )
+    def test_heat_count_uses_band_per_heat(self, competition_id, name, per_heat):
+        record_heat_count(competition_id, 1, 0, 6)
+        pred = self._pred(competition_id, name, "time_trial_500")
+        assert pred.per_heat_minutes == per_heat
+        assert pred.estimated_duration_minutes == pytest.approx(6 * per_heat)
+
+    def test_generated_gap_bounds_use_band_per_heat(self):
+        # 10 heats: banded expected 35 min (team sprint 3.5/heat), so a 65-min gap passes
+        # the 2.0× bound; at the unbanded 3.0/heat (expected 30) it wouldn't.
+        events = [
+            Event(
+                position=0, name="Elite Men Keirin", discipline="keirin", status=EventStatus.COMPLETED, is_special=False
+            ),
+            Event(
+                position=1,
+                name="35-44 Men Team Sprint Final",
+                discipline="team_sprint",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+            ),
+        ]
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        record_heat_count(26157, 1, 1, 10)
+        record_generated_time(26157, 1, 0, datetime(2026, 1, 1, 10, 0))
+        record_generated_time(26157, 1, 1, datetime(2026, 1, 1, 11, 5))
+        pred = predict_session(26157, session).event_predictions[1]
+        assert pred.is_observed
+        assert pred.estimated_duration_minutes == pytest.approx(65.0)
+
+    def test_active_heat_counter_uses_band_per_heat(self):
+        # Keirin (1 heat: 4.5 + 2.0) ends at 10:06:30; 3.2 min into the team sprint is still
+        # heat 1 at the masters 3.5 min per heat (heat 2 at the unbanded 3.0).
+        events = [
+            Event(
+                position=0, name="Elite Men Keirin", discipline="keirin", status=EventStatus.COMPLETED, is_special=False
+            ),
+            Event(
+                position=1,
+                name="35-44 Men Team Sprint Qualifying",
+                discipline="team_sprint",
+                status=EventStatus.UPCOMING,
+                is_special=False,
+            ),
+        ]
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        record_heat_count(26158, 1, 0, 1)
+        record_heat_count(26158, 1, 1, 4)
+        pred = predict_session(26158, session, now=datetime(2026, 1, 1, 10, 9, 42)).event_predictions[1]
+        assert pred.is_active
+        assert pred.active_heat == 1

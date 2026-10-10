@@ -25,6 +25,7 @@ from app.predictor import (
     record_heat_count,
     record_start_list_riders,
 )
+from app.rider_list import event_band
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ class TestRiderMatching:
     def test_case_insensitive_matching(self):
         """'Sean Hall' matches entry 'HALL Sean' (case-insensitive)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), None, DISCIPLINE, None)
         assert match is not None
         assert isinstance(match, RiderMatch)
         assert match.heat == 1
@@ -117,52 +118,68 @@ class TestRiderMatching:
     def test_order_independent_matching(self):
         """'Hall Sean' matches entry 'HALL Sean' (order-independent)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Hall Sean"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Hall Sean"), None, DISCIPLINE, None)
         assert match is not None
         assert match.heat == 1
 
     def test_no_match_partial_name(self):
         """Partial name 'Sean' does NOT match 'HALL Sean' (requires full name)."""
         seed_riders(0, [("HALL Sean", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean"), None, DISCIPLINE, None)
         assert match is None
 
     def test_no_match_empty_input(self):
         """Empty frozenset returns None."""
         seed_riders(0, [("HALL Sean", 1)])
-        assert get_rider_match(COMP_ID, SESSION_ID, 0, frozenset(), None, DISCIPLINE) is None
+        assert get_rider_match(COMP_ID, SESSION_ID, 0, frozenset(), None, DISCIPLINE, None) is None
 
     def test_per_heat_predicted_start(self):
         """heat_predicted_start = event_start + (heat - 1) * per_heat_duration."""
         seed_riders(0, [("HALL Sean", 3)])
         record_heat_count(COMP_ID, SESSION_ID, 0, 4)
         event_start = datetime(2024, 6, 1, 18, 30, 0)
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
+        match = get_rider_match(
+            COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), event_start, DISCIPLINE, None
+        )
         assert match is not None
-        phd = get_per_heat_duration(DISCIPLINE)
+        phd = get_per_heat_duration(DISCIPLINE, None)
         expected = event_start + timedelta(minutes=(3 - 1) * phd)
         assert match.heat_predicted_start == expected
+
+    def test_per_heat_predicted_start_uses_band(self):
+        """A masters band's per-heat override sets the heat start (team sprint 3.5 min)."""
+        seed_riders(0, [("HALL Sean", 3)])
+        record_heat_count(COMP_ID, SESSION_ID, 0, 4)
+        event_start = datetime(2024, 6, 1, 18, 30, 0)
+        band = event_band("35-44 Men Team Sprint Qualifying")
+        match = get_rider_match(
+            COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), event_start, "team_sprint", band
+        )
+        assert match is not None
+        assert match.heat_predicted_start == event_start + timedelta(minutes=2 * 3.5)
 
     def test_single_heat_returns_event_start(self):
         """When heat_count=1, heat_predicted_start equals event_start."""
         seed_riders(0, [("HALL Sean", 1)])
         record_heat_count(COMP_ID, SESSION_ID, 0, 1)
         event_start = datetime(2024, 6, 1, 18, 30, 0)
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), event_start, DISCIPLINE)
+        match = get_rider_match(
+            COMP_ID, SESSION_ID, 0, normalize_rider_name("Sean Hall"), event_start, DISCIPLINE, None
+        )
         assert match is not None
         assert match.heat_predicted_start == event_start
 
     def test_apostrophe_name_matches(self):
         """'OBrien' matches 'O'BRIEN Liam' (apostrophe stripping)."""
         seed_riders(0, [("O'BRIEN Liam", 2)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("OBrien Liam"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("OBrien Liam"), None, DISCIPLINE, None)
         assert match is not None
         assert match.heat == 2
 
     def test_diacritics_name_matches(self):
         """'Muller' matches 'MÜLLER Hans' (Unicode NFKD normalization)."""
         seed_riders(0, [("MÜLLER Hans", 1)])
-        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Muller Hans"), None, DISCIPLINE)
+        match = get_rider_match(COMP_ID, SESSION_ID, 0, normalize_rider_name("Muller Hans"), None, DISCIPLINE, None)
         assert match is not None
         assert match.heat == 1
 
@@ -552,7 +569,7 @@ class TestRiderListHeats:
         assert pred.heat_count == 2
         assert pred.heat_basis == "rider_list"
         assert pred.estimated_duration_minutes == pytest.approx(
-            2 * get_per_heat_duration("pursuit_2k") + get_changeover("pursuit_2k")
+            2 * get_per_heat_duration("pursuit_2k", event_band("55-59 Women")) + get_changeover("pursuit_2k")
         )
 
     def test_start_list_heat_count_wins(self):
