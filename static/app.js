@@ -1,11 +1,19 @@
 // Page behaviour for every template. Loaded from <head> without defer so the theme is set
 // before first paint; everything else waits for DOMContentLoaded. Inline scripts and
 // on* attributes are blocked by the Content-Security-Policy (app.main.security_headers).
-(function () {
-  var match = document.cookie.match(/theme=(light|dark)/);
-  var theme = match ? match[1] : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  document.documentElement.setAttribute('data-theme', theme);
-})();
+// The theme follows the system preference unless the theme cookie overrides it.
+var systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+function systemTheme() {
+  return systemDark.matches ? 'dark' : 'light';
+}
+
+function savedTheme() {
+  var match = document.cookie.match(/(?:^|;\s*)theme=(light|dark)/);
+  return match ? match[1] : null;
+}
+
+document.documentElement.setAttribute('data-theme', savedTheme() || systemTheme());
 
 document.addEventListener('DOMContentLoaded', function () {
   initThemeToggle();
@@ -20,11 +28,20 @@ document.addEventListener('DOMContentLoaded', function () {
 function initThemeToggle() {
   var toggle = document.getElementById('theme-toggle');
   if (!toggle) return;
+  function apply(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    toggle.checked = theme === 'dark';
+  }
   toggle.checked = document.documentElement.getAttribute('data-theme') === 'dark';
   toggle.addEventListener('change', function () {
     var theme = toggle.checked ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', theme);
-    document.cookie = 'theme=' + theme + ';path=/;max-age=31536000;SameSite=Lax';
+    apply(theme);
+    // Choosing the system's theme clears the override, so the page follows the system again.
+    var maxAge = theme === systemTheme() ? 0 : 31536000;
+    document.cookie = 'theme=' + theme + ';path=/;max-age=' + maxAge + ';SameSite=Lax';
+  });
+  systemDark.addEventListener('change', function () {
+    if (!savedTheme()) apply(systemTheme());
   });
 }
 
