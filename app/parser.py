@@ -384,11 +384,25 @@ def _needs_decider(timed: int, wins: list[int]) -> bool:
     return timed >= 3 or wins == [1, 1]
 
 
+def parse_sprint_decider_range(html: str) -> tuple[int, int] | None:
+    """(pairs known to need a decider, pairs yet to ride Ride 2) on a best-of-3 round's page.
+
+    A pair that has ridden Ride 2 needs a decider when it rode one or each rider won
+    once; one still to ride Ride 2 may or may not. Works on the result page and on the
+    live timing page, which updates heat by heat during Ride 2. None for any page
+    without a Decider column.
+    """
+    pairs = _sprint_pairs(html)
+    if pairs is None:
+        return None
+    known = sum(1 for timed, wins in pairs if timed >= 2 and _needs_decider(timed, wins))
+    return known, sum(1 for timed, _ in pairs if timed < 2)
+
+
 def parse_sprint_deciders(html: str) -> int | None:
     """
     Count the pairs in a best-of-3 sprint round that need (or rode) a decider.
 
-    A pair needs a decider when it rode one or each rider won once (_sprint_pairs).
     Returns None until every pair has ridden Ride 2, or for any other page.
     """
     pairs = _sprint_pairs(html)

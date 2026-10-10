@@ -97,6 +97,12 @@ _race_distances: dict[tuple[int, int, int], float] = {}
 # Key: (competition_id, round name without "Ride N"), Value: number of deciders
 _sprint_deciders: dict[tuple[int, str], int] = {}
 
+# Partial decider counts while a best-of-3 round's Ride 2 is ridden, from its live timing or
+# result page (parser.parse_sprint_decider_range): (pairs known to need a decider, pairs yet
+# to ride Ride 2). The most progressed reading is kept.
+# Key: (competition_id, round name without "Ride N"), Value: (known, open)
+_sprint_decider_ranges: dict[tuple[int, str], tuple[int, int]] = {}
+
 # Rides (0-3) every pair of a best-of-3 sprint round has finished, from its shared result
 # page (parser.parse_sprint_rides_done). Upstream shows every ride as having results once
 # Ride 1 does, so apply_sprint_ride_status uses this instead.
@@ -285,6 +291,21 @@ def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) 
     _sprint_deciders[(competition_id, round_name)] = deciders
 
 
+def record_sprint_decider_range(competition_id: int, round_name: str, known: int, open_pairs: int) -> None:
+    """Store a sprint round's partial decider count; once no pair is left to ride Ride 2 it's exact.
+
+    A reading with more pairs still to ride Ride 2 than the stored one (a result page that
+    lags the live page) is ignored.
+    """
+    key = (competition_id, round_name)
+    stored = _sprint_decider_ranges.get(key)
+    if stored is not None and open_pairs > stored[1]:
+        return
+    _sprint_decider_ranges[key] = (known, open_pairs)
+    if open_pairs == 0:
+        record_sprint_deciders(competition_id, round_name, known)
+
+
 def record_sprint_rides_done(competition_id: int, round_name: str, rides: int) -> None:
     """Store how many rides of a sprint round every pair has finished."""
     _sprint_rides_done[(competition_id, round_name)] = rides
@@ -332,6 +353,7 @@ class _Estimate(NamedTuple):
     kmh: float | None = None  # pace used with km
     km_basis: DistanceBasis | None = None
     per_heat: float | None = None  # minutes per heat used with heats
+    deciders_known: int | None = None  # with "decider_pairs": pairs already tied after Ride 2
 
 
 def _base_estimate(
@@ -377,6 +399,12 @@ def _base_estimate(
             deciders = _sprint_deciders.get((competition_id, ride[0]))
             if deciders is not None:
                 return _Estimate(deciders * SPRINT_DECIDER_MINUTES, deciders, "decider")
+            decider_range = _sprint_decider_ranges.get((competition_id, ride[0]))
+            if decider_range is not None and sum(decider_range) > 0:
+                # During Ride 2: tied pairs ride a decider, the rest still at the expected rate.
+                known, open_pairs = decider_range
+                minutes = (known + open_pairs * SPRINT_DECIDER_RATE) * SPRINT_DECIDER_MINUTES
+                return _Estimate(minutes, known + open_pairs, "decider_pairs", deciders_known=known)
             if pairs is None:
                 pairs = _get_duration(event.discipline, learned) / phd
             return _Estimate(pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, round(pairs), "decider_pairs")
@@ -953,6 +981,7 @@ def predict_session(
                 race_kmh=est.kmh if est else None,
                 distance_basis=est.km_basis if est else None,
                 per_heat_minutes=est.per_heat if est else None,
+                deciders_known=est.deciders_known if est else None,
                 podium_count=podium_list[i],
                 is_active=is_active,
                 active_heat=active_heat,

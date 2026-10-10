@@ -1,6 +1,7 @@
 """Tests for app/parser.py using event 26008 sample data."""
 
 import json
+import re
 from datetime import datetime, time
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from app.parser import (
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
+    parse_sprint_decider_range,
     parse_sprint_deciders,
     parse_sprint_rides_done,
     parse_start_list,
@@ -340,17 +342,23 @@ class TestParseRaceDistanceKm:
 # ── parse_sprint_deciders ─────────────────────────────────────────────────────
 
 
-def _blank_rides(html: str, keep: int) -> str:
-    """Blank every ride column after the first ``keep`` (Ride 1, Ride 2, Decider) in a sprint result page.
+def _blank_rides(html: str, keep: int, from_pair: int = 0) -> str:
+    """Blank every ride column after the first ``keep`` (Ride 1, Ride 2, Decider) in a sprint result page,
+    for the pairs from index ``from_pair`` on.
 
     The captured pages were saved after the decider was ridden; this recreates the page
     as it stood earlier in the round.
     """
     soup = BeautifulSoup(html, "html.parser")
     tbody = soup.find("tbody")
+    pair = -1
     for row in tbody.find_all("tr"):
-        for td in row.find_all("td", recursive=False)[-3:][keep:]:
-            td.clear()
+        cells = row.find_all("td", recursive=False)
+        if cells and re.match(r"^(?:Heat\s+\d+|Final\s+\d+-\d+)$", cells[0].get_text(" ", strip=True)):
+            pair += 1
+        if pair >= from_pair:
+            for td in cells[-3:][keep:]:
+                td.clear()
     return str(soup)
 
 
@@ -410,6 +418,38 @@ class TestParseLiveSprintHeat:
     def test_page_without_decider_column(self):
         jxn = json.loads((_FIXTURES / "live-results-26037-pursuit-heat-10-of-11.json").read_text())
         assert parse_live_sprint_heat(parse_live_results_html(jxn), 1) is None
+
+
+class TestParseSprintDeciderRange:
+    QF = FIXTURE_DIR / "result-sprint-quarter-final-26037.html"
+
+    def test_before_ride_2(self):
+        assert parse_sprint_decider_range(_blank_rides(self.QF.read_text(), keep=1)) == (0, 4)
+
+    def test_part_way_through_ride_2(self):
+        """Heats 1-2 won 2-0, heats 3-4 still to ride Ride 2."""
+        html = _blank_rides(_blank_rides(self.QF.read_text(), keep=2), keep=1, from_pair=2)
+        assert parse_sprint_decider_range(html) == (0, 2)
+
+    def test_tied_pair_known_before_ride_2_ends(self):
+        """Heat 3 tied at a win each after Ride 2; heat 4 still to ride it."""
+        html = _blank_rides(_blank_rides(self.QF.read_text(), keep=2), keep=1, from_pair=3)
+        assert parse_sprint_decider_range(html) == (1, 1)
+
+    def test_after_ride_2(self):
+        assert parse_sprint_decider_range(self.QF.read_text()) == (1, 0)
+
+    def test_bye_left_out(self):
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-ride1-bye-26037.html").read_text()
+        assert parse_sprint_decider_range(html) == (0, 3)
+
+    def test_live_page(self):
+        jxn = json.loads((_FIXTURES / "live-results-26037-sprint-ride2-none-done.json").read_text())
+        assert parse_sprint_decider_range(parse_live_results_html(jxn)) == (0, 4)
+
+    def test_non_sprint_page(self):
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_sprint_decider_range(html) is None
 
 
 class TestParseSprintRidesDone:

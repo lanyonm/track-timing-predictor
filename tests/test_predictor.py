@@ -38,6 +38,7 @@ from app.predictor import (
     record_live_heat,
     record_observed_duration,
     record_race_distance,
+    record_sprint_decider_range,
     record_sprint_deciders,
     save_live_durations,
     update_status_cache,
@@ -1370,6 +1371,29 @@ class TestSprintRide3:
         ride3 = predict_session(26114, self._session()).event_predictions[1]
         assert ride3.estimated_duration_minutes == 0.0
         assert ride3.heat_count == 0
+
+    def test_partial_deciders_during_ride_2(self):
+        """One pair tied after Ride 2, two still to ride it: 1 + 2 × rate expected deciders."""
+        record_heat_count(26116, 1, 1, 4)
+        record_sprint_decider_range(26116, self.ROUND, 1, 2)
+        ride3 = predict_session(26116, self._session()).event_predictions[1]
+        expected = (1 + 2 * SPRINT_DECIDER_RATE) * SPRINT_DECIDER_MINUTES
+        assert ride3.estimated_duration_minutes == pytest.approx(expected)
+        assert (ride3.heat_count, ride3.heat_basis, ride3.deciders_known) == (3, "decider_pairs", 1)
+
+    def test_partial_range_ignores_staler_reading(self):
+        """A result page lagging the live page (more pairs left to ride Ride 2) doesn't undo progress."""
+        record_sprint_decider_range(26117, self.ROUND, 1, 1)
+        record_sprint_decider_range(26117, self.ROUND, 0, 4)
+        ride3 = predict_session(26117, self._session()).event_predictions[1]
+        assert (ride3.heat_count, ride3.deciders_known) == (2, 1)
+
+    def test_range_exact_once_ride_2_done(self):
+        record_sprint_decider_range(26118, self.ROUND, 1, 1)
+        record_sprint_decider_range(26118, self.ROUND, 2, 0)
+        ride3 = predict_session(26118, self._session()).event_predictions[1]
+        assert (ride3.heat_count, ride3.heat_basis) == (2, "decider")
+        assert ride3.estimated_duration_minutes == pytest.approx(2 * SPRINT_DECIDER_MINUTES)
 
     def test_ride_2_unaffected(self):
         record_heat_count(26115, 1, 0, 4)

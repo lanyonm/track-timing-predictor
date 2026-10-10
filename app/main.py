@@ -65,7 +65,7 @@ from app.parser import (
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
-    parse_sprint_deciders,
+    parse_sprint_decider_range,
     parse_sprint_rides_done,
     parse_start_list,
 )
@@ -88,7 +88,7 @@ from app.predictor import (
     record_race_distance,
     record_rider_list,
     record_rider_list_failure,
-    record_sprint_deciders,
+    record_sprint_decider_range,
     record_sprint_rides_done,
     record_start_list_categories,
     record_start_list_riders,
@@ -247,6 +247,9 @@ async def _fetch_live_heats(
                     heat = parse_live_sprint_heat(html, ride[1]) if ride else None
                     if heat is None:
                         heat = parse_live_heat(html)
+                    # Ride 2's page shows which pairs are already tied (or not) for the decider.
+                    if ride and ride[1] == 2 and (decider_range := parse_sprint_decider_range(html)) is not None:
+                        record_sprint_decider_range(ev_id, ride[0], *decider_range)
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:
@@ -360,8 +363,6 @@ async def _fetch_result_pages(
             try:
                 gen_time = parse_generated_time(html)
                 finish_time = parse_finish_time(html)
-                deciders: int | None = None
-                deciders_parsed = False
                 rides = [r for _, _, d, n in slots if d == "sprint_match" and (r := split_ride(n)) is not None]
                 rides_done = parse_sprint_rides_done(html) if rides else None
                 if rides_done is not None:
@@ -376,11 +377,10 @@ async def _fetch_result_pages(
                         observed.append(
                             record_observed_duration(competition_id, sess_id, pos, finish_time, discipline, name)
                         )
-                    if discipline == "sprint_match" and (ride := split_ride(name)) is not None:
-                        if not deciders_parsed:
-                            deciders, deciders_parsed = parse_sprint_deciders(html), True
-                        if deciders is not None:
-                            record_sprint_deciders(competition_id, ride[0], deciders)
+                if rides:
+                    decider_range = parse_sprint_decider_range(html)
+                    if decider_range is not None:
+                        record_sprint_decider_range(competition_id, rides[0][0], *decider_range)
             except Exception:
                 logger.warning("Failed to parse result page %s for event %d", url, competition_id, exc_info=True)
 

@@ -25,6 +25,7 @@ from app.predictor import (
     _race_distances,
     _rider_list_retry_at,
     _rider_lists,
+    _sprint_decider_ranges,
     _sprint_deciders,
     _sprint_rides_done,
     _start_list_categories,
@@ -35,6 +36,7 @@ from app.predictor import (
     record_heat_count,
     record_live_heat,
     record_race_distance,
+    record_sprint_decider_range,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -77,6 +79,7 @@ def clear_predictor_caches():
     _start_list_riders.clear()
     _start_list_categories.clear()
     _sprint_deciders.clear()
+    _sprint_decider_ranges.clear()
     _sprint_rides_done.clear()
     _race_distances.clear()
     _rider_lists.clear()
@@ -976,6 +979,37 @@ class TestFetchLiveHeats:
 
     def test_page_for_another_event_ignored(self):
         assert self._run("75-79 Men Sprint 1/4 Final Ride 1") is None
+
+    def test_ride_2_page_records_decider_range(self):
+        self._run("75-79 Men Sprint 1/4 Final Ride 2")
+        assert _sprint_decider_ranges[(1, "75-79 Men Sprint 1/4 Final")] == (0, 4)
+
+
+class TestDeciderLabel:
+    def test_partial_deciders_label(self):
+        round_name = "75-79 Men Sprint 1/4 Final"
+        events = [
+            Event(
+                position=p,
+                name=f"{round_name} Ride {n}",
+                discipline="sprint_match",
+                status=EventStatus.NOT_READY,
+                is_special=False,
+            )
+            for p, n in ((0, 2), (1, 3))
+        ]
+        record_sprint_decider_range(26181, round_name, 1, 2)
+        session = Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+        html = main_module.templates.get_template("_schedule_body.html").render(
+            schedule=predict_schedule(26181, [session]),
+            competition_id=26181,
+            now=datetime(2026, 1, 1, 9, 0),
+            palmares_count=0,
+            racer_encoded="",
+        )
+        text = " ".join(html.split())
+        assert "1–3 deciders est." in text
+        assert "1 pair tied after Ride 2; any of the 2 still to ride Ride 2 may need a decider" in text
 
 
 class TestActiveHeatLabel:
