@@ -19,7 +19,7 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 8. When results are posted, refines completed-event durations using the race's actual Finish Time, or the gap between consecutive result-page timestamps, and calibrates the competition's bunch-race changeover from them
 9. Auto-refreshes every 30 seconds so predictions stay current throughout the day
 
-The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N km** (a points or scratch race's start-list distance), **N deciders** (sprint Ride 3 after Ride 2), **0–N deciders est.** (sprint Ride 3 before Ride 2), **~N heats est.** (heats estimated from a round name or the Rider List), **N podiums** (medal ceremonies), or **est.** (default/learned fallback). Hover the label for how the duration was worked out.
+The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N km** (a points or scratch race's start-list distance), **N deciders** (sprint Ride 3 after Ride 2), **0–N deciders est.** (sprint Ride 3 before Ride 2), **~N heats est.** (heats estimated from a round name, the Rider List or a pre-event team entry list), **N podiums** (medal ceremonies), or **est.** (default/learned fallback). Hover the label for how the duration was worked out.
 
 ## Taxonomy
 
@@ -124,6 +124,8 @@ app/
 ├── predictor.py     # Prediction algorithm and live delay detection
 ├── rider_list.py    # Rider List fallback matching (age band, gender, event codes)
 ├── ceremonies.py    # Medal ceremony podium forecasting
+├── fields.py        # Pre-event field sizes → team-event heat counts
+├── data/fields/     # Committed per-competition field sizes (<competition_id>.json)
 ├── disciplines.py   # Discipline detection and default duration estimates
 ├── categorizer.py   # Compositional event name parser (bilingual, used by tools/)
 ├── database.py      # SQLite/DynamoDB storage for learned durations
@@ -135,7 +137,8 @@ app/
 tools/
 ├── extract_competition.py  # CLI: competition ID → JSON report
 ├── load_durations.py       # CLI: JSON reports → learning database
-└── rebuild_aggregates.py   # CLI: recompute DynamoDB aggregates from OBS# items
+├── rebuild_aggregates.py   # CLI: recompute DynamoDB aggregates from OBS# items
+└── import_fullgas_teams.py # One-off: 26037 team entry list → app/data/fields/26037.json
 data/
 └── competitions/    # Extracted JSON reports (gitignored)
 static/
@@ -159,7 +162,7 @@ Each event's slot duration is determined by the first available source:
    - Heat count × a per-heat duration constant. Masters events with an age band in the name (`70-74 Men`) use their own value where the data differs: 2 km pursuits under 70 (4.5 min), 500 m time trials 70+ (2.75) and team sprints (3.5). Medal finals label their heats `Final 3-4`/`Final 1-2` (sprints) or `For Bronze`/`For Gold` (pursuits, team events).
    - Points and scratch races use their distance from the start list title (`- 10km - 40 Laps`) at 46 km/h, plus changeover. Masters races with an age band go at their group's pace, set by the youngest age in the band: men under 70 48 km/h, 70-74 41.5, 75+ 36; women under 50 43.5, 50+ 41. Shown as **N km**; the tooltip names the pace.
    - A best-of-3 sprint `Ride 3` is ridden only by pairs tied 1–1: 4.25 min per decider once Ride 2's results show how many (shown as **N deciders**), else 12% of the pairs (shown as **0–N deciders est.**).
-   - Before the start list is posted, the round name gives the heats where it's fixed: sprint 1/2 Finals and Finals count 2 pairs and 1/4 Finals 4; pursuit, team pursuit and team sprint finals after a qualifying round 2 heats (bronze and gold); keirin placement finals (1-6, 7-12) 1 heat and 1/2 Finals 2. Masters sprint and pursuit qualifying rounds and time trials are sized from the Rider List: one heat per sprinter, one per two pursuiters or time triallists entered in the age band. Shown as **~N heats est.**
+   - Before the start list is posted, the round name gives the heats where it's fixed: sprint 1/2 Finals and Finals count 2 pairs and 1/4 Finals 4; pursuit, team pursuit and team sprint finals after a qualifying round 2 heats (bronze and gold); keirin placement finals (1-6, 7-12) 1 heat and 1/2 Finals 2. Masters sprint and pursuit qualifying rounds and time trials are sized from the Rider List: one heat per sprinter, one per two pursuiters or time triallists entered in the age band. Team qualifying rounds are sized from a committed pre-event entry list when the competition has one (`app/data/fields/<id>.json`, so far 26037): one heat per team, and 1 heat for a team final with two or fewer teams. Shown as **~N heats est.**
 4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
 
 **Medal ceremonies** at masters competitions take 13 min plus 3.3 min per podium. The podium count is forecast from the finals since the previous ceremony, with combined-age races split by category. Shown as **N podiums** in the UI. See [docs/medal-ceremony-durations.md](docs/medal-ceremony-durations.md).
@@ -187,6 +190,15 @@ python -m tools.load_durations data/competitions/26008.json
 The extraction script decomposes event names (e.g. `"Elite/Junior Women Scratch Race / Omni I"`) into structured categories — discipline, classification, gender, round — using a bilingual parser that handles both English and French naming. Durations are computed from result-page finish times, consecutive generated timestamps, or start-list heat counts (same priority as the live app).
 
 The loader validates each observation against [0.5x, 2.0x] bounds of the expected duration (heat-count-derived when available, static default otherwise) and writes to the learning database with structured category info. On first run against an existing database with duplicate rows from live learning, it prompts to deduplicate (or use `--force` to skip the prompt). Re-loading corrected data overwrites previous values. The database stores averages at four levels of granularity (discipline + classification + gender down to discipline only), and `get_learned_duration_cascading()` can query them. The live app currently reads only the discipline-level average.
+
+## Pre-event field sizes
+
+Some competitions publish team-event entries off tracktiming.live before start lists exist. A one-off importer turns such a page into `app/data/fields/<competition_id>.json`, which is committed and deployed with the app (nothing is fetched at runtime). Each source needs its own importer; the JSON format (`CompetitionFields` in `app/models.py`) stays the same:
+
+```bash
+curl -sL https://fullgascycling.co.uk/team-events/ -o team-events.html
+python -m tools.import_fullgas_teams team-events.html 26037
+```
 
 If the DynamoDB aggregates ever drift from the stored observations, `python -m tools.rebuild_aggregates` recomputes them (dry run by default, `--apply` to write).
 

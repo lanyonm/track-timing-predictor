@@ -23,9 +23,11 @@ from app.disciplines import (
     split_ride,
     sprint_round_pairs,
 )
+from app.fields import heats_from_fields, load_fields
 from app.models import (
     Event,
     EventStatus,
+    FieldSize,
     HeatBasis,
     NextRace,
     Prediction,
@@ -292,7 +294,8 @@ def _base_estimate(
     start-list distance runs at bunch_race_kmh(band); per-heat minutes come from
     get_per_heat_duration with the same band.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs),
-    and other events' heats from inferred (infer_heats: Rider List entrants or the round name).
+    and other events' heats from inferred (infer_heats: Rider List entrants, field sizes or the
+    round name).
     A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
     decider once Ride 2 is posted, else per expected decider (pairs × SPRINT_DECIDER_RATE).
     """
@@ -325,15 +328,18 @@ def _base_estimate(
 
 
 def infer_heats(
-    sessions: list[Session], rider_list: list[RiderListEntry] | None
+    sessions: list[Session],
+    rider_list: list[RiderListEntry] | None,
+    fields: list[FieldSize] | None = None,
 ) -> dict[tuple[int, int], tuple[int, HeatBasis]]:
     """Heat counts for events without a start list, keyed by (session_id, position).
 
     From the round name: a pursuit, team pursuit or team sprint final that follows a
     qualifying round of the same name is ridden for bronze and gold (2 heats), and a keirin
-    round's heats come from keirin_round_heats. From the Rider List: individual qualifying
-    rounds and time trials (rider_list.estimate_heats). Sprint rounds are sized in
-    _base_estimate, since a Ride 3 depends on them.
+    round's heats come from keirin_round_heats. From committed field sizes: team qualifying
+    rounds and small team finals (fields.heats_from_fields), replacing the round name. From
+    the Rider List: individual qualifying rounds and time trials (rider_list.estimate_heats).
+    Sprint rounds are sized in _base_estimate, since a Ride 3 depends on them.
     """
     names = {e.name for s in sessions for e in s.events}
     heats: dict[tuple[int, int], tuple[int, HeatBasis]] = {}
@@ -346,6 +352,8 @@ def infer_heats(
                 n = keirin_round_heats(e.name)
             if n is not None:
                 heats[(s.session_id, e.position)] = (n, "round")
+    if fields:
+        heats.update({k: (n, "entry_list") for k, n in heats_from_fields(fields, sessions).items()})
     if rider_list:
         heats.update({k: (n, "rider_list") for k, n in estimate_heats(rider_list, sessions).items()})
     return heats
@@ -825,7 +833,7 @@ def predict_schedule(
     categories = {(s, p): c for (comp, s, p), c in _start_list_categories.items() if comp == competition_id}
     ceremony_podiums = forecast_podiums(sessions, categories, rider_list)
     changeover = bunch_changeover(competition_id, sessions)
-    inferred_heats = infer_heats(sessions, rider_list)
+    inferred_heats = infer_heats(sessions, rider_list, load_fields(competition_id))
 
     session_predictions = []
     total_events_without_start_lists = 0

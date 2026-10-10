@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
-from datetime import datetime, time
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Literal
 
@@ -9,9 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
 # Where a pre-result heat count came from: a start list, Rider List entrants (estimated),
-# the round name (estimated), Ride 2 results (sprint deciders), or, for a sprint Ride 3
-# before Ride 2 is posted, the round's pairs (each may need a decider).
-HeatBasis = Literal["start_list", "rider_list", "round", "decider", "decider_pairs"]
+# a committed pre-event entry list (estimated, app/fields.py), the round name (estimated),
+# Ride 2 results (sprint deciders), or, for a sprint Ride 3 before Ride 2 is posted, the
+# round's pairs (each may need a decider).
+HeatBasis = Literal["start_list", "rider_list", "entry_list", "round", "decider", "decider_pairs"]
 Gender = Literal["men", "women", "open"]
 
 
@@ -88,6 +89,27 @@ class RiderListEntry(_NamedRider):
 
     category: str
     codes: frozenset[str]
+
+
+class FieldSize(BaseModel):
+    """Entries (teams or riders) in one discipline, gender and age band, from a pre-event list."""
+
+    model_config = ConfigDict(frozen=True)
+
+    discipline: str  # discipline key from disciplines.detect_discipline
+    gender: Literal["M", "W"]
+    lo: int
+    hi: int | None  # None = open upper bound
+    entries: int = Field(ge=1)
+
+
+class CompetitionFields(BaseModel):
+    """A competition's field sizes, captured once by a tools/ importer (app/data/fields/<id>.json)."""
+
+    competition_id: int
+    source: str  # where the entries were captured from
+    captured: date
+    fields: list[FieldSize]
 
 
 class RiderMatch(BaseModel):

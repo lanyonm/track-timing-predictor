@@ -1,0 +1,133 @@
+{
+  "competition_id": 26037,
+  "source": "https://fullgascycling.co.uk/team-events/",
+  "captured": "2026-10-10",
+  "fields": [
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 35,
+      "hi": 44,
+      "entries": 5
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 45,
+      "hi": 54,
+      "entries": 8
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 55,
+      "hi": 64,
+      "entries": 7
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 65,
+      "hi": 74,
+      "entries": 8
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 75,
+      "hi": null,
+      "entries": 4
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 35,
+      "hi": 44,
+      "entries": 5
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 45,
+      "hi": 54,
+      "entries": 6
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 55,
+      "hi": 64,
+      "entries": 1
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 65,
+      "hi": null,
+      "entries": 1
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 35,
+      "hi": 44,
+      "entries": 6
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 45,
+      "hi": 54,
+      "entries": 5
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 55,
+      "hi": 64,
+      "entries": 6
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 65,
+      "hi": 74,
+      "entries": 6
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 75,
+      "hi": null,
+      "entries": 2
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 35,
+      "hi": 44,
+      "entries": 2
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 45,
+      "hi": 54,
+      "entries": 3
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 55,
+      "hi": 64,
+      "entries": 1
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 65,
+      "hi": null,
+      "entries": 1
+    }
+  ]
+}
