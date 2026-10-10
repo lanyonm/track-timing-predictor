@@ -364,3 +364,48 @@ async def test_generated_gap_uses_earlier_audit_timestamp():
     second = report.sessions[0].events[1]
     assert second.duration_source == "generated_diff"
     assert second.duration_minutes == pytest.approx(int(expected))
+
+
+@pytest.mark.asyncio
+async def test_sprint_rides_sharing_a_result_page_skip_generated_gaps():
+    """Post-event, every ride of a best-of-3 round carries the shared page's final Generated time."""
+
+    def event(pos: int, name: str, discipline: str, page: str) -> Event:
+        return Event(
+            position=pos,
+            name=name,
+            discipline=discipline,
+            status=EventStatus.COMPLETED,
+            is_special=False,
+            result_url=f"results/E1/{page}-R.htm",
+        )
+
+    events = [
+        event(1, "Men Keirin Final", "keirin", "K"),
+        *(event(1 + r, f"Men Sprint 1/2 Final Ride {r}", "sprint_match", "S") for r in (1, 2, 3)),
+        event(5, "Women Scratch Race Final", "scratch_race", "W"),
+    ]
+    session = Session(session_id=1, day="Day", scheduled_start=datetime(2026, 1, 1, 10).time(), events=events)
+    pages = {
+        "results/E1/K-R.htm": "10:00:00",
+        # All three rides ended by 10:20; Ride 1 alone would read 20 min, inside sprint_match's bounds
+        "results/E1/S-R.htm": "10:20:00",
+        "results/E1/W-R.htm": "10:32:00",
+    }
+
+    async def page(_client, path):
+        return f"<p>Generated: 2026-01-01 {pages[path]}</p>" if path in pages else ""
+
+    with (
+        patch("tools.extract_competition.fetch_initial_layout", new_callable=AsyncMock, return_value={}),
+        patch("tools.extract_competition.parse_schedule", return_value=[session]),
+        patch("tools.extract_competition.fetch_page_html", new=page),
+    ):
+        report, _ = await extract_competition(1)
+
+    by_pos = {e.position: e for e in report.sessions[0].events}
+    for pos in (2, 3, 4):
+        assert by_pos[pos].duration_source != "generated_diff"
+    # The event after the round still measures from the shared page's Generated
+    assert by_pos[5].duration_source == "generated_diff"
+    assert by_pos[5].duration_minutes == pytest.approx(12.0)
