@@ -24,6 +24,7 @@ from app.disciplines import (
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
 from app.predictor import (
+    ACTIVE_MIN_REMAINING_MINUTES,
     _add_minutes,
     _compute_delay,
     bunch_changeover,
@@ -184,6 +185,134 @@ class TestComputeDelay:
 # LIVE_BUNCH_CHANGEOVER_MINUTES until a competition has enough races to calibrate it.
 BUNCH_SHIFT = LIVE_BUNCH_CHANGEOVER_MINUTES - CHANGEOVER_MINUTES["scratch_race"]
 SCRATCH_SLOT = DEFAULT_DURATIONS["scratch_race"] + BUNCH_SHIFT
+
+
+def _minutes_between(a: time, b: time) -> float:
+    return (b.hour * 3600 + b.minute * 60 + b.second - (a.hour * 3600 + a.minute * 60 + a.second)) / 60.0
+
+
+class TestActiveEventStart:
+    """The active event starts at the last completed event's Generated timestamp, not now.
+
+    Replays 26037 Saturday morning: two sprint qualifying rounds, then 65-69 Men Pursuit
+    Qualifying (11 heats × 4.5 = 49.5 min), viewed at 10:42 while heat 5 runs. The 80+
+    round's result page was generated at 10:24:44, so the pursuit started then; assuming
+    it started at 10:42 put every later event 18 minutes late.
+    """
+
+    DAY = datetime(2026, 10, 10)
+
+    def _session(self, middle: list[Event] | None = None) -> Session:
+        events = [
+            Event(
+                position=1,
+                name="75-79 Men Sprint Qualifying",
+                discipline="sprint_qualifying",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+            ),
+            Event(
+                position=2,
+                name="80+ Men Sprint Qualifying",
+                discipline="sprint_qualifying",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+            ),
+            *(middle or []),
+            Event(
+                position=10,
+                name="65-69 Men Pursuit Qualifying",
+                discipline="pursuit_2k",
+                status=EventStatus.UPCOMING,
+                is_special=False,
+            ),
+            Event(
+                position=11,
+                name="75-79 Men Sprint 1/4 Final Ride 1",
+                discipline="sprint_match",
+                status=EventStatus.UPCOMING,
+                is_special=False,
+            ),
+        ]
+        return Session(session_id=1, day="Saturday", scheduled_start=time(10, 0), events=events)
+
+    def _setup(self, competition_id: int, gen2: datetime | None = None) -> None:
+        record_generated_time(competition_id, 1, 1, self.DAY.replace(hour=10, minute=15, second=26))
+        record_generated_time(competition_id, 1, 2, gen2 or self.DAY.replace(hour=10, minute=24, second=44))
+        record_heat_count(competition_id, 1, 10, 11)
+
+    def _active_and_next(self, competition_id: int, session: Session, now: datetime):
+        preds = predict_session(competition_id, session, now=now).event_predictions
+        return preds[-2], preds[-1]
+
+    def test_active_event_starts_at_previous_generated_time(self):
+        self._setup(26901)
+        active, nxt = self._active_and_next(26901, self._session(), self.DAY.replace(hour=10, minute=42))
+        assert active.is_active
+        assert active.estimated_duration_minutes == pytest.approx(49.5)
+        assert active.predicted_start == time(10, 24, 44)
+        assert _minutes_between(active.predicted_start, nxt.predicted_start) == pytest.approx(49.5, abs=0.02)
+
+    def test_later_predictions_stable_while_active_event_runs(self):
+        self._setup(26902)
+        session = self._session()
+        _, at_30 = self._active_and_next(26902, session, self.DAY.replace(hour=10, minute=30))
+        _, at_55 = self._active_and_next(26902, session, self.DAY.replace(hour=10, minute=55))
+        assert at_30.predicted_start == at_55.predicted_start
+
+    def test_overrunning_active_event_pushes_later_events_past_now(self):
+        """Past its estimate, the active event is assumed to need ACTIVE_MIN_REMAINING_MINUTES more."""
+        self._setup(26903)
+        now = self.DAY.replace(hour=11, minute=20)  # 55 min into a 49.5 min estimate
+        active, nxt = self._active_and_next(26903, self._session(), now)
+        assert active.predicted_start == time(10, 24, 44)
+        assert nxt.predicted_start == (now + timedelta(minutes=ACTIVE_MIN_REMAINING_MINUTES)).time()
+
+    def test_break_without_result_page_adds_its_duration(self):
+        brk = Event(position=3, name="Break", discipline="break_", status=EventStatus.COMPLETED, is_special=True)
+        self._setup(26904)
+        active, _ = self._active_and_next(26904, self._session([brk]), self.DAY.replace(hour=10, minute=50))
+        assert active.predicted_start == time(10, 34, 44)  # 10:24:44 + 10 min break default
+
+    def test_ceremony_generated_time_marks_its_start(self):
+        cer = Event(
+            position=3, name="Medal Ceremonies", discipline="ceremony", status=EventStatus.COMPLETED, is_special=True
+        )
+        self._setup(26905)
+        record_generated_time(26905, 1, 3, self.DAY.replace(hour=10, minute=26))
+        active, _ = self._active_and_next(26905, self._session([cer]), self.DAY.replace(hour=10, minute=50))
+        assert active.predicted_start == time(10, 46)  # 10:26 + 20 min ceremony default
+
+    def test_start_capped_at_now(self):
+        """A break that ended earlier than its estimate can't put the active event's start in the future."""
+        brk = Event(position=3, name="Break", discipline="break_", status=EventStatus.COMPLETED, is_special=True)
+        self._setup(26906)
+        now = self.DAY.replace(hour=10, minute=30)
+        active, _ = self._active_and_next(26906, self._session([brk]), now)
+        assert active.predicted_start == time(10, 30)
+
+    @pytest.mark.parametrize(
+        "gen2",
+        [datetime(2026, 10, 9, 10, 24, 44), datetime(2026, 10, 10, 10, 50)],
+        ids=["another_day", "ahead_of_now"],
+    )
+    def test_unusable_generated_time_falls_back_to_now(self, gen2):
+        competition_id = 26907 if gen2.day == 9 else 26908
+        self._setup(competition_id, gen2)
+        active, _ = self._active_and_next(competition_id, self._session(), self.DAY.replace(hour=10, minute=42))
+        assert active.predicted_start == time(10, 42)
+
+    def test_heat_counter_counts_from_actual_start(self):
+        """17 minutes into 4.5 min heats: heat 4 (the scheduled-start fallback would say heat 5)."""
+        self._setup(26909)
+        active, _ = self._active_and_next(26909, self._session(), self.DAY.replace(hour=10, minute=41, second=44))
+        assert active.active_heat == 4
+
+    def test_live_heat_still_wins(self):
+        self._setup(26910)
+        record_live_heat(26910, 1, 10, 6)
+        active, _ = self._active_and_next(26910, self._session(), self.DAY.replace(hour=10, minute=42))
+        assert active.active_heat == 7
 
 
 def _make_event(position: int, status: EventStatus, discipline: str = "scratch_race") -> Event:

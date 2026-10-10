@@ -45,6 +45,14 @@ from app.supplements import heats_from_fields, load_supplement, scheduled_distan
 # Disciplines that contribute zero minutes to the cumulative timeline
 _ZERO_DURATION_DISCIPLINES = {"end_of_session"}
 
+# Live delay bounds (minutes): at most 30 ahead, 120 behind.
+MIN_DELAY_MINUTES = -30.0
+MAX_DELAY_MINUTES = 120.0
+# An active event that has run past its estimate is assumed to need at least this much longer.
+ACTIVE_MIN_REMAINING_MINUTES = 2.0
+# How far a Generated timestamp may sit ahead of venue "now" before it's treated as a clock mismatch.
+GENERATED_AHEAD_TOLERANCE_MINUTES = 5.0
+
 # In-memory cache tracking event status transitions for learning.
 # Key: (competition_id, session_id, position)
 # Value: {"status": EventStatus, "seen_at": datetime}
@@ -529,6 +537,29 @@ def _add_minutes(t: time, minutes: float) -> time:
     return time(h, m, s)
 
 
+def _session_elapsed(session: Session, now: datetime) -> float:
+    """Minutes from the session's scheduled start to now, wrapping sessions that cross midnight."""
+    now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
+    elapsed = now_minutes - _time_to_minutes(session.scheduled_start)
+    if elapsed < -60:
+        elapsed += 1440.0
+    return elapsed
+
+
+def _in_session_window(session: Session, durations: list[float], now: datetime) -> bool:
+    """True from the scheduled start until an hour past the estimated end.
+
+    Outside the window predictions show scheduled times, so results viewed hours later
+    don't produce an inflated delay. The hour allows for genuine long-running sessions.
+    """
+    elapsed = _session_elapsed(session, now)
+    return 0 < elapsed <= sum(durations) + 60
+
+
+def _clamp_delay(delay: float) -> float:
+    return max(MIN_DELAY_MINUTES, min(delay, MAX_DELAY_MINUTES))
+
+
 def _compute_delay(
     session: Session,
     durations: list[float],
@@ -537,32 +568,67 @@ def _compute_delay(
 ) -> float:
     """
     Estimate how many minutes the session is running behind (positive) or
-    ahead (negative) of schedule based on wall-clock time.
+    ahead (negative) of schedule, assuming the active event starts now.
 
-    Only applies delay when we are inside the session window — i.e., when
-    actual elapsed time is less than the estimated total session duration plus
-    a one-hour buffer. Once we appear to be past the session's estimated end,
-    we return 0 so that post-event predictions show scheduled times rather than
-    an inflated delay caused by viewing old results hours after they happened.
+    The fallback when the active event's start isn't known (_active_event_start).
+    Returns 0 outside the session window (_in_session_window).
     """
-    est_elapsed = sum(durations[:completed_count])
-    total_est = sum(durations)
-    sched_start_minutes = _time_to_minutes(session.scheduled_start)
-    now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
-
-    # Handle sessions that started before midnight and now is after
-    actual_elapsed = now_minutes - sched_start_minutes
-    if actual_elapsed < -60:
-        actual_elapsed += 1440.0
-
-    # No delay before the session starts or after its estimated window closes.
-    # A 60-minute buffer past total_est allows for genuine long-running sessions.
-    if actual_elapsed <= 0 or actual_elapsed > total_est + 60:
+    if not _in_session_window(session, durations, now):
         return 0.0
+    return _clamp_delay(_session_elapsed(session, now) - sum(durations[:completed_count]))
 
-    delay = actual_elapsed - est_elapsed
-    # Clamp to reasonable bounds: max 2h behind, 30min ahead
-    return max(-30.0, min(delay, 120.0))
+
+def _active_event_start(
+    competition_id: int,
+    session: Session,
+    durations: list[float],
+    completed_count: int,
+    now: datetime,
+) -> datetime | None:
+    """When the active event (the first not completed) started, from result-page Generated timestamps.
+
+    A Generated timestamp marks an event's end, so the active event started at the last
+    completed event's Generated time. Completed events after the newest timestamp (breaks
+    have no result page) add their estimated durations. A ceremony's Generated timestamp
+    marks its start, so its own duration is added too. The result is capped at now, since
+    the active event has started by definition. None when no completed event has a
+    timestamp, or the newest one is from another day or ahead of now (a clock mismatch).
+    """
+    offset = 0.0
+    for j in range(completed_count - 1, -1, -1):
+        event = session.events[j]
+        generated = _generated_times.get((competition_id, session.session_id, event.position))
+        if generated is None:
+            if event.discipline not in _ZERO_DURATION_DISCIPLINES:
+                offset += durations[j]
+            continue
+        if generated.date() != now.date():
+            return None
+        if generated > now + timedelta(minutes=GENERATED_AHEAD_TOLERANCE_MINUTES):
+            return None
+        if event.discipline == "ceremony":
+            offset += durations[j]
+        return min(generated + timedelta(minutes=offset), now)
+    return None
+
+
+def _anchored_delays(
+    session: Session,
+    durations: list[float],
+    completed_count: int,
+    now: datetime,
+    active_start: datetime,
+) -> tuple[float, float]:
+    """(active event's delay, delay for the events after it) given when the active event started.
+
+    The active event keeps its actual start. Later events follow its estimated end, or
+    now + ACTIVE_MIN_REMAINING_MINUTES once it has run past its estimate.
+    """
+    start_elapsed = _session_elapsed(session, active_start)
+    active_delay = start_elapsed - sum(durations[:completed_count])
+    elapsed_in_active = (now - active_start).total_seconds() / 60.0
+    overrun = max(0.0, elapsed_in_active + ACTIVE_MIN_REMAINING_MINUTES - durations[completed_count])
+    return _clamp_delay(active_delay), _clamp_delay(active_delay + overrun)
 
 
 def predict_session(
@@ -697,8 +763,15 @@ def predict_session(
     # still NOT_READY isn't treated as live (matches SessionPrediction.is_complete).
     has_pending = any(e.status != EventStatus.COMPLETED for e in session.events if not e.is_special)
     delay_minutes = 0.0
+    active_start: datetime | None = None
     if now is not None and completed_count > 0 and has_pending:
         delay_minutes = _compute_delay(session, durations, completed_count, now)
+        if _in_session_window(session, durations, now):
+            active_start = _active_event_start(competition_id, session, durations, completed_count, now)
+    # The active event starts when the last completed event ended, if that's known; otherwise now.
+    active_delay = delay_minutes
+    if now is not None and active_start is not None:
+        active_delay, delay_minutes = _anchored_delays(session, durations, completed_count, now, active_start)
 
     # The active event is the first non-COMPLETED event in an in-progress session.
     # Requires now so we only flag "active" when the session is being viewed live.
@@ -722,7 +795,12 @@ def predict_session(
     for i, event in enumerate(session.events):
         # Only shift upcoming/active events by the current delay.
         # Completed events keep their estimated historical start times.
-        applied_delay = delay_minutes if i >= completed_count else 0.0
+        if i < completed_count:
+            applied_delay = 0.0
+        elif i == completed_count:
+            applied_delay = active_delay
+        else:
+            applied_delay = delay_minutes
         predicted_start = _add_minutes(session.scheduled_start, cumulative + applied_delay)
         is_active = i == active_index
         est = estimates[i]
@@ -740,17 +818,15 @@ def predict_session(
                 next_heat = live_heat + 1
                 active_heat = min(next_heat, hc) if hc else next_heat
             elif hc:
-                # Time-based fallback: elapsed since scheduled event start ÷ per-heat duration.
-                # Uses scheduled (not delay-adjusted) start so prior-event overrun doesn't
-                # incorrectly advance the heat counter.
+                # Time-based fallback: elapsed since the event started ÷ per-heat duration.
+                # Without a known start, uses the scheduled (not delay-adjusted) start so
+                # prior-event overrun doesn't incorrectly advance the heat counter.
                 phd = get_per_heat_duration(event.discipline, band)
-                sched_start_minutes = _time_to_minutes(session.scheduled_start)
-                now_minutes = now.hour * 60.0 + now.minute + now.second / 60.0
-                actual_elapsed = now_minutes - sched_start_minutes
-                if actual_elapsed < -60:
-                    actual_elapsed += 1440.0  # midnight wrap
-                est_before_active = sum(durations[:active_index])
-                elapsed_in_active = max(0.0, actual_elapsed - est_before_active)
+                if active_start is not None:
+                    elapsed_in_active = (now - active_start).total_seconds() / 60.0
+                else:
+                    est_before_active = sum(durations[:active_index])
+                    elapsed_in_active = max(0.0, _session_elapsed(session, now) - est_before_active)
                 if phd > 0:
                     active_heat = max(1, min(hc, int(elapsed_in_active / phd) + 1))
 
