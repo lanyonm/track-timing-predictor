@@ -15,6 +15,7 @@ from app.parser import (
     parse_generated_time,
     parse_heat_count,
     parse_live_heat,
+    parse_live_results_html,
     parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
@@ -463,6 +464,18 @@ class TestParseLiveHeat:
     def test_team_pursuit_real_page_heat2_active_returns_one(self):
         """Real team pursuit page: 'Riders On Track for Heat 2 of 3' → 1 completed."""
         assert parse_live_heat(self.TP_HEAT2_ACTIVE_HTML) == 1
+
+    def test_pursuit_jaxon_response_heat10_of_11_returns_nine(self):
+        """Live POST response captured at 26037: 'Riders On Track for Heat 10 of 11' → 9 completed."""
+        jxn = json.loads((_FIXTURES / "live-results-26037-pursuit-heat-10-of-11.json").read_text())
+        assert parse_live_heat(parse_live_results_html(jxn)) == 9
+
+    def test_get_shell_has_no_heats(self):
+        """A plain GET returns an empty dynarea shell, which is why the app POSTs instead."""
+        assert parse_live_heat((_FIXTURES / "live-results-26037-shell.html").read_text()) is None
+
+    def test_live_results_html_missing_dynarea(self):
+        assert parse_live_results_html({"jxnobj": []}) == ""
 
     def test_team_pursuit_real_page_heat3_active_returns_two(self):
         """Real team pursuit page: 'Riders On Track for Heat 3 of 3' → 2 completed."""

@@ -308,6 +308,34 @@ class TestActiveEventStart:
         active, _ = self._active_and_next(26909, self._session(), self.DAY.replace(hour=10, minute=41, second=44))
         assert active.active_heat == 4
 
+    def test_live_heat_sets_time_left(self):
+        """Heat 10 of 11 running at 11:04:51 (live page): 1.5 heats × 4.5 min left, plus the changeover."""
+        self._setup(26911)
+        record_live_heat(26911, 1, 10, 9)
+        now = self.DAY.replace(hour=11, minute=4, second=51)
+        active, nxt = self._active_and_next(26911, self._session(), now)
+        assert active.predicted_start == time(10, 24, 44)
+        left = 1.5 * 4.5 + get_changeover("pursuit_2k")
+        assert nxt.predicted_start == (now + timedelta(minutes=left)).time()
+
+    def test_live_heat_past_last_heat_uses_minimum(self):
+        self._setup(26912)
+        record_live_heat(26912, 1, 10, 11)
+        now = self.DAY.replace(hour=11, minute=10)
+        _, nxt = self._active_and_next(26912, self._session(), now)
+        left = max(ACTIVE_MIN_REMAINING_MINUTES, get_changeover("pursuit_2k"))
+        assert nxt.predicted_start == (now + timedelta(minutes=left)).time()
+
+    def test_live_heat_without_anchor(self):
+        """The live heat count sets the time left even when the active event's start isn't known."""
+        record_heat_count(26913, 1, 10, 11)
+        record_live_heat(26913, 1, 10, 9)
+        now = self.DAY.replace(hour=11, minute=4, second=51)
+        active, nxt = self._active_and_next(26913, self._session(), now)
+        assert active.predicted_start == time(11, 4, 51)
+        left = 1.5 * 4.5 + get_changeover("pursuit_2k")
+        assert nxt.predicted_start == (now + timedelta(minutes=left)).time()
+
     def test_live_heat_still_wins(self):
         self._setup(26910)
         record_live_heat(26910, 1, 10, 6)

@@ -43,7 +43,7 @@ from app.disciplines import (
     get_changeover,
     split_ride,
 )
-from app.fetcher import fetch_initial_layout, fetch_page_html, fetch_refresh
+from app.fetcher import fetch_initial_layout, fetch_live_results, fetch_page_html, fetch_refresh
 from app.models import EventStatus, PalmaresEntry, RiderListEntry, SchedulePrediction, Session
 from app.palmares import (
     check_palmares_health,
@@ -59,6 +59,7 @@ from app.parser import (
     parse_finish_time,
     parse_generated_time,
     parse_live_heat,
+    parse_live_results_html,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
@@ -225,14 +226,14 @@ async def _fetch_live_heats(
     async def fetch_one(ev_id: int, sess_id: int, pos: int, url: str) -> None:
         async with sem:
             try:
-                html = await fetch_page_html(client, url)
+                live = await fetch_live_results(client, url)
             except Exception:
                 logger.warning(
                     "Failed to fetch live heat for event %d session %d pos %d", ev_id, sess_id, pos, exc_info=True
                 )
                 return
             try:
-                heat = parse_live_heat(html)
+                heat = parse_live_heat(parse_live_results_html(live))
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:

@@ -631,6 +631,29 @@ def _anchored_delays(
     return _clamp_delay(active_delay), _clamp_delay(active_delay + overrun)
 
 
+def _live_heat_remaining(
+    competition_id: int,
+    session: Session,
+    index: int,
+    estimate: _Estimate | None,
+    band: AgeBand | None,
+    changeover: float,
+) -> float | None:
+    """Minutes left in the active event from its live heat count, or None without one.
+
+    The unfinished heats with the running one taken as half done, plus the changeover,
+    and at least ACTIVE_MIN_REMAINING_MINUTES. Expected deciders aren't heats that will
+    all be ridden, so they don't count.
+    """
+    event = session.events[index]
+    finished = get_live_heat(competition_id, session.session_id, event.position)
+    if finished is None or estimate is None or estimate.heats is None or estimate.basis == "decider_pairs":
+        return None
+    left = max(0.0, estimate.heats - finished - 0.5)
+    per_heat = get_per_heat_duration(event.discipline, band)
+    return max(ACTIVE_MIN_REMAINING_MINUTES, left * per_heat + _changeover(event.discipline, changeover))
+
+
 def predict_session(
     competition_id: int,
     session: Session,
@@ -764,14 +787,26 @@ def predict_session(
     has_pending = any(e.status != EventStatus.COMPLETED for e in session.events if not e.is_special)
     delay_minutes = 0.0
     active_start: datetime | None = None
+    remaining: float | None = None
     if now is not None and completed_count > 0 and has_pending:
         delay_minutes = _compute_delay(session, durations, completed_count, now)
         if _in_session_window(session, durations, now):
             active_start = _active_event_start(competition_id, session, durations, completed_count, now)
+            remaining = _live_heat_remaining(
+                competition_id,
+                session,
+                completed_count,
+                estimates[completed_count],
+                bands[completed_count],
+                changeover,
+            )
     # The active event starts when the last completed event ended, if that's known; otherwise now.
     active_delay = delay_minutes
     if now is not None and active_start is not None:
         active_delay, delay_minutes = _anchored_delays(session, durations, completed_count, now, active_start)
+    # A live heat count says how long the active event has left, so later events follow it.
+    if now is not None and remaining is not None:
+        delay_minutes = _clamp_delay(_session_elapsed(session, now) + remaining - sum(durations[: completed_count + 1]))
 
     # The active event is the first non-COMPLETED event in an in-progress session.
     # Requires now so we only flag "active" when the session is being viewed live.

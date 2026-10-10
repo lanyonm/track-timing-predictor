@@ -409,6 +409,14 @@ def parse_start_list(html: str) -> StartList:
     )
 
 
+def parse_live_results_html(jxn_data: dict) -> str:
+    """Return the live results HTML (the ``dynarea`` jxnobj) from fetch_live_results, or "" if absent."""
+    for obj in jxn_data.get("jxnobj", []):
+        if obj.get("cmd") == "as" and obj.get("id") == "dynarea":
+            return str(obj.get("data", ""))
+    return ""
+
+
 def parse_live_heat(html: str) -> int | None:
     """
     Count the number of completed heats on a live results page.

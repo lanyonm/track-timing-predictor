@@ -34,3 +34,15 @@ async def fetch_refresh(client: httpx.AsyncClient, competition_id: int) -> dict:
     response = await client.post(url, content=payload, headers=headers)
     response.raise_for_status()
     return response.json()
+
+
+async def fetch_live_results(client: httpx.AsyncClient, path: str) -> dict:
+    """POST updateDynArea to a live results page (e.g. liveresults.php?EventId=26037).
+
+    A GET returns only an empty <div id="dynarea"> shell; the browser fills it with this call.
+    """
+    headers = {**_HEADERS, "Referer": f"{client.base_url}/{path}"}
+    payload = "jxnfun=updateDynArea&jxnr=1&jxnargs%5B%5D=N1"
+    response = await client.post(path, content=payload, headers=headers)
+    response.raise_for_status()
+    return response.json()

@@ -94,6 +94,7 @@ def mock_fetchers(sample_event_data, start_list_html):
     with (
         patch("app.main.fetch_initial_layout", new_callable=AsyncMock, return_value=sample_event_data),
         patch("app.main.fetch_refresh", new_callable=AsyncMock, return_value=sample_event_data),
+        patch("app.main.fetch_live_results", new_callable=AsyncMock, return_value={"jxnobj": []}),
         # The 26008 fixture links a Rider List; don't feed it start-list HTML.
         patch(
             "app.main.fetch_page_html",
