@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import sys
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -210,6 +211,11 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
                     if audit_time:
                         generated_times[pos] = min(generated_times[pos], audit_time)
 
+            # The rides of a best-of-3 sprint round share one result page, and post-event
+            # every ride carries its final Generated time, so their gaps would credit the
+            # whole round to the first ride. Their timestamp still anchors the next event's gap.
+            result_url_counts = Counter(e.result_url for e in session.events if e.result_url)
+
             # Second pass: extract durations and build event reports
             for event in session.events:
                 category, residual = categorize_event(event.name)
@@ -236,14 +242,15 @@ async def extract_competition(competition_id: int) -> tuple[CompetitionReport, i
                         finish_time_dur = extract_finish_time_duration(result_html, category.discipline)
 
                     # Generated diff: use previous event's generated timestamp
-                    prev_pos = max((p for p in generated_times if p < event.position), default=None)
-                    prev_gen = generated_times[prev_pos] if prev_pos is not None else None
-                    curr_gen = generated_times.get(event.position)
-                    generated_diff_dur = extract_generated_diff_duration(
-                        prev_gen,
-                        curr_gen,
-                        category.discipline,
-                    )
+                    if result_url_counts[event.result_url] == 1:
+                        prev_pos = max((p for p in generated_times if p < event.position), default=None)
+                        prev_gen = generated_times[prev_pos] if prev_pos is not None else None
+                        curr_gen = generated_times.get(event.position)
+                        generated_diff_dur = extract_generated_diff_duration(
+                            prev_gen,
+                            curr_gen,
+                            category.discipline,
+                        )
 
                     if start_list_html:
                         heat_count_dur, heat_count = extract_heat_count_duration(
