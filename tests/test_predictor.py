@@ -28,6 +28,7 @@ from app.predictor import (
     _add_minutes,
     _compute_delay,
     bunch_changeover,
+    get_generated_time,
     latest_live_generated_time,
     load_learned_durations,
     predict_schedule,
@@ -189,6 +190,14 @@ SCRATCH_SLOT = DEFAULT_DURATIONS["scratch_race"] + BUNCH_SHIFT
 
 def _minutes_between(a: time, b: time) -> float:
     return (b.hour * 3600 + b.minute * 60 + b.second - (a.hour * 3600 + a.minute * 60 + a.second)) / 60.0
+
+
+def test_record_generated_time_keeps_earliest():
+    """A regenerated page's later timestamp never replaces an earlier one."""
+    record_generated_time(26920, 1, 1, datetime(2026, 10, 10, 11, 16, 22))
+    record_generated_time(26920, 1, 1, datetime(2026, 10, 10, 11, 12, 55))
+    record_generated_time(26920, 1, 1, datetime(2026, 10, 10, 11, 40))
+    assert get_generated_time(26920, 1, 1) == datetime(2026, 10, 10, 11, 12, 55)
 
 
 class TestActiveEventStart:

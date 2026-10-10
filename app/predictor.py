@@ -184,8 +184,15 @@ def record_generated_time(
     position: int,
     generated_at: datetime,
 ) -> None:
-    """Store the result-page Generated timestamp for a completed event."""
-    _generated_times[(competition_id, session_id, position)] = generated_at
+    """Store a Generated timestamp for a completed event, keeping the earliest.
+
+    Upstream regenerates result and audit pages after corrections, which moves their
+    Generated timestamp later than the event's end; the earliest seen is closest to it.
+    """
+    key = (competition_id, session_id, position)
+    existing = _generated_times.get(key)
+    if existing is None or generated_at < existing:
+        _generated_times[key] = generated_at
 
 
 def latest_live_generated_time(
