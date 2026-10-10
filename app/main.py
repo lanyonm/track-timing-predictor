@@ -23,7 +23,7 @@ from starlette.types import Scope
 from app.ceremonies import needs_categories
 from app.clock import venue_now
 from app.config import Settings, get_settings
-from app.database import check_health, get_all_learned_durations, init_db
+from app.database import check_health, get_all_learned_durations, get_finer_learned_durations, init_db
 from app.disciplines import (
     BUNCH_RACE_KMH,
     CEREMONY_BASE_MINUTES,
@@ -910,12 +910,15 @@ def _age_label(bracket: AgeBracket) -> str:
 @app.get("/learned", response_class=HTMLResponse)
 async def learned_durations(request: Request, settings: Settings = Depends(get_settings)) -> Response:
     """Display the learned duration database for inspection."""
-    durations = await asyncio.to_thread(get_all_learned_durations)
+    durations, finer = await asyncio.gather(
+        asyncio.to_thread(get_all_learned_durations), asyncio.to_thread(get_finer_learned_durations)
+    )
     return templates.TemplateResponse(
         request,
         "learned.html",
         {
             "durations": durations,
+            "finer": finer,
             "min_samples": settings.min_learned_samples,
         },
     )

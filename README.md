@@ -108,7 +108,7 @@ Tests use a temporary SQLite database and captured fixtures in `tests/fixtures/`
 | `/schedule/{id}` | Predicted schedule for an event (`?r=` highlights a racer) |
 | `/palmares` | A racer's timed-event results across competitions, with per-event CSV export |
 | `/defaults` | Built-in default and per-heat durations, the rules that replace them (distance, changeover, deciders, ceremonies), the bunch-race pace table and the masters per-heat overrides |
-| `/learned` | Learned duration averages |
+| `/learned` | Learned duration averages, per discipline and by classification and gender |
 | `/health` | Health check (JSON) |
 
 ## Palmares
@@ -166,7 +166,7 @@ Each event's slot duration is determined by the first available source:
    - Points and scratch races use their distance from the start list title (`- 10km - 40 Laps`) at 46 km/h, plus changeover. Masters races with an age band go at their group's pace, set by the youngest age in the band: men under 70 48 km/h, 70-74 41.5, 75+ 36; women under 50 43.5, 50+ 41. Shown as **N km**; the tooltip names the pace. Before the start list is posted, a competition with a committed supplement (`app/data/supplements/<id>.json`, so far 26037) takes the distance from the organiser's schedule instead, shown as **~N km est.**
    - A best-of-3 sprint `Ride 3` is ridden only by pairs tied 1–1: 4.25 min per decider once Ride 2's results show how many (shown as **N deciders**), else 12% of the pairs (shown as **0–N deciders est.**).
    - Before the start list is posted, the round name gives the heats where it's fixed: sprint 1/2 Finals and Finals count 2 pairs and 1/4 Finals 4; pursuit, team pursuit and team sprint finals after a qualifying round 2 heats (bronze and gold); keirin placement finals (1-6, 7-12) 1 heat and 1/2 Finals 2. Masters sprint and pursuit qualifying rounds and time trials are sized from the Rider List: one heat per sprinter, one per two pursuiters or time triallists entered in the age band. Team qualifying rounds are sized from a committed pre-event entry list when the competition has one (`app/data/supplements/<id>.json`, so far 26037): one heat per team, and 1 heat for a team final with two or fewer teams. Shown as **~N heats est.**
-4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the learned average for the discipline once it has at least three observations. Shown as **est.** in the UI.
+4. **Default** — built-in estimates in `DEFAULT_DURATIONS` inside [app/disciplines.py](app/disciplines.py), or, if you turn on "use learned durations" on the schedule page, the most specific learned average with at least three observations: discipline with classification and gender (e.g. 55-59 men's scratch race), then classification, then gender, then the discipline alone. Shown as **est.** in the UI.
 
 **Medal ceremonies** at masters competitions take 13 min plus 3.3 min per podium. The podium count is forecast from the finals since the previous ceremony, with combined-age races split by category. Shown as **N podiums** in the UI. See [docs/medal-ceremony-durations.md](docs/medal-ceremony-durations.md).
 
@@ -192,7 +192,7 @@ python -m tools.load_durations data/competitions/26008.json
 
 The extraction script decomposes event names (e.g. `"Elite/Junior Women Scratch Race / Omni I"`) into structured categories — discipline, classification, gender, round — using a bilingual parser that handles both English and French naming. Durations are computed from result-page finish times, consecutive generated timestamps, or start-list heat counts (same priority as the live app).
 
-The loader validates each observation against [0.5x, 2.0x] bounds of the expected duration (heat-count-derived when available, static default otherwise) and writes to the learning database with structured category info. On first run against an existing database with duplicate rows from live learning, it prompts to deduplicate (or use `--force` to skip the prompt). Re-loading corrected data overwrites previous values. The database stores averages at four levels of granularity (discipline + classification + gender down to discipline only), and `get_learned_duration_cascading()` can query them. The live app currently reads only the discipline-level average.
+The loader validates each observation against [0.5x, 2.0x] bounds of the expected duration (heat-count-derived when available, static default otherwise) and writes to the learning database with structured category info. On first run against an existing database with duplicate rows from live learning, it prompts to deduplicate (or use `--force` to skip the prompt). Re-loading corrected data overwrites previous values. The database stores averages at four levels of granularity (discipline + classification + gender down to discipline only), and the live app reads the most specific one with enough samples.
 
 ## Pre-event supplements
 
