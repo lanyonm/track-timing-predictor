@@ -135,13 +135,15 @@ The constants are unchanged. The 500 m median is pulled up by 26037 (masters wor
 
 Before the start list is posted, a masters time trial takes its heat count from the Rider List: ⌈entrants ÷ 2⌉, counting riders in the event's age band with the `TT` code. At 26037 this matched the start list for all 8 completed women's TTs and 3 of 6 men's; the other men's were 1–2 heats high from non-starters.
 
-When the heat count is unknown, the default assumes 7–8 heats (14–17 riders):
+When the heat count is unknown, the default is the median measured slot (Generated gap) for the discipline, about 5–7 heats:
 
-| Discipline Key | Default Duration | Assumed Basis |
+| Discipline Key | Default Duration | Basis |
 |---|---|---|
-| `time_trial_500` | 20.0 min | ~8.5 heats × 2:20 |
-| `time_trial_750` | 22.0 min | ~8 heats × 2:40 |
-| `time_trial_kilo` | 22.0 min | ~7 heats × 3:00 |
+| `time_trial_500` | 16.5 min | median 16.3 (n = 24, 10.6–34.9; 22023, 25022, 25032, 26002, 26008, 26009, 26037), ~7 heats × 2:20 |
+| `time_trial_750` | 22.0 min | ~8 heats × 2:40; not refit: 11.8–35.9 (n = 5) |
+| `time_trial_kilo` | 17.0 min | median 17.1 (n = 7, 14.1–41.0; 26002, 26008, 26009), ~5.5 heats × 3:00 |
+
+Start-list fields are smaller than the measured slots suggest: the median time trial has 3 heats, because masters nationals split into many small categories. Slots with a Generated gap skew toward larger fields, and small fields usually have a start list or a Rider List estimate before the default would apply.
 
 ---
 

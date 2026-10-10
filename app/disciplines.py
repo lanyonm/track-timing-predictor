@@ -116,10 +116,10 @@ DEFAULT_DURATIONS: dict[str, float] = {
     "madison": 22.0,
     # Keirin: 4:30 race + 2:00 changeover
     "keirin": 6.5,
-    # Time trials (one category, two riders per heat): per-heat time × ~8 heats
-    "time_trial_500": 20.0,  # 500m: ~8.5 heats × 2:20
-    "time_trial_750": 22.0,  # 750m: ~8 heats × 2:40
-    "time_trial_kilo": 22.0,  # 1000m: ~7 heats × 3:00
+    # Time trials (one category, two riders per heat): median Generated-gap slot
+    "time_trial_500": 16.5,  # 500m: measured median 16.3 (n=24), ~7 heats × 2:20
+    "time_trial_750": 22.0,  # 750m: too few measurements to refit (n=5)
+    "time_trial_kilo": 17.0,  # 1000m: measured median 17.1 (n=7), ~5.5 heats × 3:00
     "time_trial_generic": 20.0,
     # Non-race:
     "ceremony": 20.0,
