@@ -1,0 +1,379 @@
+{
+  "competition_id": 26037,
+  "sources": [
+    "https://fullgascycling.co.uk/team-events/",
+    "https://fullgascycling.co.uk/wmtc-schedule/",
+    "https://fullgascycling.co.uk/wp-content/uploads/2026/09/combinepdf-v2.pdf"
+  ],
+  "captured": "2026-10-10",
+  "fields": [
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 35,
+      "hi": 44,
+      "entries": 5
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 45,
+      "hi": 54,
+      "entries": 8
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 55,
+      "hi": 64,
+      "entries": 7
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 65,
+      "hi": 74,
+      "entries": 8
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "M",
+      "lo": 75,
+      "hi": null,
+      "entries": 4
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 35,
+      "hi": 44,
+      "entries": 5
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 45,
+      "hi": 54,
+      "entries": 6
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 55,
+      "hi": 64,
+      "entries": 1
+    },
+    {
+      "discipline": "team_sprint",
+      "gender": "W",
+      "lo": 65,
+      "hi": null,
+      "entries": 1
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 35,
+      "hi": 44,
+      "entries": 6
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 45,
+      "hi": 54,
+      "entries": 5
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 55,
+      "hi": 64,
+      "entries": 6
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 65,
+      "hi": 74,
+      "entries": 6
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "M",
+      "lo": 75,
+      "hi": null,
+      "entries": 2
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 35,
+      "hi": 44,
+      "entries": 2
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 45,
+      "hi": 54,
+      "entries": 3
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 55,
+      "hi": 64,
+      "entries": 1
+    },
+    {
+      "discipline": "team_pursuit",
+      "gender": "W",
+      "lo": 65,
+      "hi": null,
+      "entries": 1
+    }
+  ],
+  "distances": [
+    {
+      "discipline": "points_race",
+      "gender": "W",
+      "lo": 35,
+      "hi": 49,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "W",
+      "lo": 50,
+      "hi": null,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 55,
+      "hi": 59,
+      "phase": "qualifying",
+      "km": 3.75
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 60,
+      "hi": 64,
+      "phase": "qualifying",
+      "km": 2.5
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 35,
+      "hi": 39,
+      "phase": "final",
+      "km": 30.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 40,
+      "hi": 44,
+      "phase": "final",
+      "km": 20.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 55,
+      "hi": 59,
+      "phase": "final",
+      "km": 7.5
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 60,
+      "hi": 64,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 65,
+      "hi": 69,
+      "phase": "qualifying",
+      "km": 2.5
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 45,
+      "hi": 49,
+      "phase": "final",
+      "km": 20.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 50,
+      "hi": 54,
+      "phase": "final",
+      "km": 15.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 65,
+      "hi": 69,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 70,
+      "hi": 74,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 55,
+      "hi": 59,
+      "phase": "qualifying",
+      "km": 7.5
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 50,
+      "hi": 54,
+      "phase": "qualifying",
+      "km": 3.75
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 55,
+      "hi": 59,
+      "phase": "final",
+      "km": 15.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 60,
+      "hi": 64,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 45,
+      "hi": 49,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 50,
+      "hi": 54,
+      "phase": "final",
+      "km": 7.5
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 65,
+      "hi": 69,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 70,
+      "hi": 74,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 75,
+      "hi": 79,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 80,
+      "hi": null,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "W",
+      "lo": 35,
+      "hi": 44,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "W",
+      "lo": 45,
+      "hi": 54,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "W",
+      "lo": 55,
+      "hi": null,
+      "phase": "final",
+      "km": 5.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 35,
+      "hi": 39,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "scratch_race",
+      "gender": "M",
+      "lo": 40,
+      "hi": 44,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 75,
+      "hi": 79,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 80,
+      "hi": null,
+      "phase": "final",
+      "km": 10.0
+    }
+  ]
+}

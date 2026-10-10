@@ -24,8 +24,10 @@ from app.disciplines import (
     sprint_round_pairs,
 )
 from app.models import (
+    DistanceBasis,
     Event,
     EventStatus,
+    FieldSize,
     HeatBasis,
     NextRace,
     Prediction,
@@ -38,6 +40,7 @@ from app.models import (
     normalize_rider_name,
 )
 from app.rider_list import AgeBand, estimate_heats, event_band, find_rider, match_events
+from app.supplements import heats_from_fields, load_supplement, scheduled_distances
 
 # Disciplines that contribute zero minutes to the cumulative timeline
 _ZERO_DURATION_DISCIPLINES = {"end_of_session"}
@@ -269,6 +272,7 @@ class _Estimate(NamedTuple):
     basis: HeatBasis | None = None
     km: float | None = None
     kmh: float | None = None  # pace used with km
+    km_basis: DistanceBasis | None = None
     per_heat: float | None = None  # minutes per heat used with heats
 
 
@@ -281,6 +285,7 @@ def _base_estimate(
     inferred: tuple[int, HeatBasis] | None = None,
     *,
     band: AgeBand | None,
+    scheduled_km: float | None = None,
 ) -> _Estimate:
     """Pre-result duration: heat count × per-heat + changeover, else the default.
 
@@ -289,18 +294,22 @@ def _base_estimate(
     swapped for bunch.
 
     band is the event's age band (rider_list.event_band). A points or scratch race with a
-    start-list distance runs at bunch_race_kmh(band); per-heat minutes come from
-    get_per_heat_duration with the same band.
+    start-list distance, else scheduled_km (supplements.scheduled_distances), runs at
+    bunch_race_kmh(band); per-heat minutes come from get_per_heat_duration with the same band.
     Without a start list, a sprint round's pairs come from its name (sprint_round_pairs),
-    and other events' heats from inferred (infer_heats: Rider List entrants or the round name).
+    and other events' heats from inferred (infer_heats: Rider List entrants, field sizes or the
+    round name).
     A sprint Ride 3 is ridden only by pairs tied after Ride 2: SPRINT_DECIDER_MINUTES per
     decider once Ride 2 is posted, else per expected decider (pairs × SPRINT_DECIDER_RATE).
     """
-    if event.discipline in DISTANCE_DISCIPLINES and (
-        km := _race_distances.get((competition_id, session_id, event.position))
-    ):
-        kmh = bunch_race_kmh(band)
-        return _Estimate(km / kmh * 60 + bunch, km=km, kmh=kmh)
+    if event.discipline in DISTANCE_DISCIPLINES:
+        km = _race_distances.get((competition_id, session_id, event.position))
+        km_basis: DistanceBasis = "start_list"
+        if not km and scheduled_km:
+            km, km_basis = scheduled_km, "schedule"
+        if km:
+            kmh = bunch_race_kmh(band)
+            return _Estimate(km / kmh * 60 + bunch, km=km, kmh=kmh, km_basis=km_basis)
     hc = get_heat_count(competition_id, session_id, event.position)
     phd = get_per_heat_duration(event.discipline, band)
     if event.discipline == "sprint_match":
@@ -325,15 +334,18 @@ def _base_estimate(
 
 
 def infer_heats(
-    sessions: list[Session], rider_list: list[RiderListEntry] | None
+    sessions: list[Session],
+    rider_list: list[RiderListEntry] | None,
+    fields: list[FieldSize] | None = None,
 ) -> dict[tuple[int, int], tuple[int, HeatBasis]]:
     """Heat counts for events without a start list, keyed by (session_id, position).
 
     From the round name: a pursuit, team pursuit or team sprint final that follows a
     qualifying round of the same name is ridden for bronze and gold (2 heats), and a keirin
-    round's heats come from keirin_round_heats. From the Rider List: individual qualifying
-    rounds and time trials (rider_list.estimate_heats). Sprint rounds are sized in
-    _base_estimate, since a Ride 3 depends on them.
+    round's heats come from keirin_round_heats. From committed field sizes: team qualifying
+    rounds and small team finals (fields.heats_from_fields), replacing the round name. From
+    the Rider List: individual qualifying rounds and time trials (rider_list.estimate_heats).
+    Sprint rounds are sized in _base_estimate, since a Ride 3 depends on them.
     """
     names = {e.name for s in sessions for e in s.events}
     heats: dict[tuple[int, int], tuple[int, HeatBasis]] = {}
@@ -346,6 +358,8 @@ def infer_heats(
                 n = keirin_round_heats(e.name)
             if n is not None:
                 heats[(s.session_id, e.position)] = (n, "round")
+    if fields:
+        heats.update({k: (n, "entry_list") for k, n in heats_from_fields(fields, sessions).items()})
     if rider_list:
         heats.update({k: (n, "rider_list") for k, n in estimate_heats(rider_list, sessions).items()})
     return heats
@@ -561,6 +575,7 @@ def predict_session(
     ceremony_podiums: dict[tuple[int, int], int] | None = None,
     changeover: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
     inferred_heats: dict[tuple[int, int], tuple[int, HeatBasis]] | None = None,
+    scheduled_km: dict[tuple[int, int], float] | None = None,
 ) -> SessionPrediction:
     """
     Compute predicted start times for all events in a session.
@@ -569,7 +584,7 @@ def predict_session(
       1. Observed: result-page Finish Time + changeover
       2. Generated: difference between consecutive result-page Generated timestamps
       3. Heat count: start-list heat count × per-heat duration + changeover
-         (a race distance, sprint round name, sprint deciders or Rider List entrants
+         (a start-list or scheduled race distance, sprint round name, sprint deciders or Rider List entrants
          can stand in, see _base_estimate)
       4. Default: learned average or DEFAULT_DURATIONS fallback
     A medal ceremony with forecast podiums uses ceremony_duration instead; its own
@@ -585,8 +600,11 @@ def predict_session(
     changeover: the competition's bunch-race changeover from bunch_changeover.
     inferred_heats: heat counts and their basis from infer_heats, keyed by (session_id, position);
             used for events without a start-list heat count.
+    scheduled_km: race distances from supplements.scheduled_distances, keyed by (session_id, position);
+            used for points and scratch races without a start-list distance.
     """
     inferred_heats = inferred_heats or {}
+    scheduled_km = scheduled_km or {}
     # Pre-tokenize racer name once for the entire session (avoids re-normalizing per event)
     user_tokens = normalize_rider_name(racer_name) if racer_name and racer_name.strip() else None
 
@@ -627,6 +645,7 @@ def predict_session(
             changeover,
             inferred_heats.get((session.session_id, events[i].position)),
             band=bands[i],
+            scheduled_km=scheduled_km.get((session.session_id, events[i].position)),
         ).minutes
         mins = generated_gap_duration(t0, t1, expected)
         if mins is not None:
@@ -658,6 +677,7 @@ def predict_session(
                 changeover,
                 inferred_heats.get((session.session_id, e.position)),
                 band=bands[i],
+                scheduled_km=scheduled_km.get((session.session_id, e.position)),
             )
             durations.append(base.minutes)
             is_observed_list.append(False)
@@ -768,6 +788,7 @@ def predict_session(
                 heat_basis=est.basis if est else None,
                 race_distance_km=est.km if est else None,
                 race_kmh=est.kmh if est else None,
+                distance_basis=est.km_basis if est else None,
                 per_heat_minutes=est.per_heat if est else None,
                 podium_count=podium_list[i],
                 is_active=is_active,
@@ -825,7 +846,9 @@ def predict_schedule(
     categories = {(s, p): c for (comp, s, p), c in _start_list_categories.items() if comp == competition_id}
     ceremony_podiums = forecast_podiums(sessions, categories, rider_list)
     changeover = bunch_changeover(competition_id, sessions)
-    inferred_heats = infer_heats(sessions, rider_list)
+    supplement = load_supplement(competition_id)
+    inferred_heats = infer_heats(sessions, rider_list, supplement.fields if supplement else None)
+    scheduled_km = scheduled_distances(supplement.distances, sessions) if supplement else None
 
     session_predictions = []
     total_events_without_start_lists = 0
@@ -847,6 +870,7 @@ def predict_schedule(
             ceremony_podiums=ceremony_podiums,
             changeover=changeover,
             inferred_heats=inferred_heats,
+            scheduled_km=scheduled_km,
         )
         session_predictions.append(sp)
         total_events_without_start_lists += sp.events_without_start_lists

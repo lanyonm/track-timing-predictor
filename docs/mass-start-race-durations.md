@@ -118,6 +118,8 @@ slot = km / pace × 60 + changeover   (pace = disciplines.bunch_race_kmh(band); 
 
 ### Masters Pace by Age and Gender
 
+Before the start list is posted, a competition with a committed supplement takes the distance from the organiser's published schedule (`supplements.scheduled_distances`; 26037's fullgascycling.co.uk schedule matched the start-list distance for all 26 races with both). The schedule gives no distance for the 75-79 and 80+ Men Points Race Finals, so they take the tech guide's 10 km for Male 75+ (`TECH_GUIDE_DISTANCES` in `tools/import_fullgas_26037.py`). The UI marks it **~N km est.**
+
 Masters events whose name carries an age band (`50-54 Men`, `35-49 Women`, `80+ Men`; `rider_list.event_band`) use a pace for their gender and the band's youngest age (`MASTERS_BUNCH_RACE_KMH`). A combined-age race is paced by its youngest riders, so `35-49 Women` takes the under-50 value and `65+ Men` the under-70 one. Names without a band (26008's `ME`, `MU17`, `Master A Men`, elite and junior events) keep 46 km/h.
 
 | Group (youngest age in band) | km/h | n | Median (range) |

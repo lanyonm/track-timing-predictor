@@ -110,7 +110,7 @@ def match_events(entry: RiderListEntry, sessions: list[Session]) -> dict[tuple[i
     for events in by_code.values():
         parallel = sum(1 for _, e in events if _NUMBERED_QUALIFIER_RE.search(e.name)) > 1
         for key, e in events:
-            certain = len(events) == 1 or bool(_QUALIFYING_RE.search(e.name))
+            certain = len(events) == 1 or is_qualifying(e.name)
             matches[key] = RiderMatch(
                 source="rider_list",
                 tentative=not certain,
@@ -133,12 +133,17 @@ _RIDERS_PER_HEAT = {
 _SINGLE_ROUND = frozenset({"time_trial_500", "time_trial_750", "time_trial_kilo"})
 
 
+def is_qualifying(event_name: str) -> bool:
+    """True for a qualifying round (``Qualifying``, ``Qualifier N``)."""
+    return bool(_QUALIFYING_RE.search(event_name))
+
+
 def needs_heat_estimate(event: Event) -> bool:
     """True for an individual event that estimate_heats can size from the Rider List."""
     return (
         not event.is_special
         and event.discipline in _RIDERS_PER_HEAT
-        and (event.discipline in _SINGLE_ROUND or bool(_QUALIFYING_RE.search(event.name)))
+        and (event.discipline in _SINGLE_ROUND or is_qualifying(event.name))
         and event_band(event.name) is not None
     )
 

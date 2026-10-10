@@ -208,7 +208,8 @@ by the weekly sweeper. Uses the PR role.
 Each PR's runs share the `pr-<N>` concurrency group, so a close waits for an
 in-flight deploy instead of racing it.
 - **open/synchronize:** Build image, push as `pr-<N>-<sha>`, deploy ephemeral
-  `TrackTimingStack-pr-<N>` stack, comment the Function URL on the PR
+  `TrackTimingStack-pr-<N>` stack, comment the Function URL on the PR (later deploys edit that
+  comment rather than adding another)
 - **close:** `cdk destroy TrackTimingStack-pr-<N>` tears down all resources
 
 PR stacks use DESTROY removal policies so DynamoDB tables and log groups are

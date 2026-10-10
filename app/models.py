@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
-from datetime import datetime, time
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Literal
 
@@ -9,9 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DurationSource = Literal["finish_time", "generated_diff", "heat_count"]
 # Where a pre-result heat count came from: a start list, Rider List entrants (estimated),
-# the round name (estimated), Ride 2 results (sprint deciders), or, for a sprint Ride 3
-# before Ride 2 is posted, the round's pairs (each may need a decider).
-HeatBasis = Literal["start_list", "rider_list", "round", "decider", "decider_pairs"]
+# a committed pre-event entry list (estimated, app/supplements.py), the round name (estimated),
+# Ride 2 results (sprint deciders), or, for a sprint Ride 3 before Ride 2 is posted, the
+# round's pairs (each may need a decider).
+HeatBasis = Literal["start_list", "rider_list", "entry_list", "round", "decider", "decider_pairs"]
+# Where a race distance came from: the start list title, or an organiser's schedule (estimated).
+DistanceBasis = Literal["start_list", "schedule"]
 Gender = Literal["men", "women", "open"]
 
 
@@ -90,6 +93,44 @@ class RiderListEntry(_NamedRider):
     codes: frozenset[str]
 
 
+class FieldSize(BaseModel):
+    """Entries (teams or riders) in one discipline, gender and age band, from a pre-event list."""
+
+    model_config = ConfigDict(frozen=True)
+
+    discipline: str  # discipline key from disciplines.detect_discipline
+    gender: Literal["M", "W"]
+    lo: int
+    hi: int | None  # None = open upper bound
+    entries: int = Field(ge=1)
+
+
+class RaceDistance(BaseModel):
+    """A mass-start race's distance in one gender, age band and phase, from an organiser's schedule."""
+
+    model_config = ConfigDict(frozen=True)
+
+    discipline: str  # discipline key from disciplines.detect_discipline
+    gender: Literal["M", "W"]
+    lo: int
+    hi: int | None  # None = open upper bound
+    phase: Literal["qualifying", "final"]
+    km: float = Field(gt=0)
+
+
+class CompetitionSupplement(BaseModel):
+    """Pre-event data published off tracktiming.live, captured once by a tools/ importer.
+
+    Stored as app/data/supplements/<competition_id>.json and deployed with the app.
+    """
+
+    competition_id: int
+    sources: list[str]  # where the data was captured from
+    captured: date
+    fields: list[FieldSize] = []
+    distances: list[RaceDistance] = []
+
+
 class RiderMatch(BaseModel):
     heat: int | None = Field(default=None, ge=1)  # None for Rider List matches
     heat_count: int | None = Field(default=None, ge=1)
@@ -113,6 +154,7 @@ class Prediction(BaseModel):
     heat_basis: HeatBasis | None = None  # Where heat_count came from
     race_distance_km: float | None = None  # Set when duration is derived from a start-list distance
     race_kmh: float | None = None  # Pace used with race_distance_km (disciplines.bunch_race_kmh)
+    distance_basis: DistanceBasis | None = None  # Where race_distance_km came from
     per_heat_minutes: float | None = None  # Minutes per heat used with heat_count, when heat-based
     podium_count: int | None = None  # Set when a medal ceremony's duration comes from forecast podiums
     is_active: bool = False  # True for the first non-COMPLETED event in an in-progress session

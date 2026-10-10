@@ -130,9 +130,10 @@
               {%- set phd = (pred.per_heat_minutes or 0) | round(2) %}
               {%- set plus_co = ", plus changeover" if changeover_minutes(pred.event.discipline) > 0 else "" %}
               {%- if pred.is_observed %}{% set tip = "From result-page timing" %}
-              {%- elif pred.race_distance_km %}{% set tip = '%g' % pred.race_distance_km ~ " km from the start list at " ~ '%g' % pred.race_kmh ~ " km/h, plus changeover" %}
+              {%- elif pred.race_distance_km %}{% set tip = '%g' % pred.race_distance_km ~ " km from the " ~ ("organiser's published schedule" if pred.distance_basis == 'schedule' else "start list") ~ " at " ~ '%g' % pred.race_kmh ~ " km/h, plus changeover" %}
               {%- elif pred.heat_basis == 'start_list' %}{% set tip = heats ~ " from the start list × " ~ phd ~ " min" ~ plus_co %}
               {%- elif pred.heat_basis == 'rider_list' %}{% set tip = heats ~ " estimated from Rider List entrants × " ~ phd ~ " min" ~ plus_co %}
+              {%- elif pred.heat_basis == 'entry_list' %}{% set tip = heats ~ " estimated from the pre-event entry list × " ~ phd ~ " min" ~ plus_co %}
               {%- elif pred.heat_basis == 'round' %}{% set tip = heats ~ " from the round name × " ~ phd ~ " min" ~ plus_co %}
               {%- elif pred.heat_basis == 'decider' %}{% set tip = hc ~ " pair" ~ ('s' if hc != 1 else '') ~ " tied after Ride 2" %}
               {%- elif pred.heat_basis == 'decider_pairs' %}{% set tip = "Any of " ~ hc ~ " pair" ~ ('s' if hc != 1 else '') ~ " may need a decider; expected " ~ (decider_rate * 100) | round | int ~ "% of pairs until Ride 2 is posted" %}
@@ -143,10 +144,10 @@
               <span class="text-xs" title="{{ tip }}">
                 {%- if pred.is_observed -%}obs.
                 {%- elif pred.is_active and pred.active_heat is not none -%}heat {{ pred.active_heat }}{% if hc is not none %}/{{ hc }}{% endif %}
-                {%- elif pred.race_distance_km -%}{{ '%g' % pred.race_distance_km }} km
+                {%- elif pred.race_distance_km -%}{{ '~' if pred.distance_basis == 'schedule' }}{{ '%g' % pred.race_distance_km }} km{{ ' est.' if pred.distance_basis == 'schedule' }}
                 {%- elif pred.heat_basis == 'decider' -%}{{ hc }} decider{{ 's' if hc != 1 else '' }}
                 {%- elif pred.heat_basis == 'decider_pairs' -%}0–{{ hc }} deciders est.
-                {%- elif pred.heat_basis in ('rider_list', 'round') -%}~{{ heats }} est.
+                {%- elif pred.heat_basis in ('rider_list', 'entry_list', 'round') -%}~{{ heats }} est.
                 {%- elif hc is not none -%}{{ heats }}
                 {%- elif pred.podium_count is not none -%}{{ pred.podium_count }} podium{{ 's' if pred.podium_count != 1 else '' }}
                 {%- else -%}est.

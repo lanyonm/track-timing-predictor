@@ -78,10 +78,13 @@ jobs:
         env:
           ENV_NAME: pr-${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           FUNCTION_URL=$(jq -r ".\"TrackTimingStack-${ENV_NAME}\".FunctionUrl" cdk-outputs.json)
+          # One comment per PR: later deploys edit the bot's last comment instead of adding another.
           gh pr comment ${{ github.event.pull_request.number }} \
-            --body "Preview environment deployed: ${FUNCTION_URL}"
+            --edit-last --create-if-none \
+            --body "Preview environment deployed: ${FUNCTION_URL} (${HEAD_SHA::7})"
 
   destroy-pr:
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
