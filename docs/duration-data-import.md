@@ -248,14 +248,14 @@ After extraction, pursuit disciplines are resolved to a specific distance varian
 
 ## Cascading Learned Duration Fallback
 
-The extended learning database supports granular averages via `get_learned_duration_cascading()`. The live predictor does not call it yet; it reads only the Level 1 (discipline-only) average via `get_learned_duration()`, and only when the user enables learned durations. The cascade is:
+The learning database keeps averages at four levels, and the live predictor reads them through `get_learned_durations_cascading()` when the user turns on learned durations. Each event's key is the app's discipline plus the classification and gender `categorize_event()` finds in its name; live observations are recorded with the same classification and gender. The cascade is:
 
 1. **Level 4** — discipline + classification + gender (e.g. sprint_match for elite men)
 2. **Level 3** — discipline + classification (e.g. sprint_match for elite, any gender)
 3. **Level 2** — discipline + gender (e.g. sprint_match for men, any classification)
 4. **Level 1** — discipline only (e.g. all sprint_match observations)
 
-The first level with 3 or more samples (or a manual override) is used. If no level qualifies, the function returns `None` and the caller falls back to the static `DEFAULT_DURATIONS` constant.
+A manual override wins over every aggregate. Otherwise the first level with 3 or more samples (`MIN_LEARNED_SAMPLES`) is used. If no level qualifies, the key gets no learned value and the event falls back to the static `DEFAULT_DURATIONS` constant. `/learned` lists the discipline averages and every finer level with enough samples.
 
 ## Database Schema Changes
 

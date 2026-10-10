@@ -4,6 +4,9 @@ import pytest
 
 from app.database import (
     get_all_learned_durations,
+    get_db,
+    get_learned_duration_cascading,
+    get_learned_durations_cascading,
     record_duration_structured,
     record_live_duration,
 )
@@ -29,6 +32,27 @@ class TestRecordLiveDurationSqlite:
         record_duration_structured(1, 1, 1, "Elite Men Scratch", "scratch_race", 15.0, "elite", "men")
         assert record_live_duration(1, 1, 1, "Scratch", "scratch_race", 12.0, "observed") == "unchanged"
         assert get_all_learned_durations() == {"scratch_race": pytest.approx((15.0, 1))}
+
+
+class TestCascadingSqlite:
+    def test_live_write_stores_classification_and_gender(self):
+        for pos in range(3):
+            record_live_duration(1, 1, pos, "x", "keirin", 10.0, "observed", "age_55_59", "men")
+        assert get_learned_duration_cascading("keirin", "age_55_59", "men") == pytest.approx(10.0)
+
+    def test_override_beats_finer_aggregates(self):
+        for pos in range(3):
+            record_live_duration(1, 1, pos, "x", "keirin", 10.0, "observed", "age_55_59", "men")
+        with get_db() as conn:
+            conn.execute("INSERT INTO discipline_overrides (discipline, duration_minutes) VALUES ('keirin', 7.0)")
+        assert get_learned_duration_cascading("keirin", "age_55_59", "men") == pytest.approx(7.0)
+
+    def test_batch_leaves_out_keys_without_data(self):
+        for pos in range(3):
+            record_live_duration(1, 1, pos, "x", "keirin", 10.0, "observed", None, "men")
+        assert get_learned_durations_cascading(
+            [("keirin", None, "men"), ("keirin", None, "men"), ("tempo", None, None)]
+        ) == {("keirin", None, "men"): pytest.approx(10.0)}
 
 
 class TestGetAllLearnedDurationsSqlite:

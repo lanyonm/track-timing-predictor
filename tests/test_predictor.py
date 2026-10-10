@@ -31,6 +31,7 @@ from app.predictor import (
     get_generated_time,
     get_heat_count,
     latest_live_generated_time,
+    learned_key,
     load_learned_durations,
     predict_schedule,
     predict_session,
@@ -1221,19 +1222,20 @@ class TestUseLearnedDefault:
         # The learned average includes the static changeover, swapped for the live one.
         assert sp.event_predictions[1].predicted_start == _add_minutes(time(8, 0), 99.0 + BUNCH_SHIFT)
 
-    def test_loads_each_discipline_once(self, learned_scratch_race):
+    def test_loads_each_key_once(self, learned_scratch_race):
         session = self._session()
-        disciplines = {e.discipline for e in session.events}
-        with patch("app.predictor.get_learned_duration", return_value=None) as read:
+        keys = sorted({learned_key(e) for e in session.events}, key=str)
+        with patch("app.predictor.get_learned_durations_cascading", return_value={}) as read:
             assert load_learned_durations([session, session]) == {}
-        assert sorted(c.args[0] for c in read.call_args_list) == sorted(disciplines)
+        read.assert_called_once_with(keys)
 
-    def test_omits_disciplines_without_enough_samples(self, learned_scratch_race):
-        assert load_learned_durations([self._session()]) == {"scratch_race": pytest.approx(99.0)}
+    def test_omits_keys_without_enough_samples(self, learned_scratch_race):
+        event = self._session().events[0]
+        assert load_learned_durations([self._session()]) == {learned_key(event): pytest.approx(99.0)}
 
     def test_prediction_makes_no_database_reads(self, learned_scratch_race):
         learned = load_learned_durations([self._session()])
-        with patch("app.predictor.get_learned_duration", side_effect=AssertionError("DB read")):
+        with patch("app.predictor.get_learned_durations_cascading", side_effect=AssertionError("DB read")):
             sched = predict_schedule(7003, [self._session()], learned=learned)
         start = sched.sessions[0].event_predictions[1].predicted_start
         assert start == _add_minutes(time(8, 0), 99.0 + BUNCH_SHIFT)
@@ -1242,6 +1244,69 @@ class TestUseLearnedDefault:
         sched = predict_schedule(7003, [self._session()])
         start = sched.sessions[0].event_predictions[1].predicted_start
         assert start == _add_minutes(time(8, 0), SCRATCH_SLOT)
+
+
+class TestLearnedCascade:
+    """With use_learned on, an event gets the most specific learned average with enough
+    samples: discipline + classification + gender, then classification, gender, discipline."""
+
+    def _events(self) -> list[Event]:
+        names = [
+            "55-59 Men Scratch Race Final",
+            "55-59 Women Scratch Race Final",
+            "45-49 Women Scratch Race Final",
+            "Scratch Race Final",
+        ]
+        return [
+            Event(position=i, name=n, discipline="scratch_race", status=EventStatus.UPCOMING, is_special=False)
+            for i, n in enumerate(names)
+        ]
+
+    def test_learned_key_uses_categorizer_classification_and_gender(self):
+        assert learned_key(self._events()[0]) == ("scratch_race", "age_55_59", "men")
+
+    def test_most_specific_level_wins(self):
+        from app.database import record_duration_structured
+
+        for pos in range(3):
+            record_duration_structured(7004, 1, pos, "x", "scratch_race", 10.0, "age_55_59", "men")
+            record_duration_structured(7004, 2, pos, "x", "scratch_race", 25.0, None, "women")
+            record_duration_structured(7004, 3, pos, "x", "scratch_race", 30.0)
+        session = Session(session_id=1, day="Friday", scheduled_start=time(8, 0), events=self._events())
+        learned = load_learned_durations([session])
+        assert [learned[learned_key(e)] for e in self._events()] == pytest.approx(
+            [
+                10.0,  # Level 4: 55-59 men
+                10.0,  # Level 3: 55-59, any gender
+                25.0,  # Level 2: women
+                (10 + 25 + 30) / 3,  # Level 1: open gender, no classification
+            ]
+        )
+
+    @pytest.mark.parametrize(
+        "fixture",
+        ["sample-event-output.json", "schedule-26009.json", "schedule-26037.json", "schedule-26037-live.json"],
+    )
+    def test_app_and_loader_disciplines_agree_once_an_event_has_pages(self, fixture):
+        """Learned averages are keyed by the loader's discipline (categorize_event, corrected by
+        page URLs) and read with the app's, so the two must match for every event the loader
+        could have stored: completed ones, which always have pages."""
+        from app.categorizer import categorize_event
+        from app.disciplines import pursuit_discipline_from_urls
+
+        sessions = parse_schedule(json.loads((SAMPLE_PATH.parent / fixture).read_text()))
+        events = [e for s in sessions for e in s.events if not e.is_special and (e.result_url or e.start_list_url)]
+        assert events
+        for e in events:
+            loader = categorize_event(e.name)[0].discipline
+            if loader.startswith("pursuit_"):
+                urls = (e.result_url, e.start_list_url, e.audit_url, e.live_url)
+                loader = pursuit_discipline_from_urls(*urls) or loader
+            assert e.discipline == loader, e.name
+
+    def test_live_records_carry_classification_and_gender(self):
+        record = record_observed_duration(7005, 1, 1, 10.0, "scratch_race", "55-59 Men Scratch Race Final")
+        assert (record.classification, record.gender) == ("age_55_59", "men")
 
 
 class TestGeneratedGapAssignment:

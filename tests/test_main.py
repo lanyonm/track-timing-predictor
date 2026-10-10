@@ -981,20 +981,21 @@ class TestLambdaHandler:
 
 
 class TestLearnedReads:
-    """With use_learned on, a schedule request reads each discipline's learned average once,
-    in a worker thread; with it off, it doesn't read them at all."""
+    """With use_learned on, a schedule request reads every learned key's average in one
+    batched call, in a worker thread; with it off, it doesn't read them at all."""
 
     @pytest.mark.parametrize("path", ["/schedule/26008", "/schedule/26008/refresh"])
-    def test_one_read_per_discipline(self, client, path):
+    def test_one_batched_read(self, client, path):
         client.cookies.set("use_learned", "true")
-        with patch("app.predictor.get_learned_duration", return_value=None) as read:
+        with patch("app.predictor.get_learned_durations_cascading", return_value={}) as read:
             assert client.get(path).status_code == 200
-        disciplines = [c.args[0] for c in read.call_args_list]
-        assert disciplines
-        assert len(disciplines) == len(set(disciplines))
+        read.assert_called_once()
+        keys = read.call_args.args[0]
+        assert keys
+        assert len(keys) == len(set(keys))
 
     def test_no_reads_when_off(self, client):
-        with patch("app.predictor.get_learned_duration") as read:
+        with patch("app.predictor.get_learned_durations_cascading") as read:
             assert client.get("/schedule/26008").status_code == 200
         read.assert_not_called()
 
@@ -1008,6 +1009,17 @@ class TestLearnedPage:
         text = " ".join(client.get("/learned").text.split())
         assert "keirin" in text
         assert "8.0" in text
+
+    def test_lists_finer_levels_with_enough_samples(self, client):
+        from app.database import record_duration_structured
+
+        for pos in range(3):
+            record_duration_structured(7101, 1, pos, "Keirin", "keirin", 8.0, "age_55_59", "men")
+        record_duration_structured(7101, 2, 0, "Keirin", "keirin", 8.0, "age_60_64", "men")
+        text = " ".join(client.get("/learned").text.split())
+        assert "By classification and gender" in text
+        assert "<td>age_55_59</td> <td>men</td>" in text
+        assert "age_60_64" not in text  # one sample
 
     def test_empty_database(self, client):
         assert "No learned durations yet" in client.get("/learned").text

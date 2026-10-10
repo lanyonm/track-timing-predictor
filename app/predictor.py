@@ -1,10 +1,12 @@
+import functools
 from collections.abc import Iterable, Mapping
 from datetime import datetime, time, timedelta
 from statistics import median
 from typing import NamedTuple
 
+from app.categorizer import categorize_event
 from app.ceremonies import ceremony_duration, forecast_podiums
-from app.database import LiveSource, get_learned_duration, record_live_duration
+from app.database import LearnedKey, LiveSource, get_learned_durations_cascading, record_live_duration
 from app.disciplines import (
     DISTANCE_DISCIPLINES,
     FINISH_TIME_DISCIPLINES,
@@ -148,6 +150,24 @@ class LiveDuration(NamedTuple):
     discipline: str
     duration_minutes: float
     source: LiveSource
+    classification: str | None = None
+    gender: str | None = None
+
+
+@functools.lru_cache(maxsize=4096)
+def _name_category(event_name: str) -> tuple[str | None, str]:
+    """(classification, gender) from categorizer.categorize_event, as the loader stores them."""
+    category, _ = categorize_event(event_name)
+    return category.classification, category.gender
+
+
+def learned_key(event: Event) -> LearnedKey:
+    """The (discipline, classification, gender) key for an event's learned average.
+
+    The discipline is the live app's (detect_discipline, corrected by page URLs and age
+    bands), so the learned value replaces the default the same event would otherwise get.
+    """
+    return (event.discipline, *_name_category(event.name))
 
 
 def record_observed_duration(
@@ -175,6 +195,8 @@ def record_observed_duration(
         discipline=discipline,
         duration_minutes=finish_time_minutes + get_changeover(discipline),
         source="observed",
+        classification=(category := _name_category(event_name))[0],
+        gender=category[1],
     )
 
 
@@ -454,7 +476,7 @@ def _base_estimate(
     competition_id: int,
     session_id: int,
     event: Event,
-    learned: Mapping[str, float] | None,
+    learned: Mapping[LearnedKey, float] | None,
     bunch: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
     inferred: tuple[int, HeatBasis] | None = None,
     *,
@@ -500,7 +522,7 @@ def _base_estimate(
                 minutes = (known + open_pairs * SPRINT_DECIDER_RATE) * SPRINT_DECIDER_MINUTES
                 return _Estimate(minutes, known + open_pairs, "decider_pairs", deciders_known=known)
             if pairs is None:
-                pairs = _get_duration(event.discipline, learned) / phd
+                pairs = _get_duration(event, learned) / phd
             return _Estimate(pairs * SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE, round(pairs), "decider_pairs")
         if hc is None and pairs is not None:
             return _Estimate(pairs * phd, int(pairs), "round", per_heat=phd)
@@ -510,7 +532,7 @@ def _base_estimate(
     if hc is not None:
         return _Estimate(hc * phd + _changeover(event.discipline, bunch), hc, basis, per_heat=phd)
     shift = _changeover(event.discipline, bunch) - get_changeover(event.discipline)
-    return _Estimate(_get_duration(event.discipline, learned) + shift)
+    return _Estimate(_get_duration(event, learned) + shift)
 
 
 def infer_heats(
@@ -669,25 +691,22 @@ def generated_gap_duration(
     return mins
 
 
-def load_learned_durations(sessions: list[Session]) -> dict[str, float]:
-    """Read the learned average for each distinct discipline in sessions, once each.
+def load_learned_durations(sessions: list[Session]) -> dict[LearnedKey, float]:
+    """Read the learned average for each distinct learned_key in sessions, once each.
 
-    Blocking (SQLite or DynamoDB): run it in a worker thread. Disciplines without
-    enough samples are left out, so they fall back to the default.
+    Each key cascades from discipline + classification + gender down to the discipline
+    alone (database.get_learned_durations_cascading). Blocking (SQLite or DynamoDB): run
+    it in a worker thread. Keys without enough samples at any level are left out, so
+    those events fall back to the default.
     """
-    learned: dict[str, float] = {}
-    for discipline in sorted({e.discipline for s in sessions for e in s.events}):
-        value = get_learned_duration(discipline)
-        if value is not None:
-            learned[discipline] = value
-    return learned
+    return get_learned_durations_cascading(sorted({learned_key(e) for s in sessions for e in s.events}, key=str))
 
 
-def _get_duration(discipline: str, learned: Mapping[str, float] | None = None) -> float:
+def _get_duration(event: Event, learned: Mapping[LearnedKey, float] | None = None) -> float:
     """Return the learned duration when one was loaded (use_learned on), otherwise the default."""
-    if learned and discipline in learned:
-        return learned[discipline]
-    return get_default_duration(discipline)
+    if learned and (value := learned.get(learned_key(event))) is not None:
+        return value
+    return get_default_duration(event.discipline)
 
 
 def _on_day_of(now: datetime | None, t: time) -> datetime | None:
@@ -832,7 +851,7 @@ def predict_session(
     session: Session,
     now: datetime | None = None,
     racer_name: str | None = None,
-    learned: Mapping[str, float] | None = None,
+    learned: Mapping[LearnedKey, float] | None = None,
     rider_list_matches: dict[tuple[int, int], RiderMatch] | None = None,
     ceremony_podiums: dict[tuple[int, int], int] | None = None,
     changeover: float = LIVE_BUNCH_CHANGEOVER_MINUTES,
@@ -1128,7 +1147,7 @@ def predict_schedule(
     sessions: list[Session],
     now: datetime | None = None,
     racer_name: str | None = None,
-    learned: Mapping[str, float] | None = None,
+    learned: Mapping[LearnedKey, float] | None = None,
     rider_list: list[RiderListEntry] | None = None,
 ) -> SchedulePrediction:
     rider_entry = None
@@ -1247,6 +1266,8 @@ def update_status_cache(
                             discipline=event.discipline,
                             duration_minutes=elapsed,
                             source="wall_clock",
+                            classification=(category := _name_category(event.name))[0],
+                            gender=category[1],
                         )
                     )
                 _status_cache[key] = {"status": event.status, "seen_at": now}
