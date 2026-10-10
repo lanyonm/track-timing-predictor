@@ -65,10 +65,12 @@ from app.parser import (
     parse_rider_list_url,
     parse_schedule,
     parse_sprint_deciders,
+    parse_sprint_rides_done,
     parse_start_list,
 )
 from app.predictor import (
     LiveDuration,
+    apply_sprint_ride_status,
     get_generated_time,
     get_heat_count,
     get_rider_list,
@@ -86,10 +88,12 @@ from app.predictor import (
     record_rider_list,
     record_rider_list_failure,
     record_sprint_deciders,
+    record_sprint_rides_done,
     record_start_list_categories,
     record_start_list_riders,
     rider_list_retry_pending,
     save_live_durations,
+    sprint_ride_done,
     update_status_cache,
 )
 from app.rider_list import needs_heat_estimate
@@ -323,7 +327,13 @@ async def _fetch_result_pages(
     audits: dict[str, list[tuple[int, int]]] = {}
     for s in sessions:
         for e in s.events:
-            if e.result_url and get_generated_time(competition_id, s.session_id, e.position) is None:
+            # A best-of-3 round's shared page is refetched until this ride is known to be done.
+            ride_pending = (
+                e.discipline == "sprint_match"
+                and split_ride(e.name) is not None
+                and sprint_ride_done(competition_id, e.name) is not True
+            )
+            if e.result_url and (get_generated_time(competition_id, s.session_id, e.position) is None or ride_pending):
                 to_fetch.setdefault(e.result_url, []).append((s.session_id, e.position, e.discipline, e.name))
                 if e.audit_url:
                     audits.setdefault(e.audit_url, []).append((s.session_id, e.position))
@@ -345,8 +355,15 @@ async def _fetch_result_pages(
                 finish_time = parse_finish_time(html)
                 deciders: int | None = None
                 deciders_parsed = False
+                rides = [r for _, _, d, n in slots if d == "sprint_match" and (r := split_ride(n)) is not None]
+                rides_done = parse_sprint_rides_done(html) if rides else None
+                if rides_done is not None:
+                    record_sprint_rides_done(competition_id, rides[0][0], rides_done)
                 for sess_id, pos, discipline, name in slots:
-                    if gen_time is not None:
+                    ride = split_ride(name) if discipline == "sprint_match" else None
+                    # The shared page's Generated marks a ride's end only once that ride is done.
+                    ride_not_done = ride is not None and rides_done is not None and ride[1] > rides_done
+                    if gen_time is not None and not ride_not_done:
                         record_generated_time(competition_id, sess_id, pos, gen_time)
                     if finish_time is not None:
                         observed.append(
@@ -660,6 +677,7 @@ async def get_schedule(
         _fetch_live_heats(client, event_id, sessions),
         _fetch_rider_list_if_needed(client, event_id, jxn_data, sessions, racer_name),
     )
+    sessions = apply_sprint_ride_status(event_id, sessions)
     now = venue_now(latest_live_generated_time(event_id, sessions))
     use_learned = _use_learned(request)
     learned = await asyncio.to_thread(load_learned_durations, sessions) if use_learned else None
@@ -758,6 +776,7 @@ async def refresh_schedule(
         _fetch_rider_list_if_needed(client, event_id, jxn_data, sessions, racer_name),
     )
 
+    sessions = apply_sprint_ride_status(event_id, sessions)
     now = venue_now(latest_live_generated_time(event_id, sessions))
 
     # Track status transitions for wall-clock fallback learning.

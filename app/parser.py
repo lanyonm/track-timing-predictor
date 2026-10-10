@@ -333,17 +333,15 @@ def _race_distance_km(soup: BeautifulSoup) -> float | None:
 _SPRINT_PAIR_RE = re.compile(r"^(?:Heat\s+\d+|Final\s+\d+-\d+)$")
 
 
-def parse_sprint_deciders(html: str) -> int | None:
-    """
-    Count the pairs in a best-of-3 sprint round that need (or rode) a decider.
+def _sprint_pairs(html: str) -> list[tuple[int, list[int]]] | None:
+    """(rides timed, wins per rider) for each pair on a best-of-3 sprint round's result page.
 
     All rides of a round share one result page with Ride 1, Ride 2 and Decider
     columns. Each pair has a header row ('Heat N', or 'Final 3-4'/'Final 1-2' on a
     Final) whose last three cells hold each ride's 200m time, then one row per
     rider whose last three cells hold 'Winner' or a gap (a relegated rider shows
-    'REL'). A pair needs a decider when it rode one or each rider won once.
-
-    Returns None until every pair has ridden Ride 2, or for any other page.
+    'REL'). A bye is a pair with one rider (its Ride 1 time is 0.000); it rides no
+    more, so it's left out. None for any page without a Decider column.
     """
     soup = BeautifulSoup(html, "html.parser")
     headers = [th.get_text(strip=True) for th in soup.find_all("th")]
@@ -353,7 +351,7 @@ def parse_sprint_deciders(html: str) -> int | None:
     if tbody is None:
         return None
 
-    pairs: list[tuple[int, list[int]]] = []  # (rides timed, wins per rider)
+    pairs: list[tuple[int, list[int]]] = []
     for row in tbody.find_all("tr"):
         cells = row.find_all("td", recursive=False)
         if len(cells) < 3:
@@ -363,10 +361,44 @@ def parse_sprint_deciders(html: str) -> int | None:
             pairs.append((sum(1 for c in rides if "km/h" in c.get_text()), []))
         elif pairs:
             pairs[-1][1].append(sum(1 for c in rides if c.get_text(strip=True) == "Winner"))
+    return [(timed, wins) for timed, wins in pairs if len(wins) >= 2]
 
+
+def _needs_decider(timed: int, wins: list[int]) -> bool:
+    return timed >= 3 or wins == [1, 1]
+
+
+def parse_sprint_deciders(html: str) -> int | None:
+    """
+    Count the pairs in a best-of-3 sprint round that need (or rode) a decider.
+
+    A pair needs a decider when it rode one or each rider won once (_sprint_pairs).
+    Returns None until every pair has ridden Ride 2, or for any other page.
+    """
+    pairs = _sprint_pairs(html)
     if not pairs or any(timed < 2 for timed, _ in pairs):
         return None
-    return sum(1 for timed, wins in pairs if timed >= 3 or wins == [1, 1])
+    return sum(1 for timed, wins in pairs if _needs_decider(timed, wins))
+
+
+def parse_sprint_rides_done(html: str) -> int | None:
+    """
+    How many rides (0-3) of a best-of-3 sprint round every pair has finished.
+
+    Ride 1 and Ride 2 are done when every pair has that ride's time; Ride 3 (the
+    decider) when, after Ride 2, no pair is still level at one win each. The rides
+    share this result page, so upstream shows Ride 2 and Ride 3 as having results
+    as soon as Ride 1 does. None for any page without a Decider column.
+    """
+    pairs = _sprint_pairs(html)
+    if pairs is None:
+        return None
+    if not pairs:
+        return 3
+    done = min(timed for timed, _ in pairs)
+    if done >= 2 and not any(timed < 3 and wins == [1, 1] for timed, wins in pairs):
+        return 3
+    return min(done, 2)
 
 
 def parse_heat_count(html: str) -> int | None:

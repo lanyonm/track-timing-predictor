@@ -26,9 +26,11 @@ from app.predictor import (
     _rider_list_retry_at,
     _rider_lists,
     _sprint_deciders,
+    _sprint_rides_done,
     _start_list_categories,
     _start_list_riders,
     _status_cache,
+    apply_sprint_ride_status,
     predict_schedule,
     record_heat_count,
     record_live_heat,
@@ -75,6 +77,7 @@ def clear_predictor_caches():
     _start_list_riders.clear()
     _start_list_categories.clear()
     _sprint_deciders.clear()
+    _sprint_rides_done.clear()
     _race_distances.clear()
     _rider_lists.clear()
     _rider_list_retry_at.clear()
@@ -690,6 +693,53 @@ class TestFetchResultPagesDeciders:
         with patch("app.main.fetch_page_html", AsyncMock(side_effect=page)):
             asyncio.run(_fetch_result_pages(None, 1, [self._timed_session()]))
         assert _generated_times[(1, 1, 1)] == expected
+
+    def _rides_session(self) -> Session:
+        url = "results/E1/M7579-S-4-R1-R.htm"
+        events = [
+            Event(
+                position=p,
+                name=f"75-79 Men Sprint 1/4 Final Ride {n}",
+                discipline="sprint_match",
+                status=EventStatus.COMPLETED,
+                is_special=False,
+                result_url=url,
+                start_list_url="results/E1/M7579-S-4-R1-S.htm",
+            )
+            for p, n in ((1, 1), (3, 2), (5, 3))
+        ]
+        return Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=events)
+
+    def test_shared_page_refetched_until_every_ride_done(self):
+        session = self._rides_session()
+        html = {"page": (FIXTURE_DIR / "result-sprint-quarter-final-ride1-26037.html").read_text()}
+        page = AsyncMock(side_effect=lambda _client, _path: html["page"])
+        with patch("app.main.fetch_page_html", page):
+            asyncio.run(_fetch_result_pages(None, 1, [session]))
+            # After Ride 1 only Ride 1 has a Generated time; Rides 2 and 3 are upcoming.
+            assert (1, 1, 1) in _generated_times
+            assert (1, 1, 3) not in _generated_times and (1, 1, 5) not in _generated_times
+            statuses = [e.status for e in apply_sprint_ride_status(1, [session])[0].events]
+            assert statuses == [EventStatus.COMPLETED, EventStatus.UPCOMING, EventStatus.UPCOMING]
+
+            asyncio.run(_fetch_result_pages(None, 1, [session]))
+            assert page.call_count == 2  # still pending, so fetched again
+
+            html["page"] = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
+            asyncio.run(_fetch_result_pages(None, 1, [session]))
+            assert (1, 1, 3) in _generated_times and (1, 1, 5) in _generated_times
+            assert all(e.status == EventStatus.COMPLETED for e in apply_sprint_ride_status(1, [session])[0].events)
+
+            asyncio.run(_fetch_result_pages(None, 1, [session]))
+            assert page.call_count == 3  # every ride done: no more fetches
+
+    def test_schedule_view_keeps_later_rides_upcoming(self, client, mock_26037):
+        """Every 26037 quarter-final page answers as if only Ride 1 is done."""
+        ride1 = (FIXTURE_DIR / "result-sprint-quarter-final-ride1-26037.html").read_text()
+        mock_26037.side_effect = lambda c, path: ride1 if "-S-4-R1-R" in path else _rider_list_pages(c, path)
+        html = client.get("/schedule/26037").text
+        assert "status-completed" in _event_row(html, "35-39 Men Sprint 1/4 Final Ride 1")["class"]
+        assert "status-completed" not in _event_row(html, "35-39 Men Sprint 1/4 Final Ride 2")["class"]
 
     def test_shared_result_page_fetched_once_for_every_event(self):
         sessions = parse_schedule(_load_fixture("schedule-26037.json"))

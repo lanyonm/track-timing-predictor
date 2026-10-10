@@ -22,6 +22,7 @@ from app.parser import (
     parse_rider_list_url,
     parse_schedule,
     parse_sprint_deciders,
+    parse_sprint_rides_done,
     parse_start_list,
     parse_start_list_categories,
     parse_start_list_riders,
@@ -377,6 +378,39 @@ class TestParseSprintDeciders:
     def test_non_sprint_page(self):
         html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
         assert parse_sprint_deciders(html) is None
+
+    def test_bye_left_out(self):
+        """A bye (one rider, Ride 1 time 0.000) never rides Ride 2, so it doesn't hold the count back."""
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-ride1-bye-26037.html").read_text()
+        assert parse_sprint_deciders(html) is None  # the other pairs haven't ridden Ride 2
+        assert parse_sprint_rides_done(html) == 1
+
+
+class TestParseSprintRidesDone:
+    @pytest.mark.parametrize(
+        ("fixture", "rides"),
+        [
+            ("result-sprint-quarter-final-ride1-26037.html", 1),  # captured live after Ride 1
+            ("result-sprint-quarter-final-ride1-bye-26037.html", 1),  # heat 1 a bye
+            ("result-sprint-quarter-final-26037.html", 3),  # one decider ridden
+            ("result-sprint-semi-final-26037.html", 3),  # both pairs 2-0: no decider to ride
+            ("result-sprint-final-26037.html", 3),
+        ],
+    )
+    def test_captured_pages(self, fixture, rides):
+        assert parse_sprint_rides_done((FIXTURE_DIR / fixture).read_text()) == rides
+
+    def test_tied_pair_waiting_for_decider(self):
+        html = _blank_rides((FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text(), keep=2)
+        assert parse_sprint_rides_done(html) == 2
+
+    def test_after_ride_1(self):
+        html = _blank_rides((FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text(), keep=1)
+        assert parse_sprint_rides_done(html) == 1
+
+    def test_non_sprint_page(self):
+        html = (FIXTURE_DIR / "start-list-sprint-final-26037.html").read_text()
+        assert parse_sprint_rides_done(html) is None
 
 
 # ── parse_live_heat ────────────────────────────────────────────────────────────

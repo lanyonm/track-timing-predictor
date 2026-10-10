@@ -97,6 +97,12 @@ _race_distances: dict[tuple[int, int, int], float] = {}
 # Key: (competition_id, round name without "Ride N"), Value: number of deciders
 _sprint_deciders: dict[tuple[int, str], int] = {}
 
+# Rides (0-3) every pair of a best-of-3 sprint round has finished, from its shared result
+# page (parser.parse_sprint_rides_done). Upstream shows every ride as having results once
+# Ride 1 does, so apply_sprint_ride_status uses this instead.
+# Key: (competition_id, round name without "Ride N"), Value: rides done
+_sprint_rides_done: dict[tuple[int, str], int] = {}
+
 # Parsed Rider Lists. The file is immutable for a competition, so entries never expire.
 # Key: Rider List relative URL, Value: non-empty list of RiderListEntry
 _rider_lists: dict[str, list[RiderListEntry]] = {}
@@ -277,6 +283,43 @@ def record_race_distance(competition_id: int, session_id: int, position: int, km
 def record_sprint_deciders(competition_id: int, round_name: str, deciders: int) -> None:
     """Store how many pairs in a sprint round need (or rode) a decider."""
     _sprint_deciders[(competition_id, round_name)] = deciders
+
+
+def record_sprint_rides_done(competition_id: int, round_name: str, rides: int) -> None:
+    """Store how many rides of a sprint round every pair has finished."""
+    _sprint_rides_done[(competition_id, round_name)] = rides
+
+
+def sprint_ride_done(competition_id: int, event_name: str) -> bool | None:
+    """Whether a best-of-3 ride has been ridden by every pair; None when unknown or not a ride."""
+    ride = split_ride(event_name)
+    if ride is None:
+        return None
+    done = _sprint_rides_done.get((competition_id, ride[0]))
+    return None if done is None else ride[1] <= done
+
+
+def apply_sprint_ride_status(competition_id: int, sessions: list[Session]) -> list[Session]:
+    """Mark sprint rides not yet ridden as UPCOMING (or NOT_READY without a start list).
+
+    The rides of a best-of-3 round share one result page, so upstream gives Ride 2 and
+    Ride 3 an enabled Results button, and parse_schedule marks them COMPLETED, as soon as
+    Ride 1 is posted. A ride whose completion isn't known yet keeps its parsed status.
+    """
+    result = []
+    for session in sessions:
+        events = []
+        for e in session.events:
+            if (
+                e.status == EventStatus.COMPLETED
+                and e.discipline == "sprint_match"
+                and sprint_ride_done(competition_id, e.name) is False
+            ):
+                status = EventStatus.UPCOMING if e.start_list_url else EventStatus.NOT_READY
+                e = e.model_copy(update={"status": status})
+            events.append(e)
+        result.append(session.model_copy(update={"events": events}))
+    return result
 
 
 class _Estimate(NamedTuple):
