@@ -12,6 +12,8 @@ Both pages (2026 UCI Masters Track Worlds, EventId 26037) are TablePress tables.
   under its first rider's age category, gender and event type.
 - Schedule: one table per day (Event No., Gender, Age group, Event, Distance, Phase,
   Sign on close time). Points and scratch rows with a distance give that race's km.
+- Tech guide (PDF, read by hand): fills distances the schedule leaves blank
+  (TECH_GUIDE_DISTANCES); the schedule wins where both give one.
 """
 
 from __future__ import annotations
@@ -30,6 +32,14 @@ from app.models import CompetitionSupplement, FieldSize, RaceDistance
 COMPETITION_ID = 26037
 TEAM_EVENTS_URL = "https://fullgascycling.co.uk/team-events/"
 SCHEDULE_URL = "https://fullgascycling.co.uk/wmtc-schedule/"
+TECH_GUIDE_URL = "https://fullgascycling.co.uk/wp-content/uploads/2026/09/combinepdf-v2.pdf"
+
+# Race distances table, Points Race: Male 75+ 10 km. The schedule's 75-79 and 80+ Men
+# Points Race Final rows have no distance.
+TECH_GUIDE_DISTANCES = [
+    RaceDistance(discipline="points_race", gender="M", lo=75, hi=79, phase="final", km=10),
+    RaceDistance(discipline="points_race", gender="M", lo=80, hi=None, phase="final", km=10),
+]
 
 _TEAM_DISCIPLINES = {"Team Sprint": "team_sprint", "Team Pursuit": "team_pursuit"}
 _DISTANCE_DISCIPLINES = {"Points Race": "points_race", "Scratch Race": "scratch_race"}
@@ -90,6 +100,12 @@ def parse_race_distances(html: str) -> list[RaceDistance]:
     ]
 
 
+def with_tech_guide(distances: list[RaceDistance]) -> list[RaceDistance]:
+    """The schedule's distances plus TECH_GUIDE_DISTANCES for races the schedule leaves blank."""
+    have = {(d.discipline, d.gender, d.lo, d.hi, d.phase) for d in distances}
+    return distances + [d for d in TECH_GUIDE_DISTANCES if (d.discipline, d.gender, d.lo, d.hi, d.phase) not in have]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("team_events", type=Path, help="saved team-events page")
@@ -98,10 +114,10 @@ def main(argv: list[str] | None = None) -> int:
 
     doc = CompetitionSupplement(
         competition_id=COMPETITION_ID,
-        sources=[TEAM_EVENTS_URL, SCHEDULE_URL],
+        sources=[TEAM_EVENTS_URL, SCHEDULE_URL, TECH_GUIDE_URL],
         captured=date.today(),
         fields=parse_team_entries(args.team_events.read_text()),
-        distances=parse_race_distances(args.schedule.read_text()),
+        distances=with_tech_guide(parse_race_distances(args.schedule.read_text())),
     )
     _OUT.write_text(doc.model_dump_json(indent=2) + "\n")
     teams = sum(f.entries for f in doc.fields)

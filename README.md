@@ -193,7 +193,7 @@ The loader validates each observation against [0.5x, 2.0x] bounds of the expecte
 
 ## Pre-event supplements
 
-Some competitions publish team-event entries and race distances off tracktiming.live before start lists exist. A one-off importer turns those pages into `app/data/supplements/<competition_id>.json`, which is committed and deployed with the app (nothing is fetched at runtime). Each source needs its own importer; the JSON format (`CompetitionSupplement` in `app/models.py`: team field sizes and points/scratch distances) stays the same:
+Some competitions publish team-event entries and race distances (26037: a team entry page, a schedule page and a PDF tech guide) off tracktiming.live before start lists exist. A one-off importer turns those pages into `app/data/supplements/<competition_id>.json`, which is committed and deployed with the app (nothing is fetched at runtime). Each source needs its own importer; the JSON format (`CompetitionSupplement` in `app/models.py`: team field sizes and points/scratch distances) stays the same:
 
 ```bash
 curl -sL https://fullgascycling.co.uk/team-events/ -o team-events.html

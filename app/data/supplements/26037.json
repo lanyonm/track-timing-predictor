@@ -2,7 +2,8 @@
   "competition_id": 26037,
   "sources": [
     "https://fullgascycling.co.uk/team-events/",
-    "https://fullgascycling.co.uk/wmtc-schedule/"
+    "https://fullgascycling.co.uk/wmtc-schedule/",
+    "https://fullgascycling.co.uk/wp-content/uploads/2026/09/combinepdf-v2.pdf"
   ],
   "captured": "2026-10-10",
   "fields": [
@@ -355,6 +356,22 @@
       "gender": "M",
       "lo": 40,
       "hi": 44,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 75,
+      "hi": 79,
+      "phase": "final",
+      "km": 10.0
+    },
+    {
+      "discipline": "points_race",
+      "gender": "M",
+      "lo": 80,
+      "hi": null,
       "phase": "final",
       "km": 10.0
     }

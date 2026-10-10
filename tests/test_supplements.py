@@ -9,7 +9,7 @@ from app.models import FieldSize, RaceDistance
 from app.parser import parse_rider_list, parse_schedule
 from app.predictor import infer_heats, predict_schedule
 from app.supplements import heats_from_fields, load_supplement, scheduled_distances
-from tools.import_fullgas_26037 import parse_race_distances, parse_team_entries
+from tools.import_fullgas_26037 import parse_race_distances, parse_team_entries, with_tech_guide
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -98,6 +98,20 @@ class TestParseRaceDistances:
         assert len(distances_26037) == 28
         assert not any(d.lo == 75 and d.discipline == "points_race" for d in distances_26037)
 
+    def test_tech_guide_fills_the_blank_75_plus_points_races(self, distances_26037):
+        km = {(d.discipline, d.lo, d.hi): d.km for d in with_tech_guide(distances_26037)}
+        assert km[("points_race", 75, 79)] == 10
+        assert km[("points_race", 80, None)] == 10
+        assert len(with_tech_guide(distances_26037)) == 30
+
+    def test_schedule_wins_over_the_tech_guide(self, distances_26037):
+        scheduled = [
+            *distances_26037,
+            RaceDistance(discipline="points_race", gender="M", lo=80, hi=None, phase="final", km=7.5),
+        ]
+        km = {(d.lo, d.hi): d.km for d in with_tech_guide(scheduled) if d.discipline == "points_race" and d.lo >= 75}
+        assert km == {(75, 79): 10, (80, None): 7.5}
+
 
 class TestScheduledDistances:
     def test_matches_band_gender_and_phase(self, sessions_26037, distances_26037):
@@ -106,7 +120,7 @@ class TestScheduledDistances:
         assert km["55-59 Men Scratch Race Final"] == 7.5
         assert km["55+ Women Scratch Race Final"] == 5
         assert km["40-44 Men Scratch Race Final"] == 10
-        assert "75-79 Men Points Race Final" not in km
+        assert "75-79 Men Points Race Final" not in km  # blank on the schedule page
 
     def test_band_must_match_exactly(self, sessions_26037):
         distances = [RaceDistance(discipline="scratch_race", gender="W", lo=55, hi=64, phase="final", km=5)]
@@ -121,7 +135,7 @@ class TestLoadSupplement:
         supplement = load_supplement(26037)
         assert supplement is not None
         assert supplement.fields == fields_26037
-        assert supplement.distances == distances_26037
+        assert supplement.distances == with_tech_guide(distances_26037)
 
 
 class TestInferHeats:
