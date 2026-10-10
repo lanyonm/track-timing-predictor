@@ -14,7 +14,7 @@ from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
 import app.main as main_module
-from app.main import _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
+from app.main import _fetch_live_heats, _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule
 from app.predictor import (
@@ -950,6 +950,32 @@ class TestSecurityHeaders:
         soup = BeautifulSoup(client.get("/").text, "html.parser")
         meta = soup.find("meta", attrs={"name": "htmx-config"})
         assert json.loads(meta["content"]) == {"includeIndicatorStyles": False}
+
+
+class TestFetchLiveHeats:
+    def _session(self, name: str) -> Session:
+        event = Event(
+            position=1,
+            name=name,
+            discipline="sprint_match",
+            status=EventStatus.UPCOMING,
+            is_special=False,
+            live_url="liveresults.php?EventId=26037",
+        )
+        return Session(session_id=1, day="Day", scheduled_start=time(10, 0), events=[event])
+
+    def _run(self, name: str) -> int | None:
+        jxn = json.loads((FIXTURE_DIR / "live-results-26037-sprint-ride2-none-done.json").read_text())
+        with patch("app.main.fetch_live_results", AsyncMock(return_value=jxn)):
+            asyncio.run(_fetch_live_heats(None, 1, [self._session(name)]))
+        return _live_heats.get((1, 1, 1))
+
+    def test_sprint_ride_counts_only_its_column(self):
+        """Ride 2 has just started; the page's four Ride 1 times aren't Ride 2 heats."""
+        assert self._run("75-79 Men Sprint 1/4 Final Ride 2") == 0
+
+    def test_page_for_another_event_ignored(self):
+        assert self._run("75-79 Men Sprint 1/4 Final Ride 1") is None
 
 
 class TestActiveHeatLabel:

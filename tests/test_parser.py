@@ -17,6 +17,7 @@ from app.parser import (
     parse_heat_count,
     parse_live_heat,
     parse_live_results_html,
+    parse_live_sprint_heat,
     parse_race_distance_km,
     parse_rider_list,
     parse_rider_list_url,
@@ -384,6 +385,31 @@ class TestParseSprintDeciders:
         html = (FIXTURE_DIR / "result-sprint-quarter-final-ride1-bye-26037.html").read_text()
         assert parse_sprint_deciders(html) is None  # the other pairs haven't ridden Ride 2
         assert parse_sprint_rides_done(html) == 1
+
+
+class TestParseLiveSprintHeat:
+    @pytest.mark.parametrize(
+        ("fixture", "ride", "finished"),
+        [
+            # 75-79 Men Ride 2 just started: Ride 1's four times don't count.
+            ("live-results-26037-sprint-ride2-none-done.json", 2, 0),
+            ("live-results-26037-sprint-no-heats-done.json", 1, 0),
+            ("live-results-26037-sprint-2-of-4-heats-done.json", 1, 2),
+            ("live-results-26037-sprint-bye-3-of-4-heats-done.json", 1, 3),  # heat 1 a bye
+        ],
+    )
+    def test_captured_live_pages(self, fixture, ride, finished):
+        jxn = json.loads((_FIXTURES / fixture).read_text())
+        assert parse_live_sprint_heat(parse_live_results_html(jxn), ride) == finished
+
+    def test_decider_counts_only_pairs_that_rode_it(self):
+        html = (FIXTURE_DIR / "result-sprint-quarter-final-26037.html").read_text()
+        assert parse_live_sprint_heat(html, 2) == 4
+        assert parse_live_sprint_heat(html, 3) == 1
+
+    def test_page_without_decider_column(self):
+        jxn = json.loads((_FIXTURES / "live-results-26037-pursuit-heat-10-of-11.json").read_text())
+        assert parse_live_sprint_heat(parse_live_results_html(jxn), 1) is None
 
 
 class TestParseSprintRidesDone:

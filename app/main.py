@@ -61,6 +61,7 @@ from app.parser import (
     parse_generated_time,
     parse_live_heat,
     parse_live_results_html,
+    parse_live_sprint_heat,
     parse_rider_list,
     parse_rider_list_url,
     parse_schedule,
@@ -239,7 +240,13 @@ async def _fetch_live_heats(
                 return
             try:
                 html = parse_live_results_html(live)
-                heat = parse_live_heat(html) if live_results_show_event(html, name) else None
+                heat = None
+                if live_results_show_event(html, name):
+                    # A best-of-3 round's page shows every ride's column; count only this ride's.
+                    ride = split_ride(name)
+                    heat = parse_live_sprint_heat(html, ride[1]) if ride else None
+                    if heat is None:
+                        heat = parse_live_heat(html)
                 if heat is not None:
                     record_live_heat(ev_id, sess_id, pos, heat)
             except Exception:

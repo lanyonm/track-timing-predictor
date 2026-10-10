@@ -333,15 +333,16 @@ def _race_distance_km(soup: BeautifulSoup) -> float | None:
 _SPRINT_PAIR_RE = re.compile(r"^(?:Heat\s+\d+|Final\s+\d+-\d+)$")
 
 
-def _sprint_pairs(html: str) -> list[tuple[int, list[int]]] | None:
-    """(rides timed, wins per rider) for each pair on a best-of-3 sprint round's result page.
+def _sprint_pairs(html: str, byes: bool = False) -> list[tuple[int, list[int]]] | None:
+    """(rides timed, wins per rider) for each pair on a best-of-3 sprint round's page.
 
-    All rides of a round share one result page with Ride 1, Ride 2 and Decider
-    columns. Each pair has a header row ('Heat N', or 'Final 3-4'/'Final 1-2' on a
-    Final) whose last three cells hold each ride's 200m time, then one row per
-    rider whose last three cells hold 'Winner' or a gap (a relegated rider shows
-    'REL'). A bye is a pair with one rider (its Ride 1 time is 0.000); it rides no
-    more, so it's left out. None for any page without a Decider column.
+    All rides of a round share one result page, and its live timing page has the same
+    table: Ride 1, Ride 2 and Decider columns. Each pair has a header row ('Heat N', or
+    'Final 3-4'/'Final 1-2' on a Final) whose last three cells hold each ride's 200m
+    time, then one row per rider whose last three cells hold 'Winner' or a gap (a
+    relegated rider shows 'REL'). A bye is a pair with one rider (its Ride 1 time is
+    0.000); it rides no more, so it's left out unless ``byes``. None for any page
+    without a Decider column.
     """
     soup = BeautifulSoup(html, "html.parser")
     headers = [th.get_text(strip=True) for th in soup.find_all("th")]
@@ -358,10 +359,25 @@ def _sprint_pairs(html: str) -> list[tuple[int, list[int]]] | None:
             continue
         rides = cells[-3:]
         if _SPRINT_PAIR_RE.match(cells[0].get_text(" ", strip=True)):
-            pairs.append((sum(1 for c in rides if "km/h" in c.get_text()), []))
+            pairs.append((sum(1 for c in rides if re.search(r"\b[1-9]\d*\.\d{2,}", c.get_text())), []))
         elif pairs:
             pairs[-1][1].append(sum(1 for c in rides if c.get_text(strip=True) == "Winner"))
-    return [(timed, wins) for timed, wins in pairs if len(wins) >= 2]
+    return [(timed, wins) for timed, wins in pairs if byes or len(wins) >= 2]
+
+
+def parse_live_sprint_heat(html: str, ride: int) -> int | None:
+    """Finished heats of one ride on a best-of-3 sprint round's live timing page.
+
+    The page shows every ride's column, so only this ride's times count. Byes count as
+    finished in Ride 1 and Ride 2; the decider (Ride 3) counts only pairs that rode it.
+    None for a page without a Decider column.
+    """
+    pairs = _sprint_pairs(html, byes=True)
+    if pairs is None:
+        return None
+    bye_count = sum(1 for _, wins in pairs if len(wins) < 2)
+    ridden = sum(1 for timed, wins in pairs if len(wins) >= 2 and timed >= ride)
+    return ridden if ride >= 3 else ridden + bye_count
 
 
 def _needs_decider(timed: int, wins: list[int]) -> bool:
