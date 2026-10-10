@@ -1,15 +1,15 @@
-"""Tests for app/fields.py (pre-event field sizes) and tools/import_fullgas_teams.py."""
+"""Tests for app/supplements.py (pre-event field sizes and distances) and tools/import_fullgas_26037.py."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from app.fields import heats_from_fields, load_fields
-from app.models import FieldSize
+from app.models import FieldSize, RaceDistance
 from app.parser import parse_rider_list, parse_schedule
-from app.predictor import infer_heats
-from tools.import_fullgas_teams import parse_team_entries
+from app.predictor import infer_heats, predict_schedule
+from app.supplements import heats_from_fields, load_supplement, scheduled_distances
+from tools.import_fullgas_26037 import parse_race_distances, parse_team_entries
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -23,6 +23,11 @@ def sessions_26037():
 @pytest.fixture(scope="module")
 def fields_26037():
     return parse_team_entries((FIXTURE_DIR / "fullgas-team-events-26037.html").read_text())
+
+
+@pytest.fixture(scope="module")
+def distances_26037():
+    return parse_race_distances((FIXTURE_DIR / "fullgas-schedule-26037.html").read_text())
 
 
 def _field(fields, discipline, gender, lo, hi):
@@ -80,12 +85,43 @@ class TestHeatsFromFields:
         assert heats == {"35-44 Men Team Sprint Qualifying": 5}
 
 
-class TestLoadFields:
-    def test_missing_file_is_none(self):
-        assert load_fields(1) is None
+class TestParseRaceDistances:
+    def test_points_and_scratch_distances_by_band_and_phase(self, distances_26037):
+        km = {(d.discipline, d.gender, d.lo, d.hi, d.phase): d.km for d in distances_26037}
+        assert km[("points_race", "M", 35, 39, "final")] == 30
+        assert km[("scratch_race", "M", 55, 59, "qualifying")] == 3.75
+        assert km[("scratch_race", "M", 55, 59, "final")] == 7.5
+        assert km[("scratch_race", "W", 55, None, "final")] == 5
+        assert km[("points_race", "W", 35, 49, "final")] == 10
 
-    def test_committed_26037_file_matches_the_parser(self, fields_26037):
-        assert load_fields(26037) == fields_26037
+    def test_rows_without_a_distance_are_skipped(self, distances_26037):
+        assert len(distances_26037) == 28
+        assert not any(d.lo == 75 and d.discipline == "points_race" for d in distances_26037)
+
+
+class TestScheduledDistances:
+    def test_matches_band_gender_and_phase(self, sessions_26037, distances_26037):
+        km = _by_name(sessions_26037, scheduled_distances(distances_26037, sessions_26037))
+        assert km["55-59 Men Scratch Race Qualifier 1"] == 3.75
+        assert km["55-59 Men Scratch Race Final"] == 7.5
+        assert km["55+ Women Scratch Race Final"] == 5
+        assert km["40-44 Men Scratch Race Final"] == 10
+        assert "75-79 Men Points Race Final" not in km
+
+    def test_band_must_match_exactly(self, sessions_26037):
+        distances = [RaceDistance(discipline="scratch_race", gender="W", lo=55, hi=64, phase="final", km=5)]
+        assert scheduled_distances(distances, sessions_26037) == {}
+
+
+class TestLoadSupplement:
+    def test_missing_file_is_none(self):
+        assert load_supplement(1) is None
+
+    def test_committed_26037_file_matches_the_parsers(self, fields_26037, distances_26037):
+        supplement = load_supplement(26037)
+        assert supplement is not None
+        assert supplement.fields == fields_26037
+        assert supplement.distances == distances_26037
 
 
 class TestInferHeats:
@@ -103,8 +139,6 @@ class TestInferHeats:
 
 class TestPredictSchedule:
     def test_committed_fields_size_team_qualifying(self, sessions_26037):
-        from app.predictor import predict_schedule
-
         result = predict_schedule(26037, sessions_26037)
         pred = next(
             p
@@ -114,8 +148,15 @@ class TestPredictSchedule:
         )
         assert (pred.heat_count, pred.heat_basis) == (8, "entry_list")
 
-    def test_other_competitions_are_unaffected(self, sessions_26037):
-        from app.predictor import predict_schedule
+    def test_committed_distances_pace_mass_start_races(self, sessions_26037):
+        result = predict_schedule(26037, sessions_26037)
+        pred = next(
+            p for s in result.sessions for p in s.event_predictions if p.event.name == "35-44 Women Scratch Race Final"
+        )
+        assert (pred.race_distance_km, pred.distance_basis, pred.race_kmh) == (5, "schedule", 43.5)
+        assert pred.estimated_duration_minutes == pytest.approx(5 / 43.5 * 60 + 3.0)
 
+    def test_other_competitions_are_unaffected(self, sessions_26037):
         result = predict_schedule(99999, sessions_26037)
-        assert all(p.heat_basis != "entry_list" for s in result.sessions for p in s.event_predictions)
+        preds = [p for s in result.sessions for p in s.event_predictions]
+        assert all(p.heat_basis != "entry_list" and p.distance_basis is None for p in preds)
