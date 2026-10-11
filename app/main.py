@@ -474,9 +474,26 @@ def _use_learned(request: Request) -> bool:
     return request.cookies.get("use_learned") == "true"
 
 
+WARM_UP_MAX_MINUTES = 120
+
+
+def _warm_up_lead(request: Request) -> int:
+    """The racer's warm-up lead from the warm_up_minutes cookie, else WARM_UP_LEAD_MINUTES."""
+    try:
+        minutes = int(request.cookies.get("warm_up_minutes", ""))
+    except ValueError:
+        return int(WARM_UP_LEAD_MINUTES)
+    return minutes if 0 <= minutes <= WARM_UP_MAX_MINUTES else int(WARM_UP_LEAD_MINUTES)
+
+
 def _encode_racer_name(name: str) -> str:
     """URL-safe Base64 encode a racer name for use in query parameters."""
     return base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
+
+
+def _decode_racer_name(encoded: str) -> str:
+    """Decode a URL-safe Base64 racer name, with or without its = padding."""
+    return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
 
 
 # Cookie values are Base64 behind this prefix because Starlette encodes headers as
@@ -503,8 +520,7 @@ def _cookie_racer_name(request: Request) -> str | None:
         return None
     if value.startswith(_COOKIE_PREFIX):
         try:
-            encoded = value[len(_COOKIE_PREFIX) :]
-            return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8") or None
+            return _decode_racer_name(value[len(_COOKIE_PREFIX) :]) or None
         except (binascii.Error, UnicodeDecodeError):
             logger.warning("Malformed racer_name cookie, ignoring it")
             return None
@@ -515,7 +531,7 @@ def _resolve_racer_name(request: Request, r: str | None) -> str | None:
     """Resolve racer name from URL-safe Base64 param or cookie."""
     if r:
         try:
-            return base64.urlsafe_b64decode(r).decode("utf-8")
+            return _decode_racer_name(r)
         except (binascii.Error, UnicodeDecodeError):
             logger.warning("Malformed base64 racer name param: %r, falling back to cookie", r)
             # Fall through to cookie rather than returning None
@@ -593,7 +609,13 @@ async def get_schedule(
     use_learned = _use_learned(request)
     learned = await asyncio.to_thread(load_learned_durations, sessions) if use_learned else None
     schedule = predict_schedule(
-        event_id, sessions, now=now, racer_name=racer_name, learned=learned, rider_list=rider_list
+        event_id,
+        sessions,
+        now=now,
+        racer_name=racer_name,
+        learned=learned,
+        rider_list=rider_list,
+        warm_up_lead=_warm_up_lead(request),
     )
 
     # Determine name source for logging
@@ -704,6 +726,7 @@ async def refresh_schedule(
         racer_name=racer_name,
         learned=learned,
         rider_list=rider_list,
+        warm_up_lead=_warm_up_lead(request),
     )
 
     palmares_count = await save_and_count_palmares(schedule, event_id)
@@ -730,6 +753,24 @@ async def toggle_use_learned(event_id: int = Query(...), use_learned: str = Quer
         response.set_cookie(key="use_learned", value="true", httponly=True, secure=True, samesite="lax")
     else:
         response.delete_cookie(key="use_learned")
+    return response
+
+
+@app.get("/settings/warm-up")
+async def set_warm_up(minutes: int = Query(..., ge=0, le=WARM_UP_MAX_MINUTES)) -> RedirectResponse:
+    """Set the racer's warm-up lead (the default clears the cookie), then return to palmares."""
+    response = RedirectResponse(url="/palmares", status_code=303)
+    if minutes == WARM_UP_LEAD_MINUTES:
+        response.delete_cookie(key="warm_up_minutes")
+    else:
+        response.set_cookie(
+            key="warm_up_minutes",
+            value=str(minutes),
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=31536000,
+        )
     return response
 
 
@@ -789,6 +830,7 @@ async def palmares_page(
             "competitions": competitions,
             "is_owner": is_owner,
             "share_url": share_url,
+            "warm_up_minutes": _warm_up_lead(request),
         },
     )
 
