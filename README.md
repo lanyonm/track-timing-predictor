@@ -48,7 +48,7 @@ When a match is found:
 
 **How names are resolved:**
 
-1. **URL parameter** (`?r=`) — a URL-safe Base64-encoded name, useful for shareable links and bookmarks
+1. **URL parameter** (`?r=`) — a URL-safe Base64-encoded name (trailing `=` padding optional), useful for shareable links and bookmarks
 2. **Cookie** — if no `r=` param is present, the app falls back to a `racer_name` cookie (set when you submit the form, persists for one year)
 
 The `r=` parameter is passed through to the HTMX refresh endpoint so highlighting persists across auto-refreshes.

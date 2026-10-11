@@ -104,7 +104,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 |---|---|
 | `/` | Landing page with EventId form (works without JS) |
 | `/schedule` | No-JS form target; `?event_id=X` → 303 to `/schedule/X` |
-| `/schedule/{event_id}` | Schedule view; optional `?r=` (URL-safe Base64 racer name) |
+| `/schedule/{event_id}` | Schedule view; optional `?r=` (URL-safe Base64 racer name, `=` padding optional) |
 | `/schedule/{event_id}/refresh` | HTMX partial; optional `?r=` |
 | `/settings/racer-name` | Set/clear `racer_name` cookie; `?event_id=&name=` |
 | `/settings/use-learned` | Toggle `use_learned` cookie; `?event_id=&use_learned=on\|off` |

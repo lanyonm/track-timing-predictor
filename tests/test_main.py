@@ -240,6 +240,12 @@ class TestRacerNameRoutes:
         assert response.status_code == 200
         assert 'value="Sean Hall"' in response.text
 
+    def test_unpadded_base64_param(self, client):
+        """?r= without its = padding (a hand-made or trimmed link) still resolves the name."""
+        response = client.get("/schedule/26008?r=RW1pa28gS29zaGl0YQ")
+        assert response.status_code == 200
+        assert 'value="Emiko Koshita"' in response.text
+
     def test_secure_cookie_flag(self, client):
         """Set-Cookie for racer_name should include the Secure flag."""
         response = client.get(

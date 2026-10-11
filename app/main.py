@@ -479,6 +479,11 @@ def _encode_racer_name(name: str) -> str:
     return base64.urlsafe_b64encode(name.encode("utf-8")).decode("ascii")
 
 
+def _decode_racer_name(encoded: str) -> str:
+    """Decode a URL-safe Base64 racer name, with or without its = padding."""
+    return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
+
+
 # Cookie values are Base64 behind this prefix because Starlette encodes headers as
 # Latin-1 (padding is stripped so the value needs no quoting). Older cookies hold
 # the raw name and are still accepted.
@@ -503,8 +508,7 @@ def _cookie_racer_name(request: Request) -> str | None:
         return None
     if value.startswith(_COOKIE_PREFIX):
         try:
-            encoded = value[len(_COOKIE_PREFIX) :]
-            return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8") or None
+            return _decode_racer_name(value[len(_COOKIE_PREFIX) :]) or None
         except (binascii.Error, UnicodeDecodeError):
             logger.warning("Malformed racer_name cookie, ignoring it")
             return None
@@ -515,7 +519,7 @@ def _resolve_racer_name(request: Request, r: str | None) -> str | None:
     """Resolve racer name from URL-safe Base64 param or cookie."""
     if r:
         try:
-            return base64.urlsafe_b64decode(r).decode("utf-8")
+            return _decode_racer_name(r)
         except (binascii.Error, UnicodeDecodeError):
             logger.warning("Malformed base64 racer name param: %r, falling back to cookie", r)
             # Fall through to cookie rather than returning None
