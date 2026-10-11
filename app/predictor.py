@@ -1097,19 +1097,21 @@ def predict_session(
     )
 
 
-def _build_next_race(pred: Prediction, match: RiderMatch, session_id: int, now: datetime | None) -> NextRace:
+def _build_next_race(
+    pred: Prediction, match: RiderMatch, session_id: int, now: datetime | None, warm_up_lead: float
+) -> NextRace:
     """Build a NextRace from a matched Prediction.
 
     Start-list matches use the racer's heat start. Rider List matches have no heat,
     so they use the event's predicted start. The warm-up time leads either by
-    WARM_UP_LEAD_MINUTES; warm_up_now is set once now reaches it.
+    warm_up_lead minutes; warm_up_now is set once now reaches it.
     """
     predicted_start = match.heat_predicted_start
     if match.source == "rider_list":
         predicted_start = _on_day_of(now, pred.predicted_start)
     warm_up_from = None
     if predicted_start is not None:
-        warm_up_from = predicted_start - timedelta(minutes=WARM_UP_LEAD_MINUTES)
+        warm_up_from = predicted_start - timedelta(minutes=warm_up_lead)
     return NextRace(
         event_name=pred.event.name,
         heat=match.heat,
@@ -1133,6 +1135,7 @@ def predict_schedule(
     racer_name: str | None = None,
     learned: Mapping[str, float] | None = None,
     rider_list: list[RiderListEntry] | None = None,
+    warm_up_lead: float = WARM_UP_LEAD_MINUTES,
 ) -> SchedulePrediction:
     rider_entry = None
     rider_list_matches = None
@@ -1191,7 +1194,7 @@ def predict_schedule(
     best = active_candidate or upcoming_candidate
     next_race = None
     if best and best[0].rider_match:
-        next_race = _build_next_race(best[0], best[0].rider_match, best[1], now)
+        next_race = _build_next_race(best[0], best[0].rider_match, best[1], now, warm_up_lead)
 
     return SchedulePrediction(
         competition_id=competition_id,

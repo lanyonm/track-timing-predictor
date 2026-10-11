@@ -270,6 +270,20 @@ class TestNextRace:
         assert before.next_race.warm_up_now is False
         assert at.next_race.warm_up_now is True
 
+    def test_custom_warm_up_lead(self):
+        """warm_up_lead replaces WARM_UP_LEAD_MINUTES for warm_up_from and warm_up_now."""
+        events = [make_event(position=0, name="50-54 Women 500m Time Trial Final", discipline="time_trial_500")]
+        session = make_session(events=events, scheduled_start=time(14, 0))
+        record_start_list_riders(COMP_ID, SESSION_ID, 0, [RiderEntry(name="HALL Sean", heat=1)])
+        record_heat_count(COMP_ID, SESSION_ID, 0, 1)
+
+        result = predict_schedule(
+            COMP_ID, [session], now=datetime(2024, 6, 1, 13, 40), racer_name="Sean Hall", warm_up_lead=20
+        )
+
+        assert result.next_race.warm_up_from == datetime(2024, 6, 1, 13, 40)
+        assert result.next_race.warm_up_now is True
+
     def test_next_race_all_completed(self):
         """When all events are completed, next_race_event_name is None."""
         events = [

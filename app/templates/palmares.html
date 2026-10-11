@@ -6,6 +6,21 @@
 {% if racer_name %}
   <h2 class="text-2xl font-semibold tracking-tight">Palmares for {{ racer_name }}</h2>
 
+  {% if is_owner %}
+    <!-- Warm-up lead (warm_up_minutes cookie): sets the next race's warm-up time on schedules -->
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body px-5 py-4">
+        <form action="/settings/warm-up" method="get" class="flex flex-wrap items-center gap-2 text-sm">
+          <label for="warm-up-minutes" class="font-medium">Warm up</label>
+          <input type="number" id="warm-up-minutes" name="minutes" value="{{ warm_up_minutes }}" min="0" max="120" step="5" required class="input input-bordered input-sm w-20 tabular-nums" aria-describedby="warm-up-hint">
+          <span>min before my race</span>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          <small id="warm-up-hint" class="w-full text-xs text-muted">Sets the warm-up time shown with your next race on schedules, on this device.</small>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
   {% if competitions %}
     <!-- Share bar -->
     <div class="alert shadow-sm">

@@ -258,6 +258,61 @@ class TestPalmaresPage:
         assert "viewport" in response.text
 
 
+class TestWarmUpSetting:
+    """The owner sets their warm-up lead on the palmares page; it's stored in a cookie."""
+
+    @pytest.mark.asyncio
+    async def test_owner_sees_warm_up_form(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url=BASE_URL, cookies={"racer_name": "warm up owner"}
+        ) as client:
+            response = await client.get("/palmares")
+        assert 'action="/settings/warm-up"' in response.text
+        assert 'value="45"' in response.text
+
+    @pytest.mark.asyncio
+    async def test_form_shows_saved_value(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url=BASE_URL,
+            cookies={"racer_name": "warm up owner", "warm_up_minutes": "30"},
+        ) as client:
+            response = await client.get("/palmares")
+        assert 'name="minutes" value="30"' in response.text
+
+    @pytest.mark.asyncio
+    async def test_share_link_viewer_does_not_see_form(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL) as client:
+            response = await client.get(f"/palmares?r={_encode('someone else')}")
+        assert response.status_code == 200
+        assert "/settings/warm-up" not in response.text
+
+    @pytest.mark.asyncio
+    async def test_save_sets_cookie(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL, follow_redirects=False) as client:
+            response = await client.get("/settings/warm-up?minutes=30")
+        assert response.status_code == 303
+        assert response.headers["location"] == "/palmares"
+        cookie = response.headers["set-cookie"]
+        assert cookie.startswith("warm_up_minutes=30;")
+        assert "HttpOnly" in cookie and "Secure" in cookie and "Max-Age=31536000" in cookie
+
+    @pytest.mark.asyncio
+    async def test_default_clears_cookie(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL, follow_redirects=False) as client:
+            response = await client.get("/settings/warm-up?minutes=45")
+        assert response.status_code == 303
+        assert 'warm_up_minutes=""' in response.headers["set-cookie"]
+        assert "Max-Age=0" in response.headers["set-cookie"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("minutes", ["-5", "125", "abc"])
+    async def test_out_of_range_rejected(self, minutes):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE_URL, follow_redirects=False) as client:
+            response = await client.get(f"/settings/warm-up?minutes={minutes}")
+        assert response.status_code == 422
+
+
 class TestPalmaresRemoval:
     """Test competition removal route."""
 

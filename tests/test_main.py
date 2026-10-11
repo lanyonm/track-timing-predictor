@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
 import app.main as main_module
+from app.disciplines import WARM_UP_LEAD_MINUTES
 from app.main import _fetch_live_heats, _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
 from app.models import Event, EventStatus, Session
 from app.parser import parse_schedule, parse_start_list_riders
@@ -606,6 +607,31 @@ class TestRiderListRoutes:
         )
         assert _event_row(html, "60-64 Men Sprint Qualifying").get("id") == "next-race"
         assert "60-64 Men Sprint Qualifying (if advancing)" not in " ".join(html.split())
+
+
+class TestWarmUpLead:
+    """The warm_up_minutes cookie sets the strip's warm-up lead on both schedule routes."""
+
+    @staticmethod
+    def _lead_minutes(html: str) -> int:
+        m = re.search(r"(\d{2}):(\d{2}) · warm up (\d{2}):(\d{2})", _racer_strip(html))
+        assert m, _racer_strip(html)
+        start, warm = (int(m[1]) * 60 + int(m[2])), (int(m[3]) * 60 + int(m[4]))
+        return start - warm
+
+    @pytest.mark.parametrize("path", ["/schedule/26037", "/schedule/26037/refresh"])
+    def test_cookie_sets_lead(self, client, mock_26037, path):
+        client.cookies.set("racer_name", "Brian Abers")
+        client.cookies.set("warm_up_minutes", "30")
+        with patch("app.main.venue_now", return_value=datetime(2026, 10, 5, 6, 0)):
+            assert self._lead_minutes(client.get(path).text) == 30
+
+    @pytest.mark.parametrize("value", ["abc", "-5", "500"])
+    def test_bad_cookie_uses_default(self, client, mock_26037, value):
+        client.cookies.set("racer_name", "Brian Abers")
+        client.cookies.set("warm_up_minutes", value)
+        with patch("app.main.venue_now", return_value=datetime(2026, 10, 5, 6, 0)):
+            assert self._lead_minutes(client.get("/schedule/26037").text) == WARM_UP_LEAD_MINUTES
 
 
 class TestFetchStartListsCaching:
