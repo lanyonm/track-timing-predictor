@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sqlite3
+from collections.abc import Iterable
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any, Literal
@@ -13,6 +14,8 @@ logger = logging.getLogger(__name__)
 RecordOutcome = Literal["created", "updated", "unchanged", "error"]
 # How the live app measured a duration. Loader rows have no source.
 LiveSource = Literal["observed", "wall_clock"]
+# (discipline, classification, gender) for a cascading learned-duration lookup
+LearnedKey = tuple[str, str | None, str | None]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS event_durations (
@@ -170,29 +173,6 @@ def _dynamo_table() -> Any:
         dynamodb = boto3.resource("dynamodb", region_name=settings.aws_region)
         _dynamo_table_cache = dynamodb.Table(settings.dynamodb_table)
     return _dynamo_table_cache
-
-
-def _dynamo_get_learned_duration(discipline: str) -> float | None:
-    try:
-        table = _dynamo_table()
-        override = table.get_item(Key={"pk": f"OVERRIDE#{discipline}"}).get("Item")
-        if override:
-            try:
-                return float(override["duration_minutes"])
-            except (ValueError, TypeError):
-                logger.error(
-                    "Malformed override value for %s: %r", discipline, override.get("duration_minutes"), exc_info=True
-                )
-        item = table.get_item(Key={"pk": f"AGGREGATE#{discipline}"}).get("Item")
-        if item:
-            count = int(item.get("count", 0))
-            total = float(item.get("total_minutes", 0))
-            if count >= settings.min_learned_samples:
-                return total / count
-    except _BotoError as exc:
-        _raise_if_auth_error(exc)
-        logger.error("DynamoDB error reading learned duration for %s", discipline, exc_info=True)
-    return None
 
 
 def _obs_fields_match(
@@ -439,6 +419,8 @@ def _dynamo_record_live_duration(
     discipline: str,
     duration_minutes: float,
     source: LiveSource,
+    classification: str | None,
+    gender: str | None,
 ) -> RecordOutcome:
     obs_key = f"OBS#{competition_id}#{session_id}#{event_position}"
     try:
@@ -452,8 +434,8 @@ def _dynamo_record_live_duration(
     return _dynamo_record_duration_structured(
         discipline,
         duration_minutes,
-        None,
-        None,
+        classification,
+        gender,
         None,
         competition_id,
         session_id,
@@ -478,99 +460,135 @@ def _build_aggregate_keys(
     return keys
 
 
-def _dynamo_get_learned_duration_cascading(
-    discipline: str,
-    classification: str | None,
-    gender: str | None,
-) -> float | None:
-    """Cascading fallback query for DynamoDB.
+def _cascade_keys(discipline: str, classification: str | None, gender: str | None) -> tuple[list[str], list[str]]:
+    """OVERRIDE# and AGGREGATE# keys a cascading lookup checks, each most specific first."""
+    suffixes = []
+    if classification and gender:
+        suffixes.append(f"#{classification}#{gender}")  # Level 4
+    if classification:
+        suffixes.append(f"#{classification}")  # Level 3
+    if gender:
+        suffixes.append(f"##{gender}")  # Level 2
+    suffixes.append("")  # Level 1
+    return [f"OVERRIDE#{discipline}{x}" for x in suffixes], [f"AGGREGATE#{discipline}{x}" for x in suffixes]
 
-    Up to 8 GetItem calls: 4 override checks (most specific first) followed
-    by 4 aggregate checks (most specific first).
+
+def _dynamo_batch_get(pks: set[str]) -> dict[str, dict]:
+    """Fetch items by pk with BatchGetItem (100 keys per call), returning those that exist.
+
+    The Table resource's client converts DynamoDB types both ways, like Table.get_item.
     """
-    try:
-        table = _dynamo_table()
-        levels = []
-        if classification and gender:
-            levels.append(f"AGGREGATE#{discipline}#{classification}#{gender}")
-        if classification:
-            levels.append(f"AGGREGATE#{discipline}#{classification}")
-        if gender:
-            levels.append(f"AGGREGATE#{discipline}##{gender}")
-        levels.append(f"AGGREGATE#{discipline}")  # Level 1: broadest
+    table = _dynamo_table()
+    items: dict[str, dict] = {}
+    ordered = sorted(pks)
+    for i in range(0, len(ordered), 100):
+        request: dict = {table.name: {"Keys": [{"pk": pk} for pk in ordered[i : i + 100]]}}
+        while request:
+            response = table.meta.client.batch_get_item(RequestItems=request)
+            for item in response.get("Responses", {}).get(table.name, []):
+                items[item["pk"]] = item
+            request = response.get("UnprocessedKeys") or {}
+    return items
 
-        # Check overrides at each level
-        override_levels = []
-        if classification and gender:
-            override_levels.append(f"OVERRIDE#{discipline}#{classification}#{gender}")
-        if classification:
-            override_levels.append(f"OVERRIDE#{discipline}#{classification}")
-        if gender:
-            override_levels.append(f"OVERRIDE#{discipline}##{gender}")
-        override_levels.append(f"OVERRIDE#{discipline}")
 
-        for override_key in override_levels:
-            item = table.get_item(Key={"pk": override_key}).get("Item")
-            if item and "duration_minutes" in item:
-                try:
-                    return float(item["duration_minutes"])
-                except (ValueError, TypeError):
-                    logger.error(
-                        "Malformed override value for %s: %r", override_key, item.get("duration_minutes"), exc_info=True
-                    )
-
-        # Check aggregates at each level (most specific to broadest)
-        for agg_key in levels:
-            item = table.get_item(Key={"pk": agg_key}).get("Item")
-            if item:
-                try:
-                    count = int(item.get("count", 0))
-                    total = float(item.get("total_minutes", 0))
-                except (ValueError, TypeError):
-                    logger.error(
-                        "Malformed aggregate values for %s: count=%r total=%r",
-                        agg_key,
-                        item.get("count"),
-                        item.get("total_minutes"),
-                        exc_info=True,
-                    )
-                    continue
-                if count >= settings.min_learned_samples:
-                    return total / count
-    except _BotoError as exc:
-        _raise_if_auth_error(exc)
-        logger.error("DynamoDB error in cascading fallback for %s", discipline, exc_info=True)
+def _resolve_cascade(
+    discipline: str, classification: str | None, gender: str | None, items: dict[str, dict]
+) -> float | None:
+    """Apply the cascade to fetched items: the first override, else the first aggregate
+    with at least min_learned_samples."""
+    override_keys, aggregate_keys = _cascade_keys(discipline, classification, gender)
+    for key in override_keys:
+        item = items.get(key)
+        if item and "duration_minutes" in item:
+            try:
+                return float(item["duration_minutes"])
+            except (ValueError, TypeError):
+                logger.error("Malformed override value for %s: %r", key, item.get("duration_minutes"), exc_info=True)
+    for key in aggregate_keys:
+        item = items.get(key)
+        if not item:
+            continue
+        try:
+            count = int(item.get("count", 0))
+            total = float(item.get("total_minutes", 0))
+        except (ValueError, TypeError):
+            logger.error(
+                "Malformed aggregate values for %s: count=%r total=%r",
+                key,
+                item.get("count"),
+                item.get("total_minutes"),
+                exc_info=True,
+            )
+            continue
+        if count >= settings.min_learned_samples:
+            return total / count
     return None
 
 
-def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
+def _dynamo_get_learned_durations_cascading(keys: list[LearnedKey]) -> dict[LearnedKey, float]:
+    """Cascading lookups for many keys, with every item they need fetched in one batch."""
+    keys = [(d, c or None, g or None) for d, c, g in keys]
+    pks = {pk for key in keys for group in _cascade_keys(*key) for pk in group}
     try:
-        from boto3.dynamodb.conditions import Attr
+        items = _dynamo_batch_get(pks)
+    except _BotoError as exc:
+        _raise_if_auth_error(exc)
+        logger.error("DynamoDB error in cascading fallback for %d keys", len(keys), exc_info=True)
+        return {}
+    result = {}
+    for key in keys:
+        value = _resolve_cascade(*key, items)
+        if value is not None:
+            result[key] = value
+    return result
 
-        table = _dynamo_table()
-        filter_expr = Attr("pk").begins_with("AGGREGATE#")
-        response = table.scan(FilterExpression=filter_expr)
-        items = response.get("Items", [])
-        while "LastEvaluatedKey" in response:
-            response = table.scan(
-                FilterExpression=filter_expr,
-                ExclusiveStartKey=response["LastEvaluatedKey"],
-            )
-            items.extend(response.get("Items", []))
+
+def _dynamo_scan_aggregates() -> list[dict]:
+    from boto3.dynamodb.conditions import Attr
+
+    table = _dynamo_table()
+    filter_expr = Attr("pk").begins_with("AGGREGATE#")
+    response = table.scan(FilterExpression=filter_expr)
+    items = response.get("Items", [])
+    while "LastEvaluatedKey" in response:
+        response = table.scan(
+            FilterExpression=filter_expr,
+            ExclusiveStartKey=response["LastEvaluatedKey"],
+        )
+        items.extend(response.get("Items", []))
+    return items
+
+
+def _parse_aggregate_key(pk: str) -> LearnedKey:
+    """Invert _build_aggregate_keys: AGGREGATE#<disc>[##<gender> | #<class>[#<gender>]]."""
+    discipline, _, rest = pk[len("AGGREGATE#") :].partition("#")
+    if not rest:
+        return discipline, None, None
+    if rest.startswith("#"):
+        return discipline, None, rest[1:]
+    classification, _, gender = rest.partition("#")
+    return discipline, classification, gender or None
+
+
+def _dynamo_get_all_learned_levels() -> dict[LearnedKey, tuple[float, int]]:
+    try:
         result = {}
-        for item in items:
-            discipline = item["pk"][len("AGGREGATE#") :]
-            if "#" in discipline:
-                continue  # Skip Level 2/3/4 aggregate keys
+        for item in _dynamo_scan_aggregates():
             count = int(item.get("count", 0))
             total = float(item.get("total_minutes", 0))
             if count > 0:
-                result[discipline] = (total / count, count)
+                result[_parse_aggregate_key(item["pk"])] = (total / count, count)
         return result
     except _BotoError as exc:
         _raise_if_auth_error(exc)
         logger.error("DynamoDB error reading all learned durations (table=%s)", settings.dynamodb_table, exc_info=True)
         return {}
+
+
+def _dynamo_get_all_learned_durations() -> dict[str, tuple[float, int]]:
+    """Discipline-level (Level 1) aggregates only."""
+    levels = _dynamo_get_all_learned_levels()
+    return dict(sorted((d, v) for (d, c, g), v in levels.items() if c is None and g is None))
 
 
 # ---------------------------------------------------------------------------
@@ -587,12 +605,16 @@ def record_live_duration(
     discipline: str,
     duration_minutes: float,
     source: LiveSource,
+    classification: str | None = None,
+    gender: str | None = None,
 ) -> RecordOutcome:
     """Record a duration the live app measured, at most once per event.
 
     Every cold start, container and viewer re-records the same events, so this is
     keyed by (competition, session, position) like the loader. An existing record is
     kept unless an observed value is replacing a wall-clock one (see ``_replaces``).
+    classification and gender (from categorizer.categorize_event) feed the finer
+    learned levels that get_learned_duration_cascading reads.
     """
     if settings.dynamodb_table:
         return _dynamo_record_live_duration(
@@ -602,6 +624,8 @@ def record_live_duration(
             discipline,
             duration_minutes,
             source,
+            classification,
+            gender,
         )
     try:
         with get_db() as conn:
@@ -618,10 +642,20 @@ def record_live_duration(
                 """
                 INSERT OR REPLACE INTO event_durations
                     (competition_id, session_id, event_position, event_name,
-                     discipline, duration_minutes, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                     discipline, duration_minutes, classification, gender, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (competition_id, session_id, event_position, event_name, discipline, duration_minutes, source),
+                (
+                    competition_id,
+                    session_id,
+                    event_position,
+                    event_name,
+                    discipline,
+                    duration_minutes,
+                    classification or None,
+                    gender or None,
+                    source,
+                ),
             )
         return "created" if existing is None else "updated"
     except sqlite3.Error:
@@ -640,38 +674,26 @@ def record_live_duration(
 
 
 def get_learned_duration(discipline: str) -> float | None:
+    """Return the discipline-level learned average (override first), or None below
+    MIN_LEARNED_SAMPLES. The discipline-only case of get_learned_duration_cascading."""
+    return get_learned_duration_cascading(discipline)
+
+
+def get_learned_durations_cascading(keys: Iterable[LearnedKey]) -> dict[LearnedKey, float]:
+    """get_learned_duration_cascading for each (discipline, classification, gender) key.
+
+    Keys without a learned value are left out. DynamoDB reads every item the lookups
+    need in one BatchGetItem pass instead of up to 8 GetItems per key.
     """
-    Return the average observed duration for a discipline if we have enough samples.
-    Returns None if there are insufficient observations or the DB is not initialized.
-    """
+    unique = list(dict.fromkeys(keys))
     if settings.dynamodb_table:
-        return _dynamo_get_learned_duration(discipline)
-    try:
-        with get_db() as conn:
-            # Check for a manual user override first
-            override = conn.execute(
-                "SELECT duration_minutes FROM discipline_overrides WHERE discipline = ?",
-                (discipline,),
-            ).fetchone()
-            if override:
-                return override["duration_minutes"]
-
-            row = conn.execute(
-                """
-                SELECT AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt
-                FROM event_durations
-                WHERE discipline = ?
-                """,
-                (discipline,),
-            ).fetchone()
-
-        if row and row["cnt"] >= settings.min_learned_samples:
-            return row["avg_dur"]
-    except sqlite3.Error:
-        logger.error(
-            "SQLite error reading learned duration for %s (db=%s)", discipline, settings.db_path, exc_info=True
-        )
-    return None
+        return _dynamo_get_learned_durations_cascading(unique)
+    result = {}
+    for key in unique:
+        value = get_learned_duration_cascading(*key)
+        if value is not None:
+            result[key] = value
+    return result
 
 
 def record_duration_structured(
@@ -753,20 +775,31 @@ def get_learned_duration_cascading(
       Level 2: discipline + gender
       Level 1: discipline only
 
-    Returns the first level with count >= min_learned_samples.
-    Checks discipline_overrides at Level 1 for SQLite (same as
-    get_learned_duration). The DynamoDB path checks overrides at all 4
-    specificity levels, most specific first.
+    Returns the first level with count >= min_learned_samples. An override wins
+    over every aggregate: SQLite has discipline-level overrides only
+    (discipline_overrides); DynamoDB checks overrides at all 4 levels, most
+    specific first, before any aggregate.
 
     When classification or gender is None, higher-specificity levels that use
     WHERE col = ? with NULL will never match in SQL — this naturally falls
     through to broader levels.
     """
     if settings.dynamodb_table:
-        return _dynamo_get_learned_duration_cascading(discipline, classification, gender)
+        return _dynamo_get_learned_durations_cascading([(discipline, classification, gender)]).get(
+            (discipline, classification or None, gender or None)
+        )
 
+    classification = classification or None
+    gender = gender or None
     try:
         with get_db() as conn:
+            override = conn.execute(
+                "SELECT duration_minutes FROM discipline_overrides WHERE discipline = ?",
+                (discipline,),
+            ).fetchone()
+            if override:
+                return override["duration_minutes"]
+
             # Level 4: most specific
             if classification is not None and gender is not None:
                 row = conn.execute(
@@ -797,14 +830,7 @@ def get_learned_duration_cascading(
                 if row and row["cnt"] >= settings.min_learned_samples:
                     return row["avg_dur"]
 
-            # Level 1: discipline only — check overrides first (same as get_learned_duration)
-            override = conn.execute(
-                "SELECT duration_minutes FROM discipline_overrides WHERE discipline = ?",
-                (discipline,),
-            ).fetchone()
-            if override:
-                return override["duration_minutes"]
-
+            # Level 1: discipline only
             row = conn.execute(
                 "SELECT AVG(duration_minutes) AS avg_dur, COUNT(*) AS cnt FROM event_durations WHERE discipline = ?",
                 (discipline,),
@@ -823,7 +849,7 @@ def get_learned_duration_cascading(
 
 
 def get_all_learned_durations() -> dict[str, tuple[float, int]]:
-    """Return all learned durations as {discipline: (avg_minutes, sample_count)}."""
+    """Return all discipline-level learned durations as {discipline: (avg_minutes, sample_count)}."""
     if settings.dynamodb_table:
         return _dynamo_get_all_learned_durations()
     try:
@@ -840,6 +866,42 @@ def get_all_learned_durations() -> dict[str, tuple[float, int]]:
     except sqlite3.Error:
         logger.error("SQLite error reading all learned durations (db=%s)", settings.db_path, exc_info=True)
         return {}
+
+
+def get_finer_learned_durations() -> dict[LearnedKey, tuple[float, int]]:
+    """Return the classification and gender levels the cascade can use, as
+    {(discipline, classification, gender): (avg_minutes, sample_count)}, for those with
+    at least min_learned_samples samples. Level 2 keys have no classification, Level 3
+    keys no gender."""
+    if settings.dynamodb_table:
+        levels = _dynamo_get_all_learned_levels()
+    else:
+        queries = [
+            # Level 2: discipline + gender
+            "SELECT discipline, NULL, gender, AVG(duration_minutes), COUNT(*) FROM event_durations "
+            "WHERE gender IS NOT NULL GROUP BY discipline, gender",
+            # Level 3: discipline + classification
+            "SELECT discipline, classification, NULL, AVG(duration_minutes), COUNT(*) FROM event_durations "
+            "WHERE classification IS NOT NULL GROUP BY discipline, classification",
+            # Level 4: all three
+            "SELECT discipline, classification, gender, AVG(duration_minutes), COUNT(*) FROM event_durations "
+            "WHERE classification IS NOT NULL AND gender IS NOT NULL GROUP BY discipline, classification, gender",
+        ]
+        levels = {}
+        try:
+            with get_db() as conn:
+                for query in queries:
+                    for d, c, g, avg, cnt in conn.execute(query).fetchall():
+                        levels[(d, c, g)] = (avg, cnt)
+        except sqlite3.Error:
+            logger.error("SQLite error reading finer learned durations (db=%s)", settings.db_path, exc_info=True)
+            return {}
+    usable = {
+        k: v
+        for k, v in levels.items()
+        if (k[1] is not None or k[2] is not None) and v[1] >= settings.min_learned_samples
+    }
+    return dict(sorted(usable.items(), key=lambda kv: tuple(x or "" for x in kv[0])))
 
 
 async def check_health() -> dict[str, str]:

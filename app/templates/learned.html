@@ -3,7 +3,7 @@
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-4">
   <h2 class="text-2xl font-semibold tracking-tight">Learned Durations</h2>
-  <p class="text-sm text-muted">These averages are computed from observed events and override the built-in defaults once {{ min_samples }} or more samples are collected.</p>
+  <p class="text-sm text-muted">These averages are computed from observed events and, with learned durations turned on, replace the built-in defaults once {{ min_samples }} or more samples are collected. Each event uses the most specific average available: discipline with classification and gender, then classification, then gender, then the discipline alone.</p>
 
   {% if durations %}
   <div class="card bg-base-100 shadow-md overflow-hidden">
@@ -30,6 +30,36 @@
       </table>
     </div>
   </div>
+  {% if finer %}
+  <h3 class="text-lg font-semibold tracking-tight pt-2">By classification and gender</h3>
+  <p class="text-sm text-muted">Finer averages with {{ min_samples }} or more samples. Classification and gender come from the event name.</p>
+  <div class="card bg-base-100 shadow-md overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Discipline</th>
+            <th>Classification</th>
+            <th>Gender</th>
+            <th>Avg Duration (min)</th>
+            <th>Samples</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for (discipline, classification, gender), (avg, count) in finer.items() %}
+          <tr>
+            <td>{{ discipline }}</td>
+            <td>{{ classification or "any" }}</td>
+            <td>{{ gender or "any" }}</td>
+            <td>{{ avg | round(1) }}</td>
+            <td>{{ count }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
   {% else %}
   <div class="card bg-base-100 border border-dashed border-base-300">
     <div class="card-body items-center text-center py-10">
