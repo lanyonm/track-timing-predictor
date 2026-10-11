@@ -6,35 +6,39 @@
 {% set alert_warn = "alert border border-warning/20 bg-warning/5 text-sm py-2" %}
 {% set racer_badge = "badge badge-outline border-info/40 ink-info text-xs font-bold ml-1 px-2 py-1" %}
 
+{# ── Sticky racer strip: next race, pinned under the navbar; links to its row ── #}
+{% set nr = schedule.next_race if schedule.racer_name else none %}
+{% if nr %}
+{%- set strip = namespace(details=[]) %}
+{%- if nr.heat_count and nr.heat_count > 1 %}{% set strip.details = strip.details + ['Heat ' ~ nr.heat] %}{% endif %}
+{%- if nr.straight %}{% set strip.details = strip.details + [nr.straight ~ ' straight'] %}{% endif %}
+{%- if not nr.is_active and nr.predicted_start %}
+  {%- set at = nr.predicted_start.strftime('%H:%M') %}
+  {%- set strip.details = strip.details + [('be ready by ' ~ at) if nr.parallel_qualifier else at] %}
+{%- endif %}
+{%- if not nr.is_active and nr.warm_up_from %}
+  {%- set strip.details = strip.details + ['warm up now' if nr.warm_up_now else 'warm up ' ~ nr.warm_up_from.strftime('%H:%M')] %}
+{%- endif %}
+<a href="#next-race" class="racer-strip{{ ' racer-strip-active' if nr.is_active }}">
+  <span class="flex-1">
+    <span class="block text-xs font-semibold uppercase racer-strip-label">{{ schedule.racer_name }} &middot; {{ 'racing now' if nr.is_active else 'next race' }}</span>
+    <span class="block text-sm font-bold">{{ nr.event_name }}
+      {%- if nr.tentative %} (if advancing){% endif %}
+      {%- if nr.parallel_qualifier %} (or a later qualifier){% endif %}</span>
+    {%- if strip.details %}
+    <span class="block text-sm tabular-nums">{{ strip.details | join(' · ') }}</span>
+    {%- endif %}
+  </span>
+  <span class="racer-strip-jump" aria-hidden="true">&darr;</span><span class="sr-only">Jump to this race</span>
+</a>
+{% endif %}
+
 {# ── Racer status alerts ─────────────────────────────── #}
 {% if schedule.racer_name and schedule.match_count > 0 %}
 <div class="{{ alert_info }}" role="status">
   <span>Found {{ schedule.match_count }} event{{ 's' if schedule.match_count != 1 else '' }} for "{{ schedule.racer_name }}"
     {%- if schedule.tentative_match_count > 0 %} ({{ schedule.tentative_match_count }} if advancing){% endif %}</span>
 </div>
-{% if schedule.next_race %}
-  {% set nr = schedule.next_race %}
-  <div class="{{ alert_info }}" role="status">
-    <span>
-      {% if nr.is_active %}
-        Racing now: {{ nr.event_name }}
-        {%- if nr.tentative %} (if advancing){% endif %}
-        {%- if nr.parallel_qualifier %} (or a later qualifier){% endif %}
-        {%- if nr.heat_count and nr.heat_count > 1 %}, Heat {{ nr.heat }}{% endif %}
-        {%- if nr.straight %}, {{ nr.straight }} straight{% endif %}
-      {% else %}
-        Your next race: {{ nr.event_name }}
-        {%- if nr.tentative %} (if advancing){% endif %}
-        {%- if nr.heat_count and nr.heat_count > 1 %}, Heat {{ nr.heat }}{% endif %}
-        {%- if nr.straight %}, {{ nr.straight }} straight{% endif %}
-        {%- if nr.parallel_qualifier %} (or a later qualifier)
-          {%- if nr.predicted_start %}, be ready by {{ nr.predicted_start.strftime('%H:%M') }}{% endif %}
-        {%- elif nr.predicted_start %} at {{ nr.predicted_start.strftime('%H:%M') }}{% endif %}
-        {%- if nr.warm_up_from %} (warm up from {{ nr.warm_up_from.strftime('%H:%M') }}){% endif %}
-      {% endif %}
-    </span>
-  </div>
-{% endif %}
 {% endif %}
 
 {% if palmares_count is defined and palmares_count > 0 %}
@@ -103,7 +107,8 @@
           {% elif status == 'not_ready' %}{% set rc = rc ~ "status-not-ready " %}{% endif %}
           {% set tentative = pred.rider_match and pred.rider_match.tentative %}
           {% if pred.rider_match and not tentative %}{% set rc = rc ~ "racer-row bg-info/5" %}{% endif %}
-          <tr class="{{ rc | trim }}"{% if tentative %} aria-label="Your event, if advancing"{% elif pred.rider_match %} aria-label="Your event"{% endif %}>
+          {% set is_next = nr and nr.session_id == sp.session.session_id and nr.position == pred.event.position %}
+          <tr class="{{ rc | trim }}"{% if is_next %} id="next-race"{% endif %}{% if tentative %} aria-label="Your event, if advancing"{% elif pred.rider_match %} aria-label="Your event"{% endif %}>
             <td>
               {% if pred.is_active %}
                 <span class="font-bold">{{ pred.event.name }}</span>

@@ -31,6 +31,32 @@ tr.active-row td.dur-col { color: oklch(var(--bc)); }
 tr.status-completed:not(.special) td:first-child { text-decoration: line-through; }
 .tabular-nums { font-variant-numeric: tabular-nums; }
 
+/* Sticky racer strip: pinned under the 4rem navbar, links to the next race's row */
+.racer-strip {
+  position: sticky; top: 4rem; z-index: 40;
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.45rem 1rem 0.5rem;
+  border: 1px solid color-mix(in srgb, oklch(var(--in)) 35%, transparent);
+  border-left: 4px solid oklch(var(--in));
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, oklch(var(--in)) 10%, oklch(var(--b1)));
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.08);
+  color: oklch(var(--bc));
+}
+.racer-strip-label { letter-spacing: 0.025em; color: var(--ink-info); }
+.racer-strip-jump { font-size: 1.25rem; font-weight: 700; padding: 0 0.25rem; color: var(--ink-info); }
+.racer-strip-active {
+  border-color: color-mix(in srgb, oklch(var(--wa)) 45%, transparent);
+  border-left-color: oklch(var(--wa));
+  background: color-mix(in srgb, oklch(var(--wa)) 16%, oklch(var(--b1)));
+}
+.racer-strip-active .racer-strip-label,
+.racer-strip-active .racer-strip-jump { color: var(--ink-warning); }
+/* Clears the navbar and the strip when the strip's link scrolls here */
+#next-race { scroll-margin-top: 10rem; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
 /* HTMX indicator */
 .htmx-indicator { display: none; }
 .htmx-request .htmx-indicator,
@@ -61,4 +87,6 @@ tr.status-completed:not(.special) td:first-child { text-decoration: line-through
   .schedule-table td.status-col { order: 3; flex: 0 0 100%; padding: 0.15rem 0.6rem 0.4rem; display: flex; gap: 4px; flex-wrap: wrap; }
   .schedule-table tr.active-row { border-left: 4px solid oklch(var(--wa)); }
   .schedule-table tr.racer-row { border-left: 4px solid oklch(var(--in)); }
+  /* Full bleed under the navbar, across main's 1rem gutter */
+  .racer-strip { margin-inline: -1rem; border-radius: 0; border-inline-end: none; }
 }
