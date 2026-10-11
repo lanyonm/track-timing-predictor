@@ -454,6 +454,15 @@ def _event_row(html: str, event_name: str):
     raise AssertionError(f"No row for {event_name!r}")
 
 
+def _racer_strip(html: str) -> str:
+    """The sticky racer strip's text as a screen reader gets it, whitespace-collapsed."""
+    strip = BeautifulSoup(html, "html.parser").select_one("a.racer-strip")
+    assert strip is not None, "No racer strip"
+    for hidden in strip.select('[aria-hidden="true"]'):
+        hidden.decompose()
+    return " ".join(strip.get_text().split())
+
+
 def _rider_list_pages(_client, path: str) -> str:
     # Start lists, results and live pages come back empty: no start-list riders anywhere.
     return RIDER_LIST_HTML if "RIDERLIST" in path else ""
@@ -583,9 +592,14 @@ class TestRiderListRoutes:
 
     def test_next_race_from_rider_list(self, client, mock_26037):
         client.cookies.set("racer_name", "Brian Abers")
-        text = " ".join(client.get("/schedule/26037").text.split())
-        assert re.search(r"Your next race: 60-64 Men Sprint Qualifying at \d{2}:\d{2}", text)
-        assert "60-64 Men Sprint Qualifying (if advancing)" not in text
+        html = client.get("/schedule/26037").text
+        assert re.fullmatch(
+            r"Brian Abers · next race 60-64 Men Sprint Qualifying \d{2}:\d{2} · warm up (\d{2}:\d{2}|now) "
+            r"Jump to this race",
+            _racer_strip(html),
+        )
+        assert _event_row(html, "60-64 Men Sprint Qualifying").get("id") == "next-race"
+        assert "60-64 Men Sprint Qualifying (if advancing)" not in " ".join(html.split())
 
 
 class TestFetchStartListsCaching:
@@ -685,10 +699,9 @@ class TestFetchFailureIsolation:
 class TestParallelQualifierRoute:
     def test_be_ready_by(self, client, mock_26037):
         client.cookies.set("racer_name", "Paul Baisch")
-        text = " ".join(client.get("/schedule/26037").text.split())
         assert re.search(
-            r"Your next race: 55-59 Men Scratch Race Qualifier 1 \(or a later qualifier\), be ready by \d{2}:\d{2}",
-            text,
+            r"55-59 Men Scratch Race Qualifier 1 \(or a later qualifier\) be ready by \d{2}:\d{2}",
+            _racer_strip(client.get("/schedule/26037").text),
         )
         for name in ("55-59 Men Scratch Race Qualifier 1", "55-59 Men Scratch Race Qualifier 2"):
             assert "Entered" in _event_row(client.get("/schedule/26037").text, name).get_text()
@@ -1154,41 +1167,73 @@ class TestDeciderLabel:
         assert "1 pair tied after Ride 2; any of the 2 still to ride Ride 2 may need a decider" in text
 
 
-class TestStartStraightLabels:
-    def _render(self, competition_id: int, now: datetime, racer: str) -> str:
+class TestRacerStrip:
+    """The sticky strip shows the racer's next race and links to its row."""
+
+    def _render(self, competition_id: int, now: datetime, racer: str, completed_before: bool = False) -> str:
         event = Event(
-            position=0,
+            position=1,
             name="50-54 Women 500m Time Trial Final",
             discipline="time_trial_500",
             status=EventStatus.UPCOMING,
             is_special=False,
             start_list_url="results/E1/W5054-TT-500-F-0-S.htm",
         )
+        events = [event]
+        if completed_before:
+            events.insert(
+                0,
+                Event(
+                    position=0,
+                    name="Sprint Q",
+                    discipline="sprint_qualifying",
+                    status=EventStatus.COMPLETED,
+                    is_special=False,
+                ),
+            )
         record_start_list_riders(
             competition_id,
             1,
-            0,
+            1,
             parse_start_list_riders((FIXTURE_DIR / "start-list-time-trial-26037.html").read_text()),
         )
-        record_heat_count(competition_id, 1, 0, 3)
-        session = Session(session_id=1, day="Day", scheduled_start=time(14, 0), events=[event])
-        html = main_module.templates.get_template("_schedule_body.html").render(
+        record_heat_count(competition_id, 1, 1, 3)
+        session = Session(session_id=1, day="Day", scheduled_start=time(14, 0), events=events)
+        return main_module.templates.get_template("_schedule_body.html").render(
             schedule=predict_schedule(competition_id, [session], now=now, racer_name=racer),
             competition_id=competition_id,
             now=now,
             palmares_count=0,
             racer_encoded="",
         )
-        return " ".join(BeautifulSoup(html, "html.parser").get_text().split())
 
-    def test_heat_badge_and_next_race_show_straight_and_warm_up(self):
-        text = self._render(26191, datetime(2026, 1, 1, 9, 0), "Emiko Koshita")
-        assert "Heat 2 · back straight" in text
-        assert re.search(
-            r"Your next race: 50-54 Women 500m Time Trial Final, Heat 2, back straight "
-            r"at \d{2}:\d{2} \(warm up from \d{2}:\d{2}\)",
-            text,
+    def test_next_race_with_heat_straight_and_warm_up_time(self):
+        html = self._render(26191, datetime(2026, 1, 1, 9, 0), "Emiko Koshita")
+        assert "Heat 2 · back straight" in " ".join(BeautifulSoup(html, "html.parser").get_text().split())
+        assert re.fullmatch(
+            r"Emiko Koshita · next race 50-54 Women 500m Time Trial Final "
+            r"Heat 2 · back straight · \d{2}:\d{2} · warm up \d{2}:\d{2} Jump to this race",
+            _racer_strip(html),
         )
+        assert _event_row(html, "50-54 Women 500m Time Trial Final").get("id") == "next-race"
+
+    def test_warm_up_now_once_window_opens(self):
+        html = self._render(26192, datetime(2026, 1, 1, 13, 55), "Emiko Koshita")
+        assert re.search(r"· \d{2}:\d{2} · warm up now", _racer_strip(html))
+
+    def test_racing_now_drops_times(self):
+        html = self._render(26193, datetime(2026, 1, 1, 14, 5), "Emiko Koshita", completed_before=True)
+        strip = BeautifulSoup(html, "html.parser").select_one("a.racer-strip")
+        assert "racer-strip-active" in strip["class"]
+        assert _racer_strip(html) == (
+            "Emiko Koshita · racing now 50-54 Women 500m Time Trial Final Heat 2 · back straight Jump to this race"
+        )
+        assert _event_row(html, "50-54 Women 500m Time Trial Final").get("id") == "next-race"
+
+    def test_no_strip_without_racer(self):
+        html = self._render(26194, datetime(2026, 1, 1, 9, 0), "")
+        assert BeautifulSoup(html, "html.parser").select_one("a.racer-strip") is None
+        assert 'id="next-race"' not in html
 
 
 class TestActiveHeatLabel:

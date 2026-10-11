@@ -1097,12 +1097,12 @@ def predict_session(
     )
 
 
-def _build_next_race(pred: Prediction, match: RiderMatch, now: datetime | None) -> NextRace:
+def _build_next_race(pred: Prediction, match: RiderMatch, session_id: int, now: datetime | None) -> NextRace:
     """Build a NextRace from a matched Prediction.
 
     Start-list matches use the racer's heat start. Rider List matches have no heat,
     so they use the event's predicted start. The warm-up time leads either by
-    WARM_UP_LEAD_MINUTES.
+    WARM_UP_LEAD_MINUTES; warm_up_now is set once now reaches it.
     """
     predicted_start = match.heat_predicted_start
     if match.source == "rider_list":
@@ -1120,6 +1120,9 @@ def _build_next_race(pred: Prediction, match: RiderMatch, now: datetime | None) 
         parallel_qualifier=match.parallel_qualifier,
         straight=match.straight,
         warm_up_from=warm_up_from,
+        warm_up_now=warm_up_from is not None and now is not None and now >= warm_up_from,
+        session_id=session_id,
+        position=pred.event.position,
     )
 
 
@@ -1150,8 +1153,8 @@ def predict_schedule(
     match_count = 0
     tentative_match_count = 0
     rider_list_match_count = 0
-    active_candidate: Prediction | None = None
-    upcoming_candidate: Prediction | None = None
+    active_candidate: tuple[Prediction, int] | None = None
+    upcoming_candidate: tuple[Prediction, int] | None = None
 
     for s in sessions:
         sp = predict_session(
@@ -1180,13 +1183,15 @@ def predict_schedule(
                     rider_list_match_count += 1
                 # Track next-race candidates: active takes priority over upcoming
                 if pred.is_active and active_candidate is None:
-                    active_candidate = pred
+                    active_candidate = (pred, s.session_id)
                 elif pred.event.status != EventStatus.COMPLETED and upcoming_candidate is None:
-                    upcoming_candidate = pred
+                    upcoming_candidate = (pred, s.session_id)
 
     # Active match takes priority; fall back to first upcoming match.
     best = active_candidate or upcoming_candidate
-    next_race = _build_next_race(best, best.rider_match, now) if best and best.rider_match else None
+    next_race = None
+    if best and best[0].rider_match:
+        next_race = _build_next_race(best[0], best[0].rider_match, best[1], now)
 
     return SchedulePrediction(
         competition_id=competition_id,

@@ -198,6 +198,9 @@ class NextRace(BaseModel):
     parallel_qualifier: bool = False
     straight: Literal["home", "back"] | None = None
     warm_up_from: datetime | None = None  # predicted_start − WARM_UP_LEAD_MINUTES
+    warm_up_now: bool = False  # now has reached warm_up_from
+    session_id: int | None = None  # with position, identifies the event's row for the sticky strip's link
+    position: int | None = None
 
 
 class SchedulePrediction(BaseModel):

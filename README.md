@@ -40,10 +40,10 @@ When a match is found:
 
 - **Matched rows** are visually highlighted in the schedule table
 - A **summary banner** shows how many events matched (e.g. "Found 3 events for 'Jane Smith'")
-- Your **next upcoming race** is called out with its predicted start time (or "Racing now" if active)
+- Your **next upcoming race** stays pinned under the header as you scroll, with its predicted start time (or "Racing now" if active); tap it to jump to that race in the schedule
 - For multi-heat events, your specific **heat number** and **predicted heat start time** are shown
 - For pursuits, time trials and team events, your **start straight** (home or back) is shown next to the heat, read from the start list's "First rider listed starts on the home straight" note
-- The next race also suggests a **warm-up time**, 45 min before your predicted start
+- The next race also suggests a **warm-up time**, 45 min before your predicted start, and reads "warm up now" once that time has passed
 - Sessions containing your pending events **auto-expand**; completed sessions collapse
 
 **How names are resolved:**
