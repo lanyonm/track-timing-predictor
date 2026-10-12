@@ -1262,6 +1262,39 @@ class TestRacerStrip:
         )
         assert _event_row(html, "50-54 Women 500m Time Trial Final").get("id") == "next-race"
 
+    def test_bunch_race_start_line(self):
+        event = Event(
+            position=0,
+            name="55-59 Men Scratch Race Qualifier 1",
+            discipline="scratch",
+            status=EventStatus.UPCOMING,
+            is_special=False,
+            start_list_url="results/E1/M5559-SCR-Q1-0-S.htm",
+        )
+        record_start_list_riders(
+            26195,
+            1,
+            0,
+            parse_start_list_riders((FIXTURE_DIR / "start-list-scratch-race-26037.html").read_text()),
+        )
+        now = datetime(2026, 1, 1, 9, 0)
+        session = Session(session_id=1, day="Day", scheduled_start=time(14, 0), events=[event])
+        html = main_module.templates.get_template("_schedule_body.html").render(
+            schedule=predict_schedule(26195, [session], now=now, racer_name="Spencer Wilson"),
+            competition_id=26195,
+            now=now,
+            palmares_count=0,
+            racer_encoded="",
+        )
+        badge = _event_row(html, "55-59 Men Scratch Race Qualifier 1").select_one(".badge")
+        assert badge.get_text(" ", strip=True) == "Racing · blue band 9/9"
+        assert badge["title"] == "9th of 9 riders listed on the blue band"
+        assert re.fullmatch(
+            r"Spencer Wilson · next race 55-59 Men Scratch Race Qualifier 1 "
+            r"blue band 9/9 · \d{2}:\d{2} · warm up \d{2}:\d{2} Jump to this race",
+            _racer_strip(html),
+        )
+
     def test_no_strip_without_racer(self):
         html = self._render(26194, datetime(2026, 1, 1, 9, 0), "")
         assert BeautifulSoup(html, "html.parser").select_one("a.racer-strip") is None

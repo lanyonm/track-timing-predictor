@@ -11,7 +11,7 @@ from app.disciplines import (
     pursuit_discipline_from_band,
     pursuit_discipline_from_urls,
 )
-from app.models import Event, EventStatus, RiderEntry, RiderListEntry, Session, normalize_rider_name
+from app.models import Event, EventStatus, RiderEntry, RiderListEntry, Session, StartLine, normalize_rider_name
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +186,10 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
     listed starts on the home straight": a heat's first row gets
     straight="home" and its second "back". Without it, straight is None.
 
+    Bunch-race start lists split riders under "Starting on the Railing" and
+    "Starting on the Blue Band" rows; each rider below one gets a start_line
+    with its line, order within it and the line's rider count.
+
     Returns an empty list if no riders are found.
     """
     return _start_list_riders(BeautifulSoup(html, "html.parser"))
@@ -194,6 +198,16 @@ def parse_start_list_riders(html: str) -> list[RiderEntry]:
 # Medal finals label their two heats with <h4> headings instead of "Heat N" (see parse_heat_count).
 _FINAL_HEAT_LABEL_RE = re.compile(r"^(?:Final\s+\d+-\d+|For\s+(?:Bronze|Gold))$", re.IGNORECASE)
 _HOME_STRAIGHT_RE = re.compile(r"First\s+(?:rider|team)\s+listed\s+starts\s+on\s+the\s+home\s+straight", re.IGNORECASE)
+_START_LINE_RE = re.compile(r"^Starting\s+on\s+the\s+(Railing|Blue\s+Band)$", re.IGNORECASE)
+
+
+def _start_line_label(row: Tag) -> Literal["rail", "blue_band"] | None:
+    """The bunch-race start line a "Starting on the Railing/Blue Band" row begins, else None."""
+    for h4 in row.find_all("h4"):
+        match = _START_LINE_RE.match(h4.get_text(" ", strip=True))
+        if match:
+            return "rail" if match.group(1).lower() == "railing" else "blue_band"
+    return None
 
 
 def _heat_label(row: Tag, current_heat: int) -> int | None:
@@ -212,10 +226,18 @@ def _start_list_riders(soup: BeautifulSoup) -> list[RiderEntry]:
     current_heat = 0
     order = 0  # rider (or team) rows so far in the current heat
     home_first = any(_HOME_STRAIGHT_RE.search(h4.get_text(" ", strip=True)) for h4 in soup.find_all("h4"))
+    # Bunch-race start lines: (side, rows so far) per heading, and each rider's (line index, position)
+    lines: list[tuple[Literal["rail", "blue_band"], int]] = []
+    line_slots: list[tuple[int, int] | None] = []
 
     for row in soup.find_all("tr"):
         cells = row.find_all("td")
         if not cells:
+            continue
+
+        side = _start_line_label(row)
+        if side is not None:
+            lines.append((side, 0))
             continue
 
         heat = _heat_label(row, current_heat)
@@ -238,7 +260,13 @@ def _start_list_riders(soup: BeautifulSoup) -> list[RiderEntry]:
         straight: Literal["home", "back"] | None = None
         if home_first and order <= 2:
             straight = "home" if order == 1 else "back"
+        slot = None
+        if lines:
+            side, count = lines[-1]
+            lines[-1] = (side, count + 1)
+            slot = (len(lines) - 1, count + 1)
         for name, team in row_riders:
+            line_slots.append(slot)
             riders.append(
                 RiderEntry(
                     name=name,
@@ -251,6 +279,15 @@ def _start_list_riders(soup: BeautifulSoup) -> list[RiderEntry]:
 
     if not riders and soup.find("tr"):
         logger.warning("parse_start_list_riders found 0 riders in HTML with %d rows", len(soup.find_all("tr")))
+
+    if lines:
+        # A line's rider count is known only once the whole list is read
+        for i, slot in enumerate(line_slots):
+            if slot is not None:
+                side, count = lines[slot[0]]
+                riders[i] = riders[i].model_copy(
+                    update={"start_line": StartLine(side=side, position=slot[1], riders=count)}
+                )
 
     return riders
 

@@ -12,6 +12,7 @@ from app.models import (
     RiderListEntry,
     RiderMatch,
     Session,
+    StartLine,
     normalize_rider_name,
 )
 from app.predictor import (
@@ -255,6 +256,19 @@ class TestNextRace:
         assert result.sessions[0].event_predictions[0].rider_match.straight == "back"
         assert nr.warm_up_now is False
         assert (nr.session_id, nr.position) == (SESSION_ID, 0)
+
+    def test_next_race_start_line(self):
+        """A bunch race match carries the racer's start line to the row and the next race."""
+        events = [make_event(position=0, name="55-59 Men Scratch Race Qualifier 1", discipline="scratch")]
+        session = make_session(events=events, scheduled_start=time(14, 0))
+        line = StartLine(side="rail", position=3, riders=12)
+        record_start_list_riders(COMP_ID, SESSION_ID, 0, [RiderEntry(name="HALL Sean", heat=1, start_line=line)])
+
+        result = predict_schedule(COMP_ID, [session], now=datetime(2024, 6, 1, 9, 0), racer_name="Sean Hall")
+
+        assert result.next_race is not None
+        assert result.next_race.start_line == line
+        assert result.sessions[0].event_predictions[0].rider_match.start_line == line
 
     def test_warm_up_now_once_warm_up_window_opens(self):
         """warm_up_now turns on once now reaches warm_up_from, before the race is active."""

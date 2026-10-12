@@ -610,6 +610,7 @@ def get_rider_match(
                 heat_predicted_start=heat_predicted_start,
                 team_name=rider.team_name,
                 straight=rider.straight,
+                start_line=rider.start_line,
             )
 
     return None
@@ -1121,6 +1122,7 @@ def _build_next_race(
         tentative=match.tentative,
         parallel_qualifier=match.parallel_qualifier,
         straight=match.straight,
+        start_line=match.start_line,
         warm_up_from=warm_up_from,
         warm_up_now=warm_up_from is not None and now is not None and now >= warm_up_from,
         session_id=session_id,
