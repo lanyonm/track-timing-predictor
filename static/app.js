@@ -63,10 +63,12 @@ function initLoadingForm() {
   });
 }
 
-// Keep each session's open/closed state across HTMX refreshes of the schedule.
+// Keep each session's open/closed state across HTMX refreshes of the schedule, and count
+// down to the next refresh.
 function initScheduleRefresh() {
   var container = document.getElementById('schedule-container');
   if (!container) return;
+  initRefreshCountdown(container);
   var openSessions = new Set();
   var closedByUser = new Set();
 
@@ -105,6 +107,27 @@ function initScheduleRefresh() {
       document.getElementById('last-updated').textContent = generatedAt.dataset.generatedAt;
     }
   });
+}
+
+// "Auto-refresh in Ns": htmx's `every` poll reschedules itself as it fires, so each request
+// restarts the count. Counting to a stored time keeps it right when a background tab
+// throttles timers.
+function initRefreshCountdown(container) {
+  var countdown = document.getElementById('refresh-countdown');
+  if (!countdown) return;
+  var interval = parseInt(countdown.dataset.seconds, 10) * 1000;
+  var refreshAt = Date.now() + interval;
+
+  function render() {
+    var seconds = Math.max(0, Math.ceil((refreshAt - Date.now()) / 1000));
+    countdown.textContent = 'Auto-refresh in ' + seconds + 's';
+  }
+
+  container.addEventListener('htmx:beforeRequest', function () {
+    refreshAt = Date.now() + interval;
+    render();
+  });
+  setInterval(render, 1000);
 }
 
 // Palmares: Edit/Cancel toggle the rename form; Remove opens its confirmation modal.

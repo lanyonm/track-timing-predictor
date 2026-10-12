@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
 import app.main as main_module
+from app.config import settings
 from app.disciplines import WARM_UP_LEAD_MINUTES
 from app.main import _fetch_live_heats, _fetch_result_pages, _fetch_rider_list_if_needed, _fetch_start_lists, app
 from app.models import Event, EventStatus, Session
@@ -339,6 +340,15 @@ class TestCheckHealth:
             assert "SQLite" in result["detail"]
         finally:
             settings.db_path = original
+
+
+class TestRefreshCountdown:
+    def test_schedule_page_counts_down_from_the_refresh_interval(self, client):
+        resp = client.get("/schedule/26008")
+        countdown = BeautifulSoup(resp.text, "html.parser").select_one("#refresh-countdown")
+        assert countdown is not None
+        assert countdown["data-seconds"] == str(settings.refresh_interval_seconds)
+        assert countdown.get_text(strip=True) == f"Auto-refresh in {settings.refresh_interval_seconds}s"
 
 
 class TestVenueLocalClock:

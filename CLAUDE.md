@@ -87,7 +87,7 @@ FastAPI app that predicts per-event start times for track cycling competitions o
 2. `parser.parse_schedule` turns the HTML into `Session`/`Event` models.
 3. `main.py` concurrently fetches start lists, result pages and live-heat pages, filling the predictor caches. Each helper builds a URL → event slots map and hands it to `_fetch_each`, which fetches every URL once (the rides of a sprint round share their pages) under the helper's concurrency limit (live pages 5, start lists 10, result and audit pages 10 shared) and records the parse for every slot; a fetch or parse error is logged and leaves only that URL's slots uncached; `parser.parse_start_list` reads heat count, riders, categories and distance from one parse. When a racer is set and some race has no start-list riders, a combined-age bunch final has no cached start-list categories, or a pending sprint/pursuit qualifying round or time trial has no start-list heat count (`rider_list.needs_heat_estimate`), the same `gather` fetches the Rider List (`_fetch_rider_list_if_needed`, cached by URL).
 4. `predictor.predict_schedule` builds a `SchedulePrediction`.
-5. Jinja2 renders `schedule.html`; HTMX polls `/schedule/{id}/refresh`, which returns `_schedule_body.html`.
+5. Jinja2 renders `schedule.html`; HTMX polls `/schedule/{id}/refresh`, which returns `_schedule_body.html`. `app.js` counts down to the next poll in `#refresh-countdown` ("Auto-refresh in Ns", from its `data-seconds`), restarting on each `htmx:beforeRequest`.
 
 **tracktiming.live API** (unversioned and undocumented, so parse defensively):
 - `POST eventpage.php?EventId={id}` with form body `jxnfun=getInitialPageLayout&jxnr=1` (initial) or `jxnfun=refreshPage&...` (refresh); the response is JSON with a `jxnobj` array.

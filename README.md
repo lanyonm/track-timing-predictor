@@ -17,7 +17,7 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 6. Computes a predicted start time for every event in the session
 7. During live events, adjusts predictions based on how far ahead or behind schedule the session is running
 8. When results are posted, refines completed-event durations using the race's actual Finish Time, or the gap between consecutive result-page timestamps, and calibrates the competition's bunch-race changeover from them
-9. Auto-refreshes every 30 seconds so predictions stay current throughout the day
+9. Auto-refreshes every 30 seconds so predictions stay current throughout the day, with a countdown to the next refresh
 
 The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N km** (a points or scratch race's start-list distance), **~N km est.** (its distance from the organiser's published schedule, before the start list), **N deciders** (sprint Ride 3 after Ride 2), **0–N deciders est.** (sprint Ride 3 before Ride 2), **~N heats est.** (heats estimated from a round name, the Rider List or a pre-event team entry list), **N podiums** (medal ceremonies), or **est.** (default/learned fallback). Hover the label for how the duration was worked out.
 
