@@ -605,7 +605,7 @@ async def get_schedule(
         _fetch_rider_list_if_needed(client, event_id, jxn_data, sessions, racer_name),
     )
     sessions = apply_sprint_ride_status(event_id, sessions)
-    now = venue_now(latest_live_generated_time(event_id, sessions))
+    now = venue_now(latest_live_generated_time(event_id, sessions), event_id)
     use_learned = _use_learned(request)
     learned = await asyncio.to_thread(load_learned_durations, sessions) if use_learned else None
     schedule = predict_schedule(
@@ -711,7 +711,7 @@ async def refresh_schedule(
     )
 
     sessions = apply_sprint_ride_status(event_id, sessions)
-    now = venue_now(latest_live_generated_time(event_id, sessions))
+    now = venue_now(latest_live_generated_time(event_id, sessions), event_id)
 
     # Track status transitions for wall-clock fallback learning.
     wall_clock = update_status_cache(event_id, sessions, now)
