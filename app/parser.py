@@ -292,6 +292,20 @@ def _start_list_riders(soup: BeautifulSoup) -> list[RiderEntry]:
     return riders
 
 
+def _bye_heats(soup: BeautifulSoup) -> int:
+    """Heats whose second rider is a "BYE" row (a sprint round with an odd field): the lone
+    rider goes through without riding."""
+    byes: set[int] = set()
+    current_heat = 0
+    for row in soup.find_all("tr"):
+        heat = _heat_label(row, current_heat)
+        if heat is not None:
+            current_heat = heat
+        if current_heat and any(h4.get_text(strip=True).upper() == "BYE" for h4 in row.find_all("h4")):
+            byes.add(current_heat)
+    return len(byes)
+
+
 # Inline base64 flag images make up ~95% of a Rider List page's bytes.
 _DATA_IMG_RE = re.compile(r'<img[^>]*src="data:[^"]*"[^>]*>')
 
@@ -505,6 +519,7 @@ def parse_heat_count(html: str) -> int | None:
 
 class StartList(NamedTuple):
     heat_count: int | None
+    bye_heats: int  # heats of heat_count that are a bye (_bye_heats)
     riders: list[RiderEntry]
     categories: frozenset[str]
     race_distance_km: float | None
@@ -514,13 +529,14 @@ def parse_start_list(html: str) -> StartList:
     """
     Everything the app reads from a start list page, from a single parse.
 
-    Equivalent to calling parse_heat_count, parse_start_list_riders,
+    Equivalent to calling parse_heat_count (plus its bye heats), parse_start_list_riders,
     parse_start_list_categories and parse_race_distance_km, which would each
     parse the page again.
     """
     soup = BeautifulSoup(html, "html.parser")
     return StartList(
         heat_count=parse_heat_count(html),
+        bye_heats=_bye_heats(soup),
         riders=_start_list_riders(soup),
         categories=_start_list_categories(soup),
         race_distance_km=_race_distance_km(soup),

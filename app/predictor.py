@@ -69,9 +69,13 @@ _finish_times: dict[tuple[int, int, int], float] = {}
 # Key: (competition_id, session_id, position), Value: number of heats
 _heat_counts: dict[tuple[int, int, int], int] = {}
 
-# Current heat number derived from the live results page.
-# Updated on every refresh while the event is active.
-# Key: (competition_id, session_id, position), Value: current heat number (1-based)
+# Heats of a start list's heat count that are a sprint bye (one rider goes through unridden).
+# Key: (competition_id, session_id, position), Value: bye heats (only recorded when > 0)
+_bye_heats: dict[tuple[int, int, int], int] = {}
+
+# Finished heats read from the live results page.
+# Updated on every refresh while the event is active; never lowered (record_live_heat).
+# Key: (competition_id, session_id, position), Value: finished heats
 _live_heats: dict[tuple[int, int, int], int] = {}
 
 # Generated timestamps parsed from result pages.
@@ -117,6 +121,7 @@ _POSITION_CACHES: tuple[dict, ...] = (
     _status_cache,
     _finish_times,
     _heat_counts,
+    _bye_heats,
     _live_heats,
     _generated_times,
     _start_list_riders,
@@ -189,9 +194,15 @@ def record_heat_count(
     session_id: int,
     position: int,
     count: int,
+    byes: int = 0,
 ) -> None:
-    """Store the number of heats for an event, derived from its start list page."""
-    _heat_counts[(competition_id, session_id, position)] = count
+    """Store the number of heats for an event, derived from its start list page, and how many are byes."""
+    key = (competition_id, session_id, position)
+    _heat_counts[key] = count
+    if byes:
+        _bye_heats[key] = byes
+    else:
+        _bye_heats.pop(key, None)
 
 
 def get_heat_count(competition_id: int, session_id: int, position: int) -> int | None:
@@ -200,8 +211,14 @@ def get_heat_count(competition_id: int, session_id: int, position: int) -> int |
 
 
 def record_live_heat(competition_id: int, session_id: int, position: int, heat: int) -> None:
-    """Store the current heat number parsed from the live results page."""
-    _live_heats[(competition_id, session_id, position)] = heat
+    """Store the finished heats parsed from the live results page.
+
+    Never lowers a stored count: twice at 26037 a 500 m time trial's page dropped back to
+    heat 3 near its end (70-74 Men went from heat 6 to 3 of 7, likely a re-ride), which
+    pushed every later event back 13-22 min.
+    """
+    key = (competition_id, session_id, position)
+    _live_heats[key] = max(heat, _live_heats.get(key, heat))
 
 
 def get_live_heat(competition_id: int, session_id: int, position: int) -> int | None:
@@ -448,6 +465,7 @@ class _Estimate(NamedTuple):
     km_basis: DistanceBasis | None = None
     per_heat: float | None = None  # minutes per heat used with heats
     deciders_known: int | None = None  # with "decider_pairs": pairs already tied after Ride 2
+    byes: int = 0  # how many of heats are a sprint bye, ridden by nobody
 
 
 def _base_estimate(
@@ -485,9 +503,11 @@ def _base_estimate(
             kmh = bunch_race_kmh(band)
             return _Estimate(km / kmh * 60 + bunch, km=km, kmh=kmh, km_basis=km_basis)
     hc = get_heat_count(competition_id, session_id, event.position)
+    byes = _bye_heats.get((competition_id, session_id, event.position), 0) if hc is not None else 0
     phd = get_per_heat_duration(event.discipline, band)
     if event.discipline == "sprint_match":
-        pairs: float | None = hc if hc is not None else sprint_round_pairs(event.name)
+        # A bye pair rides neither the round nor its decider.
+        pairs: float | None = hc - byes if hc is not None else sprint_round_pairs(event.name)
         ride = split_ride(event.name)
         if ride is not None and ride[1] == 3:
             deciders = _sprint_deciders.get((competition_id, ride[0]))
@@ -508,7 +528,7 @@ def _base_estimate(
     if hc is None and inferred is not None:
         hc, basis = inferred
     if hc is not None:
-        return _Estimate(hc * phd + _changeover(event.discipline, bunch), hc, basis, per_heat=phd)
+        return _Estimate((hc - byes) * phd + _changeover(event.discipline, bunch), hc, basis, per_heat=phd, byes=byes)
     shift = _changeover(event.discipline, bunch) - get_changeover(event.discipline)
     return _Estimate(_get_duration(event.discipline, learned) + shift)
 
@@ -1078,6 +1098,7 @@ def predict_session(
                 distance_basis=est.km_basis if est else None,
                 per_heat_minutes=est.per_heat if est else None,
                 deciders_known=est.deciders_known if est else None,
+                bye_heats=est.byes if est and est.byes else None,
                 podium_count=podium_list[i],
                 is_active=is_active,
                 active_heat=active_heat,

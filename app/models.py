@@ -190,6 +190,7 @@ class Prediction(BaseModel):
     distance_basis: DistanceBasis | None = None  # Where race_distance_km came from
     per_heat_minutes: float | None = None  # Minutes per heat used with heat_count, when heat-based
     deciders_known: int | None = None  # With heat_basis "decider_pairs": pairs already tied after Ride 2
+    bye_heats: int | None = None  # Heats of heat_count that are a sprint bye (not ridden), when any
     podium_count: int | None = None  # Set when a medal ceremony's duration comes from forecast podiums
     is_active: bool = False  # True for the first non-COMPLETED event in an in-progress session
     active_heat: int | None = None  # Estimated current heat (1-based) for an active multi-heat event

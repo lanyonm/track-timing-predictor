@@ -1031,9 +1031,25 @@ class TestParseStartList:
     @pytest.mark.parametrize("fixture", sorted(p.name for p in FIXTURE_DIR.glob("start-list-*.html")))
     def test_matches_individual_parsers(self, fixture):
         html = (FIXTURE_DIR / fixture).read_text()
-        assert parse_start_list(html) == (
+        start_list = parse_start_list(html)
+        assert (start_list.heat_count, start_list.riders, start_list.categories, start_list.race_distance_km) == (
             parse_heat_count(html),
             parse_start_list_riders(html),
             parse_start_list_categories(html),
             parse_race_distance_km(html),
         )
+
+    @pytest.mark.parametrize(
+        ("fixture", "heats", "byes"),
+        [
+            # 40-44 Women Sprint at 26037: three riders, so Heat 1 (1/2 Final) and
+            # Final 3-4 (Final) are a lone rider and a BYE row.
+            ("start-list-sprint-semi-bye-26037.html", 2, 1),
+            ("start-list-sprint-final-bye-26037.html", 2, 1),
+            ("start-list-sprint-final-26037.html", 2, 0),
+        ],
+    )
+    def test_bye_heats(self, fixture, heats, byes):
+        start_list = parse_start_list((FIXTURE_DIR / fixture).read_text())
+        assert (start_list.heat_count, start_list.bye_heats) == (heats, byes)
+        assert all(r.name != "BYE" for r in start_list.riders)
