@@ -88,6 +88,8 @@ When heat count is known from the start list:
 slot = heat_count × per_heat_duration
 ```
 
+A heat whose start list pairs a rider with `BYE` isn't ridden, so it's left out: slot = (heat_count − bye heats) × per_heat_duration. At 26037 the three-rider 40-44 Women field had a bye in every 1/2 Final and Final ride; those rides took 3.1–3.8 min against 6 min for 2 heats.
+
 | Discipline Key | Per-Heat Duration |
 |---|---|
 | `sprint_match` | 3.0 min |

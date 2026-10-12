@@ -1385,3 +1385,9 @@ class TestDurationTooltips:
         record_heat_count(26163, 1, 0, 6)
         html = self._render(26163, [self._event("75-79 Men 500m Time Trial Final", "time_trial_500")])
         assert "6 heats from the start list × 2.75 min" in html
+
+    def test_heats_label_names_byes(self):
+        record_heat_count(26164, 1, 0, 2, byes=1)
+        html = self._render(26164, [self._event("40-44 Women Sprint 1/2 Final Ride 1", "sprint_match")])
+        assert "2 heats from the start list, 1 of them a bye, so 1 ridden × 3.0 min" in html
+        assert "2 heats, 1 bye</span>" in html

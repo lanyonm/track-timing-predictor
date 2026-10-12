@@ -30,6 +30,7 @@ from app.predictor import (
     bunch_changeover,
     get_generated_time,
     get_heat_count,
+    get_live_heat,
     latest_live_generated_time,
     load_learned_durations,
     predict_schedule,
@@ -395,6 +396,14 @@ class TestActiveEventStart:
         assert active.predicted_start == time(11, 4, 51)
         left = 1.5 * 4.5 + get_changeover("pursuit_2k")
         assert nxt.predicted_start == (now + timedelta(minutes=left)).time()
+
+    def test_live_heat_never_goes_back(self):
+        """A 500 m TT's live page went from heat 6 to heat 3 of 7 mid-event at 26037; keep the higher count."""
+        record_live_heat(26914, 1, 10, 5)
+        record_live_heat(26914, 1, 10, 2)
+        assert get_live_heat(26914, 1, 10) == 5
+        record_live_heat(26914, 1, 10, 6)
+        assert get_live_heat(26914, 1, 10) == 6
 
     def test_live_heat_still_wins(self):
         self._setup(26910)
@@ -1511,6 +1520,18 @@ class TestSprintRoundPairs:
         # 1/8 Finals vary with byes (4 heats at 26008, 8 at 26037), so they keep the default.
         pred = self._predict(26123, "65-69 Men Sprint 1/8 Final")
         assert pred.estimated_duration_minutes == DEFAULT_DURATIONS["sprint_match"]
+
+    def test_bye_heat_is_not_ridden(self):
+        record_heat_count(26126, 1, 0, 2, byes=1)
+        pred = self._predict(26126, "40-44 Women Sprint 1/2 Final Ride 1")
+        assert pred.estimated_duration_minutes == pytest.approx(PER_HEAT_DURATIONS["sprint_match"])
+        assert (pred.heat_count, pred.bye_heats, pred.heat_basis) == (2, 1, "start_list")
+
+    def test_bye_pair_needs_no_decider(self):
+        record_heat_count(26127, 1, 0, 2, byes=1)
+        pred = self._predict(26127, "40-44 Women Sprint 1/2 Final Ride 3")
+        assert pred.estimated_duration_minutes == pytest.approx(SPRINT_DECIDER_MINUTES * SPRINT_DECIDER_RATE)
+        assert (pred.heat_count, pred.heat_basis) == (1, "decider_pairs")
 
     def test_start_list_wins(self):
         record_heat_count(26124, 1, 0, 1)

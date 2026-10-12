@@ -311,7 +311,7 @@ async def _fetch_start_lists(
         start_list = parse_start_list(html)
         for sess_id, pos in slots:
             if start_list.heat_count:
-                record_heat_count(competition_id, sess_id, pos, start_list.heat_count)
+                record_heat_count(competition_id, sess_id, pos, start_list.heat_count, start_list.bye_heats)
             record_start_list_riders(competition_id, sess_id, pos, start_list.riders)
             record_start_list_categories(competition_id, sess_id, pos, start_list.categories)
             if start_list.race_distance_km is not None:
