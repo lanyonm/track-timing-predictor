@@ -12,6 +12,7 @@
 {%- set strip = namespace(details=[]) %}
 {%- if nr.heat_count and nr.heat_count > 1 %}{% set strip.details = strip.details + ['Heat ' ~ nr.heat] %}{% endif %}
 {%- if nr.straight %}{% set strip.details = strip.details + [nr.straight ~ ' straight'] %}{% endif %}
+{%- if nr.start_line %}{% set strip.details = strip.details + [nr.start_line.label] %}{% endif %}
 {%- if not nr.is_active and nr.predicted_start %}
   {%- set at = nr.predicted_start.strftime('%H:%M') %}
   {%- set strip.details = strip.details + [('be ready by ' ~ at) if nr.parallel_qualifier else at] %}
@@ -123,7 +124,8 @@
                 <span class="{{ racer_badge }}">Entered</span>
               {% elif pred.rider_match %}
                 {%- set straight = ' · ' ~ pred.rider_match.straight ~ ' straight' if pred.rider_match.straight else '' %}
-                <span class="{{ racer_badge }}">{{ 'Heat ' ~ pred.rider_match.heat if pred.rider_match.heat_count > 1 else 'Racing' }}{{ straight }}</span>
+                {%- set line = pred.rider_match.start_line %}
+                <span class="{{ racer_badge }}"{% if line %} title="{{ line.description }}"{% endif %}>{{ 'Heat ' ~ pred.rider_match.heat if pred.rider_match.heat_count > 1 else 'Racing' }}{{ straight }}{{ ' · ' ~ line.label if line }}</span>
               {% endif %}
               {% if pred.rider_match and pred.rider_match.heat_count and pred.rider_match.heat_count > 1 and pred.rider_match.heat_predicted_start %}
                 <span class="block text-xs font-semibold ink-info mt-0.5">Your heat: {{ pred.rider_match.heat_predicted_start.strftime('%H:%M') }}</span>

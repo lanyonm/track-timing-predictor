@@ -10,7 +10,7 @@
 
   <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted">
     <span>Last updated: <span id="last-updated" class="font-medium">{{ now.strftime('%H:%M:%S') }}</span></span>
-    <span>Auto-refreshes every {{ refresh_seconds }}s</span>
+    <span id="refresh-countdown" data-seconds="{{ refresh_seconds }}">Auto-refresh in {{ refresh_seconds }}s</span>
     <a href="/defaults" class="link link-hover">View default durations</a>
     <a href="/learned" class="link link-hover">View learned durations</a>
     <label class="flex items-center gap-2 cursor-pointer">

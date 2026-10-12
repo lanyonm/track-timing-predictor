@@ -17,7 +17,7 @@ tracktiming.live publishes event schedules with a session-level start time (e.g.
 6. Computes a predicted start time for every event in the session
 7. During live events, adjusts predictions based on how far ahead or behind schedule the session is running
 8. When results are posted, refines completed-event durations using the race's actual Finish Time, or the gap between consecutive result-page timestamps, and calibrates the competition's bunch-race changeover from them
-9. Auto-refreshes every 30 seconds so predictions stay current throughout the day
+9. Auto-refreshes every 30 seconds so predictions stay current throughout the day, with a countdown to the next refresh
 
 The duration column in the UI shows the source of each estimate: **obs.** (from posted results), **N heats** (from a start list), **N km** (a points or scratch race's start-list distance), **~N km est.** (its distance from the organiser's published schedule, before the start list), **N deciders** (sprint Ride 3 after Ride 2), **0–N deciders est.** (sprint Ride 3 before Ride 2), **~N heats est.** (heats estimated from a round name, the Rider List or a pre-event team entry list), **N podiums** (medal ceremonies), or **est.** (default/learned fallback). Hover the label for how the duration was worked out.
 
@@ -43,6 +43,7 @@ When a match is found:
 - Your **next upcoming race** stays pinned under the header as you scroll, with its predicted start time (or "Racing now" if active); tap it to jump to that race in the schedule
 - For multi-heat events, your specific **heat number** and **predicted heat start time** are shown
 - For pursuits, time trials and team events, your **start straight** (home or back) is shown next to the heat, read from the start list's "First rider listed starts on the home straight" note
+- For bunch races, your **start line** (rail or blue band) and place in it are shown as `rail 3/12`: 3rd of the 12 riders the start list puts under "Starting on the Railing" (or "Starting on the Blue Band")
 - The next race also suggests a **warm-up time**, 45 min before your predicted start (change it on your palmares page), and reads "warm up now" once that time has passed
 - Sessions containing your pending events **auto-expand**; completed sessions collapse
 
@@ -219,7 +220,7 @@ See [docs/duration-data-import.md](docs/duration-data-import.md) for full docume
 | `AWS_REGION` | `us-east-1` | DynamoDB region |
 | `REFRESH_INTERVAL_SECONDS` | `30` | Live refresh interval |
 | `MIN_LEARNED_SAMPLES` | `3` | Observations required before a learned average is used |
-| `VENUE_TZ` | `America/Toronto` | Fallback venue timezone; during a live session the offset is inferred from result-page timestamps |
+| `VENUE_TZ` | `America/Toronto` | Fallback venue timezone; during a live session the offset is inferred from result-page timestamps and remembered for that competition |
 | `PUBLIC_BASE_URL` | *(empty)* | Origin for the palmares share link; empty uses the request host |
 
 ## Deployment

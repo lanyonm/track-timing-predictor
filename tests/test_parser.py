@@ -9,7 +9,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from app.disciplines import detect_discipline
-from app.models import EventStatus
+from app.models import EventStatus, StartLine
 from app.parser import (
     _parse_summary,
     live_results_show_event,
@@ -753,6 +753,44 @@ class TestParseStartListRiders:
         <tr><td><h4><Strong>103</Strong></h4></td><td><h4>RIDER Carol</h4></td></tr>
         </tbody></table>"""
         assert [r.straight for r in parse_start_list_riders(html)] == ["home", "back", None]
+
+    def test_bunch_start_lines_number_riders_within_each_line(self):
+        # "Starting on the Blue Band" (9 riders) then "Starting on the Railing" (9)
+        html = (FIXTURE_DIR / "start-list-scratch-race-26037.html").read_text()
+        lines = {r.name: r.start_line for r in parse_start_list_riders(html)}
+        assert lines["FIDDIES John"] == StartLine(side="blue_band", position=1, riders=9)
+        assert lines["WILSON Spencer"] == StartLine(side="blue_band", position=9, riders=9)
+        assert lines["SURAULT Fabien"] == StartLine(side="rail", position=1, riders=9)
+        assert lines["TWIGG Michael"] == StartLine(side="rail", position=9, riders=9)
+
+    def test_bunch_start_list_with_only_the_rail(self):
+        html = (FIXTURE_DIR / "start-list-points-race-26008.html").read_text()
+        riders = parse_start_list_riders(html)
+        assert [r.start_line.position for r in riders if r.start_line] == list(range(1, 10))
+        assert [r.start_line for r in riders if r.name == "ALVAREZ Joey"] == [
+            StartLine(side="rail", position=4, riders=9)
+        ]
+        assert all(r.heat == 1 and r.straight is None for r in riders)
+
+    @pytest.mark.parametrize(
+        ("position", "riders", "description"),
+        [
+            (1, 1, "1st of 1 rider listed on the rail"),
+            (2, 12, "2nd of 12 riders listed on the rail"),
+            (11, 13, "11th of 13 riders listed on the rail"),
+            (12, 13, "12th of 13 riders listed on the rail"),
+            (13, 13, "13th of 13 riders listed on the rail"),
+            (22, 23, "22nd of 23 riders listed on the rail"),
+        ],
+    )
+    def test_start_line_description(self, position, riders, description):
+        line = StartLine(side="rail", position=position, riders=riders)
+        assert line.description == description
+        assert line.label == f"rail {position}/{riders}"
+
+    def test_no_start_line_without_the_heading(self):
+        html = (FIXTURE_DIR / "start-list-time-trial-26037.html").read_text()
+        assert all(r.start_line is None for r in parse_start_list_riders(html))
 
     def test_empty_html_returns_empty(self):
         """Empty string and malformed HTML return empty list."""

@@ -81,6 +81,32 @@ class _NamedRider(BaseModel):
         return self
 
 
+class StartLine(BaseModel):
+    """A bunch-race start position: the rider's line ("Starting on the Railing" or
+    "Starting on the Blue Band") and order within it, as the start list lists them."""
+
+    side: Literal["rail", "blue_band"]
+    position: int = Field(ge=1)  # 1-based order within the line
+    riders: int = Field(ge=1)  # riders listed on the line
+
+    @property
+    def label(self) -> str:
+        """Short form for the racer badge and strip, e.g. "rail 3/12"."""
+        return f"{self._line} {self.position}/{self.riders}"
+
+    @property
+    def description(self) -> str:
+        """Tooltip form, e.g. "3rd of 12 riders listed on the rail"."""
+        n = self.position
+        suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        riders = "rider" if self.riders == 1 else "riders"
+        return f"{n}{suffix} of {self.riders} {riders} listed on the {self._line}"
+
+    @property
+    def _line(self) -> str:
+        return "rail" if self.side == "rail" else "blue band"
+
+
 class RiderEntry(_NamedRider):
     heat: int = Field(ge=1)
     team_name: str | None = None
@@ -88,6 +114,7 @@ class RiderEntry(_NamedRider):
     # heading: the heat's first row starts on the home straight, the second on the back.
     # None without the heading.
     straight: Literal["home", "back"] | None = None
+    start_line: StartLine | None = None  # Bunch races with start-line headings
 
 
 class RiderListEntry(_NamedRider):
@@ -141,6 +168,7 @@ class RiderMatch(BaseModel):
     heat_predicted_start: datetime | None = None
     team_name: str | None = None
     straight: Literal["home", "back"] | None = None  # Start straight (RiderEntry.straight)
+    start_line: StartLine | None = None  # Bunch-race start line (RiderEntry.start_line)
     source: Literal["start_list", "rider_list"] = "start_list"
     tentative: bool = False  # Rider List match for a later round ("if advancing")
     # Rider List match for one of several numbered qualifiers; the rider rides only one,
@@ -197,6 +225,7 @@ class NextRace(BaseModel):
     tentative: bool = False
     parallel_qualifier: bool = False
     straight: Literal["home", "back"] | None = None
+    start_line: StartLine | None = None
     warm_up_from: datetime | None = None  # predicted_start − WARM_UP_LEAD_MINUTES
     warm_up_now: bool = False  # now has reached warm_up_from
     session_id: int | None = None  # with position, identifies the event's row for the sticky strip's link
