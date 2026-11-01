@@ -1,5 +1,5 @@
 # Pinned by digest; Dependabot (docker) proposes updates.
-FROM --platform=linux/amd64 public.ecr.aws/lambda/python:3.13@sha256:e29b87b66ee86899ac3f1e7ae19f7d761ac4504d58432810f917531f9b92687f
+FROM --platform=linux/amd64 public.ecr.aws/lambda/python:3.13@sha256:cf3e082b6c28721944dfef2c252c2e6df2f65aab3c2e2a64ce1f86f80c7aa13d
 
 COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 RUN pip install --no-cache-dir --require-hashes -r ${LAMBDA_TASK_ROOT}/requirements.txt
